@@ -52,9 +52,7 @@ if bash -euo pipefail -c '
     [ -L "$install_dir" ]
     [ "$(cd "$install_dir" && pwd -P)" = "$2" ]
     [ -L "$bin_dir/coqui" ]
-    [ -L "$bin_dir/coqui-launcher" ]
     [ "$(readlink "$bin_dir/coqui")" = "$install_dir/bin/coqui" ]
-    [ "$(readlink "$bin_dir/coqui-launcher")" = "$install_dir/bin/coqui-launcher" ]
     [ -f "$install_dir.mock-install.env" ]
     grep -q "^type=mock-dev-install$" "$install_dir.mock-install.env"
     grep -q "^install_dir=$install_dir$" "$install_dir.mock-install.env"

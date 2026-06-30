@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Enum\EmptyResponseHandling;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -38,6 +39,7 @@ use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -53,19 +55,19 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\ModManager\ModManagerToolkit;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Support\StringHelper;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
-use CoquiBot\Coqui\Toolkit\LearningToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\PackagistToolkit;
+use CoquiBot\Coqui\Toolkit\ProjectToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
-use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 use CoquiBot\Coqui\Tool\CredentialTool;
@@ -81,7 +83,6 @@ use CoquiBot\Coqui\Tool\CoquiSkillsTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
-use CoquiBot\Coqui\Toolkit\SessionEvaluationToolkit;
 use CarmeloSantana\PHPAgents\Context\ContextWindow;
 use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
 use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
@@ -118,6 +119,36 @@ final class OrchestratorAgent extends AbstractAgent
     private ?SummarizePruningStrategy $pruningStrategyInstance = null;
     private readonly ?ToolExecutorInterface $childToolExecutor;
 
+    // Optional collaborators and context, unpacked from OrchestratorDependencies in the constructor.
+    private readonly ?SessionStorage $storage;
+    private readonly ?string $sessionId;
+    private readonly ?string $currentTurnId;
+    private readonly ?SplObserver $observer;
+    private readonly ?ScriptSanitizer $sanitizer;
+    private readonly ?SkillDiscovery $skillDiscovery;
+    private readonly ?RoleDiscovery $roleDiscovery;
+    private readonly ?MemoryStore $memoryStore;
+    private readonly ?MemorySummarizer $memorySummarizer;
+    private readonly ?MountManager $mountManager;
+    private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
+    private readonly ?ModManagerToolkit $modsToolkit;
+    private readonly ?string $activeRole;
+    private readonly ?ProjectStore $projectStore;
+    private readonly ?DefaultsLoader $defaultsLoader;
+    private readonly ?ModelFamilyResolver $familyResolver;
+    private readonly bool $unsafeMode;
+    private readonly ?HttpClientInterface $httpClient;
+    private readonly ?ToolkitLoadingRegistry $loadingRegistry;
+    private readonly ?ProviderFactory $providerFactory;
+    private readonly ?ToolUsageTracker $usageTracker;
+    private readonly ?string $workScopeSessionId;
+    private readonly ?string $defaultProjectId;
+    private readonly float $budgetExitThreshold;
+    private readonly int $budgetExitWrapUpIterations;
+    private readonly ?string $activeProfile;
+    private readonly ?string $activeProfilePath;
+    private readonly ?ProfilePreferences $profilePreferences;
+
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
 
@@ -130,8 +161,7 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private const array TOOLKIT_PROMPT_SLUG_MAP = [
         'ArtifactToolkit' => 'artifacts',
-        'TodoToolkit' => 'todos',
-        'SprintToolkit' => 'sprints',
+        'ProjectToolkit' => 'projects',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
@@ -179,48 +209,52 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ConfigInterface $config,
         private readonly string $projectRoot,
         private readonly string $workspacePath,
-        private readonly ?SessionStorage $storage = null,
-        private readonly ?string $sessionId = null,
-        private readonly ?string $currentTurnId = null,
-        private readonly ?SplObserver $observer = null,
-        ?ToolkitDiscovery $discovery = null,
-        int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
-        ?ToolExecutionPolicyInterface $executionPolicy = null,
-        private readonly ?ScriptSanitizer $sanitizer = null,
-        ?\Closure $onRestart = null,
-        ?CredentialResolverInterface $credentialResolver = null,
-        private readonly ?SkillDiscovery $skillDiscovery = null,
-        private readonly ?RoleDiscovery $roleDiscovery = null,
-        ?CancellationTokenInterface $cancellationToken = null,
-        ?PendingInputProviderInterface $pendingInputProvider = null,
-        ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
-        private readonly ?MemoryStore $memoryStore = null,
-        private readonly ?MemorySummarizer $memorySummarizer = null,
-        private readonly ?MountManager $mountManager = null,
-        ?ConfigManager $configManager = null,
-        ?ConfigGuard $configGuard = null,
-        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?ModManagerToolkit $modsToolkit = null,
-        private readonly ?string $activeRole = null,
-        private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
-        private readonly ?DefaultsLoader $defaultsLoader = null,
-        private readonly ?ModelFamilyResolver $familyResolver = null,
-        private readonly bool $unsafeMode = false,
-        ?ToolExecutorInterface $toolExecutor = null,
-        ?TickCallbackInterface $tickCallback = null,
-        private readonly ?HttpClientInterface $httpClient = null,
-        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
-        private readonly ?ProviderFactory $providerFactory = null,
-        private readonly ?ToolUsageTracker $usageTracker = null,
-        private readonly ?string $workScopeSessionId = null,
-        private readonly ?string $defaultProjectId = null,
-        private readonly ?string $defaultSprintId = null,
-        private readonly float $budgetExitThreshold = 0.0,
-        private readonly int $budgetExitWrapUpIterations = 2,
-        private readonly ?string $activeProfile = null,
-        private readonly ?string $activeProfilePath = null,
-        private readonly ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
+        OrchestratorDependencies $deps = new OrchestratorDependencies(),
     ) {
+        // Stored collaborators and context.
+        $this->storage = $deps->storage;
+        $this->sessionId = $deps->sessionId;
+        $this->currentTurnId = $deps->currentTurnId;
+        $this->observer = $deps->observer;
+        $this->sanitizer = $deps->sanitizer;
+        $this->skillDiscovery = $deps->skillDiscovery;
+        $this->roleDiscovery = $deps->roleDiscovery;
+        $this->memoryStore = $deps->memoryStore;
+        $this->memorySummarizer = $deps->memorySummarizer;
+        $this->mountManager = $deps->mountManager;
+        $this->visibilityRegistry = $deps->visibilityRegistry;
+        $this->modsToolkit = $deps->modsToolkit;
+        $this->activeRole = $deps->activeRole;
+        $this->projectStore = $deps->projectStore;
+        $this->defaultsLoader = $deps->defaultsLoader;
+        $this->familyResolver = $deps->familyResolver;
+        $this->unsafeMode = $deps->unsafeMode;
+        $this->httpClient = $deps->httpClient;
+        $this->loadingRegistry = $deps->loadingRegistry;
+        $this->providerFactory = $deps->providerFactory;
+        $this->usageTracker = $deps->usageTracker;
+        $this->workScopeSessionId = $deps->workScopeSessionId;
+        $this->defaultProjectId = $deps->defaultProjectId;
+        $this->budgetExitThreshold = $deps->budgetExitThreshold;
+        $this->budgetExitWrapUpIterations = $deps->budgetExitWrapUpIterations;
+        $this->activeProfile = $deps->activeProfile;
+        $this->activeProfilePath = $deps->activeProfilePath;
+        $this->profilePreferences = $deps->profilePreferences;
+
+        // Locals consumed below for parent setup and tool wiring.
+        $discovery = $deps->discovery;
+        $maxIterations = $deps->maxIterations;
+        $executionPolicy = $deps->executionPolicy;
+        $onRestart = $deps->onRestart;
+        $credentialResolver = $deps->credentialResolver;
+        $cancellationToken = $deps->cancellationToken;
+        $pendingInputProvider = $deps->pendingInputProvider;
+        $backgroundTaskToolkit = $deps->backgroundTaskToolkit;
+        $configManager = $deps->configManager;
+        $configGuard = $deps->configGuard;
+        $toolExecutor = $deps->toolExecutor;
+        $tickCallback = $deps->tickCallback;
+
         $this->childToolExecutor = $toolExecutor;
 
         // Initialise the registry before parent::__construct() so that our
@@ -281,7 +315,34 @@ final class OrchestratorAgent extends AbstractAgent
         $safetyMarginCfg = $config->get('agents.defaults.context.budgetSafetyMarginPercent');
         $safetyMarginPercent = is_numeric($safetyMarginCfg) ? max(0, min(50, (int) $safetyMarginCfg)) : CoquiDefaults::BUDGET_SAFETY_MARGIN_PERCENT;
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent, $this->budgetExitThreshold, $this->budgetExitWrapUpIterations, $toolExecutor, $tickCallback);
+        // Resolve empty-response policy. Coqui defaults to nudge-then-fallback
+        // so Ollama thinking models that route the whole answer into reasoning
+        // still surface a response instead of burning the iteration budget.
+        $handlingCfg = $config->get('agents.defaults.emptyResponse.handling');
+        $emptyResponseHandling = (is_string($handlingCfg) ? EmptyResponseHandling::tryFrom($handlingCfg) : null)
+            ?? EmptyResponseHandling::from(CoquiDefaults::EMPTY_RESPONSE_HANDLING);
+
+        $emptyRetriesCfg = $config->get('agents.defaults.emptyResponse.maxRetries');
+        $maxEmptyResponseRetries = is_numeric($emptyRetriesCfg)
+            ? max(0, min(10, (int) $emptyRetriesCfg))
+            : CoquiDefaults::EMPTY_RESPONSE_MAX_RETRIES;
+
+        parent::__construct(
+            provider: $effectiveProvider,
+            maxIter: $maxIterations,
+            executionPolicy: $executionPolicy,
+            cancellationToken: $cancellationToken,
+            pendingInputProvider: $pendingInputProvider,
+            contextWindow: $contextWindow,
+            pruningStrategy: $pruningStrategy,
+            safetyMarginPercent: $safetyMarginPercent,
+            budgetExitThreshold: $this->budgetExitThreshold,
+            budgetExitWrapUpIterations: $this->budgetExitWrapUpIterations,
+            toolExecutor: $toolExecutor,
+            tickCallback: $tickCallback,
+            emptyResponseHandling: $emptyResponseHandling,
+            maxEmptyResponseRetries: $maxEmptyResponseRetries,
+        );
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -331,7 +392,7 @@ final class OrchestratorAgent extends AbstractAgent
                 workDir: $this->workspacePath,
                 allowedCommands: $shellAllowed,
                 deniedCommands: $shellDenied,
-                timeout: 60,
+                timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                 unsafe: $this->unsafeMode,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
@@ -343,7 +404,7 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->workspacePath,
                 allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
-                timeout: 60,
+                timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
                 allowedPaths: $this->mountManager?->allowedPathsReadOnly() ?? [],
@@ -373,68 +434,33 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
         // When workScopeSessionId is set (loop stage tasks), toolkits that scope data
-        // by session (artifacts, todos, sprints) use the work-scope session instead of
-        // the execution session. This allows cross-stage data sharing within a loop.
+        // by session (artifacts) use the work-scope session instead of the execution
+        // session. This allows cross-stage data sharing within a loop.
         $toolkitSessionId = $this->workScopeSessionId ?? $this->sessionId;
 
         if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('artifacts')) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
-            $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
-
-            $planTodoGenerator = $this->isProfileFeatureEnabled('todos')
-                ? new PlanTodoGenerator(
-                    roleResolver: $this->roleResolver,
-                    config: $this->config,
-                    todoStore: $todoStore,
-                    roleDiscovery: $this->roleDiscovery,
-                    providerFactory: $sharedFactory,
-                )
-                : null;
 
             $this->addToolkit(new ArtifactToolkit(
                 $artifactStore,
                 $toolkitSessionId,
-                planTodoGenerator: $planTodoGenerator,
-                todoStore: $this->isProfileFeatureEnabled('todos') ? $todoStore : null,
                 defaultProjectId: $this->defaultProjectId,
-                defaultSprintId: $this->defaultSprintId,
             ));
         } else {
             $this->excludeToolkitPromptSlug('artifacts');
         }
 
-        // Todo toolkit — session-scoped task tracking for planning and implementation
-        if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('todos')) {
-            $todoStore ??= new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
-            $activeRoleName = $this->activeRole ?? 'orchestrator';
-            $this->addToolkit(new TodoToolkit(
-                $todoStore,
+        // Project toolkit — lightweight project (working-directory) management across sessions
+        if ($this->projectStore !== null && $this->isProfileFeatureEnabled('projects')) {
+            $this->addToolkit(new ProjectToolkit(
+                $this->projectStore,
                 $toolkitSessionId,
-                $activeRoleName,
-                $effectiveAccessLevel,
-                $artifactStore ?? null,
+                $this->workspacePath,
+                $this->resolveActiveProjectId(),
+                $this->storage,
             ));
         } else {
-            $this->excludeToolkitPromptSlug('todos');
-        }
-
-        // Sprint toolkit — project and sprint management across sessions
-        if ($this->projectStore !== null && $this->isProfileFeatureEnabled('projects')) {
-            $todoStore ??= $this->storage !== null
-                ? new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo())
-                : null;
-            if ($todoStore !== null) {
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\SprintToolkit(
-                    $this->projectStore,
-                    $todoStore,
-                    $toolkitSessionId,
-                    $this->workspacePath,
-                    $this->resolveActiveProjectId(),
-                    $this->storage,
-                ));
-            }
-        } else {
-            $this->excludeToolkitPromptSlug('sprints');
+            $this->excludeToolkitPromptSlug('projects');
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
@@ -470,13 +496,11 @@ final class OrchestratorAgent extends AbstractAgent
                     $this->workspacePath,
                     $this->projectRoot !== '' ? $this->projectRoot : null,
                 );
-                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
+                $loopExecutor = ($this->projectStore !== null && $this->roleDiscovery !== null)
                     ? new \CoquiBot\Coqui\Agent\LoopExecutor(
                         loopStore: $loopStore,
                         projectStore: $this->projectStore,
                         sessionStorage: $this->storage,
-                        todoStore: isset($todoStore) ? $todoStore : null,
-                        artifactStore: $artifactStore,
                     )
                     : null;
                 $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
@@ -564,45 +588,6 @@ final class OrchestratorAgent extends AbstractAgent
                     'description' => 'webhook subscription management',
                 ];
             }
-        }
-
-        // Session evaluation toolkit
-        if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
-            $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $skillLifecycleStore = new SkillLifecycleStore($this->storage->getPdo());
-            $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
-            $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
-            $qualityAutomation = new QualityAutomationCoordinator(
-                config: $this->config,
-                storage: $this->storage,
-                evaluationStore: $evaluationStore,
-            );
-            $candidateToolkits[] = [
-                'toolkit' => new SessionEvaluationToolkit(
-                    evaluationStore: $evaluationStore,
-                    storage: $this->storage,
-                    defaultLookbackHours: $lookbackHours,
-                    defaultInactivityHours: $inactivityHours,
-                    qualityAutomation: $qualityAutomation,
-                    artifactStore: $artifactStore ?? null,
-                    skillLifecycleStore: $skillLifecycleStore,
-                ),
-                'package' => '',
-                'description' => 'session evaluation and grading',
-            ];
-        }
-
-        // Learning toolkit
-        if ($this->roleToolkitResolver->isToolkitAllowed(LearningToolkit::class) && $this->storage !== null) {
-            $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $candidateToolkits[] = [
-                'toolkit' => new LearningToolkit(
-                    evaluationStore: $learnerEvalStore,
-                    skillLifecycleStore: new SkillLifecycleStore($this->storage->getPdo()),
-                ),
-                'package' => '',
-                'description' => 'autonomous learning from evaluations',
-            ];
         }
 
         // --- Budget gate: decide which candidates load eagerly vs deferred ---
@@ -732,7 +717,6 @@ final class OrchestratorAgent extends AbstractAgent
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 sessionId: $this->sessionId,
-                todoStore: $todoStore ?? null,
                 artifactStore: $artifactStore ?? null,
                 providerFactory: $sharedFactory,
             );
@@ -1234,8 +1218,8 @@ final class OrchestratorAgent extends AbstractAgent
     /**
      * Inject active project context into the system prompt.
      *
-     * Appends a # ACTIVE PROJECT section with project metadata, sprint roster,
-     * and project directory path. Placed after memory context for high visibility.
+     * Appends a # ACTIVE PROJECT section with project metadata and directory
+     * path. Placed after memory context for high visibility.
      */
     private function injectProjectContext(string $rendered): string
     {
@@ -1257,16 +1241,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         try {
-            $todoStore = null;
-            if ($this->storage !== null) {
-                $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
-            }
-
-            $context = $this->projectStore->getProjectContext(
-                $projectId,
-                $todoStore,
-                $this->sessionId,
-            );
+            $context = $this->projectStore->getProjectContext($projectId);
         } catch (\Throwable) {
             return $rendered;
         }
@@ -1283,30 +1258,6 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines[] = sprintf('Project directory: `projects/%s/`', $context['directory']);
-
-        // Sprint roster
-        if ($context['sprints'] !== []) {
-            $lines[] = '';
-            $lines[] = '**Sprints:**';
-            foreach ($context['sprints'] as $sprint) {
-                $progress = '';
-                if (isset($sprint['progress']['percent'])) {
-                    $progress = sprintf(
-                        ' %d%% (%d/%d)',
-                        $sprint['progress']['percent'],
-                        $sprint['progress']['completed'],
-                        $sprint['progress']['total'],
-                    );
-                }
-                $lines[] = sprintf(
-                    '- #%d %s [%s]%s',
-                    $sprint['sprint_number'],
-                    $sprint['title'],
-                    $sprint['status'],
-                    $progress,
-                );
-            }
-        }
 
         $lines[] = '';
         $lines[] = 'All work in this session is scoped to this project. Use `project_switch` or `/projects clear` to change.';
@@ -1886,16 +1837,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         try {
-            $todoStore = null;
-            if ($this->storage !== null) {
-                $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
-            }
-
-            $context = $this->projectStore->getProjectContext(
-                $projectId,
-                $todoStore,
-                $this->sessionId,
-            );
+            $context = $this->projectStore->getProjectContext($projectId);
         } catch (\Throwable) {
             return null;
         }
@@ -1913,29 +1855,6 @@ final class OrchestratorAgent extends AbstractAgent
 
         $lines[] = sprintf('Project directory: `projects/%s/`', $context['directory']);
 
-        if ($context['sprints'] !== []) {
-            $lines[] = '';
-            $lines[] = '**Sprints:**';
-            foreach ($context['sprints'] as $sprint) {
-                $progress = '';
-                if (isset($sprint['progress']['percent'])) {
-                    $progress = sprintf(
-                        ' %d%% (%d/%d)',
-                        $sprint['progress']['percent'],
-                        $sprint['progress']['completed'],
-                        $sprint['progress']['total'],
-                    );
-                }
-                $lines[] = sprintf(
-                    '- #%d %s [%s]%s',
-                    $sprint['sprint_number'],
-                    $sprint['title'],
-                    $sprint['status'],
-                    $progress,
-                );
-            }
-        }
-
         $lines[] = '';
         $lines[] = 'All work in this session is scoped to this project. Use `project_switch` or `/projects clear` to change.';
 
@@ -1944,7 +1863,7 @@ final class OrchestratorAgent extends AbstractAgent
             title: 'Active Project',
             content: implode("\n", $lines),
             priority: PromptSectionPriority::Workflow,
-            rationale: 'Active project state stays pinned so tasks, artifacts, and sprint work remain scoped correctly.',
+            rationale: 'Active project state stays pinned so artifacts and project work remain scoped correctly.',
             decision: 'pinned_workflow',
             group: 'project',
         );

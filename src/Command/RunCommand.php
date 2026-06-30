@@ -7,7 +7,6 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
-use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
@@ -28,17 +27,15 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
-use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
-use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
-use CoquiBot\Coqui\Repl\Handler\TodoHandler;
+use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
@@ -49,10 +46,8 @@ use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\ToolkitCommandCollision;
 use CoquiBot\Coqui\Repl\ToolkitCommandRegistrationReport;
-use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
-use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Support\GroupSessionService;
@@ -173,7 +168,10 @@ final class RunCommand extends Command
         }
 
         $this->boot = new BootManager($this->workDir, $workspaceOverride);
-        $this->boot->boot($noTerminal ? null : $io, $configPath);
+
+        if (!$this->boot->boot($noTerminal ? null : $io, $configPath)) {
+            return Command::SUCCESS;
+        }
 
         if ($requestedProfile !== null) {
             $profileDiscovery = $this->boot->profileDiscovery();
@@ -270,8 +268,6 @@ final class RunCommand extends Command
                 loopStore: $loopStore,
                 projectStore: $projectStore,
                 sessionStorage: $this->storage,
-                todoStore: $this->boot->todoStore(),
-                artifactStore: $artifactStore,
             );
         }
 
@@ -321,7 +317,7 @@ final class RunCommand extends Command
         $bannerLines = [
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
             '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value),
-            '<fg=gray>Project root:</> ' . $this->workDir,
+            '<fg=gray>Server:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
         ];
 
@@ -422,7 +418,6 @@ final class RunCommand extends Command
         $router = new SlashCommandRouter(
             session: $sessionHandler,
             task: new TaskHandler($this->storage),
-            todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
             budget: new BudgetHandler($this->agentRunner),
             channel: new ChannelHandler(
@@ -432,14 +427,6 @@ final class RunCommand extends Command
                 $this->boot->profileDiscovery(),
                 $runtimeStateStore,
             ),
-            quality: new QualityHandler(
-                new QualityAutomationStatusService(
-                    config: $this->boot->config(),
-                    storage: $this->storage,
-                    evaluationStore: new EvaluationStore($this->storage->getPdo()),
-                    scheduleStore: new ScheduleStore($this->storage->getPdo()),
-                ),
-            ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             group: new GroupHandler($groupSessionService, $this->storage),
@@ -447,9 +434,9 @@ final class RunCommand extends Command
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             config: new ConfigHandler($this->boot, $this->workDir),
+            thinking: new ThinkingHandler($this->boot),
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
-            evaluation: new EvaluationHandler($this->storage),
             loop: new LoopHandler(
                 $this->storage,
                 $this->boot->loopDiscovery(),
@@ -729,7 +716,7 @@ final class RunCommand extends Command
                 return $turnResult->exitCode ?? Command::SUCCESS;
             }
 
-            // Sprint continuation
+            // Optional turn continuation (when a handler requests a follow-up prompt)
             if ($turnResult->continuationPrompt !== null) {
                 $prompt = $turnResult->continuationPrompt;
                 // Re-enter the agent turn with the continuation prompt

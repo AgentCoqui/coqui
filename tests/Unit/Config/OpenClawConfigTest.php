@@ -137,3 +137,59 @@ test('conversation history prompt flag returns configured boolean', function () 
 
     expect($config->useConversationHistoryInSystemPrompt())->toBeTrue();
 });
+
+test('applyModelSetting updates a model entry and rebuilds its definition', function () {
+    $config = OpenClawConfig::fromArray([
+        'models' => [
+            'providers' => [
+                'ollama' => [
+                    'models' => [
+                        ['id' => 'qwen3:8b', 'name' => 'Qwen 3'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($config->applyModelSetting('ollama', 'qwen3:8b', 'reasoningEffort', 'none'))->toBeTrue();
+
+    $definition = $config->getModelDefinition('ollama/qwen3:8b');
+    expect($definition)->not->toBeNull()
+        ->and($definition->extras['reasoningEffort'] ?? null)->toBe('none');
+});
+
+test('applyModelSetting removes a key when value is null', function () {
+    $config = OpenClawConfig::fromArray([
+        'models' => [
+            'providers' => [
+                'ollama' => [
+                    'models' => [
+                        ['id' => 'qwen3:8b', 'name' => 'Qwen 3', 'reasoningEffort' => 'low'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($config->applyModelSetting('ollama', 'qwen3:8b', 'reasoningEffort', null))->toBeTrue();
+
+    $definition = $config->getModelDefinition('ollama/qwen3:8b');
+    expect($definition->extras)->not->toHaveKey('reasoningEffort');
+});
+
+test('applyModelSetting returns false for an unknown model entry', function () {
+    $config = OpenClawConfig::fromArray([
+        'models' => [
+            'providers' => [
+                'ollama' => [
+                    'models' => [
+                        ['id' => 'qwen3:8b'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($config->applyModelSetting('ollama', 'missing:1b', 'reasoningEffort', 'low'))->toBeFalse()
+        ->and($config->applyModelSetting('openai', 'qwen3:8b', 'reasoningEffort', 'low'))->toBeFalse();
+});

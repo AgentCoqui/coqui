@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\RuntimeIdentity;
 
 /**
@@ -15,8 +16,7 @@ use CoquiBot\Coqui\Support\RuntimeIdentity;
 final class ApiHealthCheck
 {
     private const DEFAULT_HOST = '127.0.0.1';
-    private const DEFAULT_PORT = '3300';
-    private const TIMEOUT_SECONDS = 2;
+    private const TIMEOUT_SECONDS = CoquiDefaults::HEALTH_CHECK_TIMEOUT_SECONDS;
 
     /**
      * Check if the API server is reachable by hitting the health endpoint.
@@ -168,6 +168,6 @@ final class ApiHealthCheck
     {
         $env = getenv('COQUI_API_PORT');
 
-        return ($env !== false && $env !== '') ? $env : self::DEFAULT_PORT;
+        return ($env !== false && $env !== '') ? $env : (string) CoquiDefaults::API_DEFAULT_PORT;
     }
 }

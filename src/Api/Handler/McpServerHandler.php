@@ -15,6 +15,8 @@ use React\Http\Message\Response;
  */
 final readonly class McpServerHandler
 {
+    use DecodesRequestBody;
+
     public function __construct(
         private McpManagementService $service,
     ) {}
@@ -50,7 +52,7 @@ final readonly class McpServerHandler
 
     private function handleCreate(ServerRequestInterface $request): Response
     {
-        $body = $this->decodeBody($request);
+        $body = $this->decodeJsonObjectOrError($request);
         if ($body instanceof Response) {
             return $body;
         }
@@ -97,7 +99,7 @@ final readonly class McpServerHandler
 
     private function handleUpdate(ServerRequestInterface $request, string $name): Response
     {
-        $body = $this->decodeBody($request);
+        $body = $this->decodeJsonObjectOrError($request);
         if ($body instanceof Response) {
             return $body;
         }
@@ -232,7 +234,7 @@ final readonly class McpServerHandler
 
     private function handleSetEnv(ServerRequestInterface $request, string $name): Response
     {
-        $body = $this->decodeBody($request);
+        $body = $this->decodeJsonObjectOrError($request);
         if ($body instanceof Response) {
             return $body;
         }
@@ -266,7 +268,7 @@ final readonly class McpServerHandler
 
     private function handleAuth(ServerRequestInterface $request, string $name): Response
     {
-        $body = $this->decodeBody($request);
+        $body = $this->decodeJsonObjectOrError($request);
         if ($body instanceof Response) {
             return $body;
         }
@@ -309,7 +311,7 @@ final readonly class McpServerHandler
     }
 
     /**
-     * @param callable(): array{name: string, duration_ms: int, snapshot: array<string, mixed>} $callback
+     * @param callable(): array{duration_ms: int, snapshot: array<string, mixed>, ...} $callback
      */
     private function handleRuntimeAction(callable $callback, string $message): Response
     {
@@ -349,20 +351,6 @@ final readonly class McpServerHandler
         } catch (\RuntimeException $e) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
         }
-    }
-
-    /**
-     * @return array<string, mixed>|Response
-     */
-    private function decodeBody(ServerRequestInterface $request): array|Response
-    {
-        $body = json_decode((string) $request->getBody(), true);
-
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
-        }
-
-        return $body;
     }
 
     /**

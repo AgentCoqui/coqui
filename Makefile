@@ -43,45 +43,45 @@ help: ## Show this help message
 # =============================================================================
 
 start: ## Start REPL + API (default)
-	@./bin/coqui-launcher $(ARGS)
+	@./bin/coqui $(ARGS)
 
 stop: ## Stop all running services
-	@./bin/coqui-launcher stop
+	@./bin/coqui stop
 
 status: ## Show running service status
-	@./bin/coqui-launcher status
+	@./bin/coqui status
 
 cleanup: ## Clean stale/conflicting native Coqui processes
-	@./bin/coqui-launcher cleanup
+	@./bin/coqui cleanup
 
 repl: ## Start REPL only (no background API)
-	@./bin/coqui-launcher --repl-only $(ARGS)
+	@./bin/coqui --repl-only $(ARGS)
 
 api: ## Start API only (foreground, port 3300)
 ifdef HOST
 ifdef PORT
-	@./bin/coqui-launcher --api-only --host $(HOST) --port $(PORT) $(ARGS)
+	@./bin/coqui --api-only --host $(HOST) --port $(PORT) $(ARGS)
 else
-	@./bin/coqui-launcher --api-only --host $(HOST) $(ARGS)
+	@./bin/coqui --api-only --host $(HOST) $(ARGS)
 endif
 else ifdef PORT
-	@./bin/coqui-launcher --api-only --port $(PORT) $(ARGS)
+	@./bin/coqui --api-only --port $(PORT) $(ARGS)
 else
-	@./bin/coqui-launcher --api-only $(ARGS)
+	@./bin/coqui --api-only $(ARGS)
 endif
 
 api-stop: ## Stop the API server
-	@./bin/coqui-launcher stop-api
+	@./bin/coqui stop-api
 
 restart: ## Restart REPL + API (clean stop then start)
-	@./bin/coqui-launcher stop 2>/dev/null || true
-	@./bin/coqui-launcher $(ARGS)
+	@./bin/coqui stop 2>/dev/null || true
+	@./bin/coqui $(ARGS)
 
 wizard: ## Run the setup wizard (no REPL, no session)
 	@./bin/coqui --wizard $(ARGS)
 
 dev: ## Start REPL + API in dev mode
-	@./bin/coqui-launcher $(ARGS)
+	@./bin/coqui $(ARGS)
 
 test: ## Run Pest test suite
 	@composer test $(ARGS)
@@ -210,6 +210,7 @@ clean-workspace: ## Remove only the workspace volume
 	@echo "Workspace volume removed"
 
 clean-pids: ## Remove PID files and kill orphaned processes on known ports
+	@rm -f "$${COQUI_WORKSPACE:-$$HOME/.coqui/.workspace}/pids"/*.pid 2>/dev/null || true
 	@rm -f .workspace/pids/*.pid 2>/dev/null || true
 	@rm -f /tmp/coqui-pids-$$(id -u)/*.pid 2>/dev/null || true
 	@for port in 3300; do \

@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Provider\Response;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
@@ -112,7 +113,9 @@ test('constructs successfully with empty MountManager', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        mountManager: $mountManager,
+        deps: new OrchestratorDependencies(
+            mountManager: $mountManager,
+        ),
     );
 
     expect($agent)->toBeInstanceOf(OrchestratorAgent::class);
@@ -132,7 +135,9 @@ test('constructs successfully with MountManager and real mounts', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        mountManager: $mountManager,
+        deps: new OrchestratorDependencies(
+            mountManager: $mountManager,
+        ),
     );
 
     expect($agent)->toBeInstanceOf(OrchestratorAgent::class);
@@ -149,7 +154,9 @@ test('constructs with null mountManager using null-safe allowedPaths', function 
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        mountManager: null,
+        deps: new OrchestratorDependencies(
+            mountManager: null,
+        ),
     );
 
     expect($agent)->toBeInstanceOf(OrchestratorAgent::class);
@@ -193,7 +200,9 @@ test('tools includes restart_coqui when onRestart callback provided', function (
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        onRestart: fn() => null,
+        deps: new OrchestratorDependencies(
+            onRestart: fn() => null,
+        ),
     );
 
     $toolNames = array_map(fn($t) => $t->name(), $agent->tools());
@@ -219,8 +228,10 @@ test('composite toolkits expand child toolkits with independent loading keys', f
         config: $this->config,
         projectRoot: $this->workspace,
         workspacePath: $this->workspace,
-        discovery: new ToolkitDiscovery(projectRoot: $this->workspace, workspacePath: $this->workspace),
-        loadingRegistry: $loadingRegistry,
+        deps: new OrchestratorDependencies(
+            discovery: new ToolkitDiscovery(projectRoot: $this->workspace, workspacePath: $this->workspace),
+            loadingRegistry: $loadingRegistry,
+        ),
     );
 
     $appliedModes = $agent->getAppliedLoadingModes();
@@ -287,7 +298,9 @@ test('instructions include mount storage map when mounts exist', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        mountManager: $mountManager,
+        deps: new OrchestratorDependencies(
+            mountManager: $mountManager,
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -390,11 +403,13 @@ test('instructions include profile preferences and scoped core memories', functi
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
-            memoryStore: $memoryStore,
-            memorySummarizer: new MemorySummarizer($memoryStore),
-            activeProfile: 'caelum',
-            activeProfilePath: $profilePath,
-            profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+            deps: new OrchestratorDependencies(
+                memoryStore: $memoryStore,
+                memorySummarizer: new MemorySummarizer($memoryStore),
+                activeProfile: 'caelum',
+                activeProfilePath: $profilePath,
+                profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+            ),
         );
 
         $instructions = $agent->instructions();
@@ -431,11 +446,13 @@ test('role prompt section breakdown includes profile identity backstory and pref
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: new RoleDiscovery($this->workspace, $this->projectRoot),
-        activeRole: 'coder',
-        activeProfile: 'caelum',
-        activeProfilePath: $profilePath,
-        profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+        deps: new OrchestratorDependencies(
+            roleDiscovery: new RoleDiscovery($this->workspace, $this->projectRoot),
+            activeRole: 'coder',
+            activeProfile: 'caelum',
+            activeProfilePath: $profilePath,
+            profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+        ),
     );
 
     $breakdown = $agent->getPromptSectionBreakdown(new HeuristicCounter());
@@ -478,7 +495,9 @@ test('getActiveRole returns the configured role', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        activeRole: 'coder',
+        deps: new OrchestratorDependencies(
+            activeRole: 'coder',
+        ),
     );
 
     expect($agent->getActiveRole())->toBe('coder');
@@ -500,7 +519,9 @@ test('activeRole with readonly access has fewer tools than full access', functio
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+        ),
     );
 
     $readonlyAgent = new OrchestratorAgent(
@@ -509,8 +530,10 @@ test('activeRole with readonly access has fewer tools than full access', functio
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
-        activeRole: 'reviewer',
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+            activeRole: 'reviewer',
+        ),
     );
 
     // Readonly should have fewer tools (no ShellToolkit = no exec)
@@ -536,8 +559,10 @@ test('activeRole with minimal access has fewest tools', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
-        activeRole: 'reviewer',
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+            activeRole: 'reviewer',
+        ),
     );
 
     $minimalAgent = new OrchestratorAgent(
@@ -546,8 +571,10 @@ test('activeRole with minimal access has fewest tools', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
-        activeRole: 'minimal-bot',
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+            activeRole: 'minimal-bot',
+        ),
     );
 
     // Minimal should have fewer tools than readonly (no filesystem either)
@@ -575,8 +602,10 @@ test('activeRole instructions uses role markdown when role exists', function () 
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
-        activeRole: 'test-role',
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+            activeRole: 'test-role',
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -604,22 +633,23 @@ test('profile policy can disable project toolkits and stub non-core standalone t
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
-            storage: $storage,
-            sessionId: $sessionId,
-            projectStore: $projectStore,
-            profilePreferences: ProfilePreferences::fromArray([
-                'prompts' => [
-                    'features' => [
-                        'artifacts' => false,
-                        'todos' => false,
-                        'projects' => false,
-                        'loops' => false,
+            deps: new OrchestratorDependencies(
+                storage: $storage,
+                sessionId: $sessionId,
+                projectStore: $projectStore,
+                profilePreferences: ProfilePreferences::fromArray([
+                    'prompts' => [
+                        'features' => [
+                            'artifacts' => false,
+                            'projects' => false,
+                            'loops' => false,
+                        ],
+                        'prompt_sections' => [
+                            'tools' => 'stub',
+                        ],
                     ],
-                    'prompt_sections' => [
-                        'tools' => 'stub',
-                    ],
-                ],
-            ]),
+                ]),
+            ),
         );
 
         $toolNames = array_map(static fn($tool) => $tool->name(), array_slice($agent->tools(), 2));
@@ -633,13 +663,11 @@ test('profile policy can disable project toolkits and stub non-core standalone t
         expect($toolNames)->toContain('spawn_agent');
         expect($stubbedTools)->not->toBeEmpty();
         expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit');
-        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\TodoToolkit');
-        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\SprintToolkit');
+        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\ProjectToolkit');
         expect($policy)->not->toBeNull();
         expect($policy['tools_stubbed'])->toBeTrue();
         expect($policy['excluded_tool_prompt_slugs'])->toContain('artifacts');
-        expect($policy['excluded_tool_prompt_slugs'])->toContain('todos');
-        expect($policy['excluded_tool_prompt_slugs'])->toContain('sprints');
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('projects');
         expect($policy['excluded_tool_prompt_slugs'])->toContain('loops');
     } finally {
         cleanupSqliteTestDb($dbPath);
@@ -659,8 +687,10 @@ test('profile soul.md replaces default soul in orchestrator instructions', funct
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        activeProfile: 'test-persona',
-        activeProfilePath: $profileDir,
+        deps: new OrchestratorDependencies(
+            activeProfile: 'test-persona',
+            activeProfilePath: $profileDir,
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -686,8 +716,10 @@ test('profile soul.md overrides workspace soul.md', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        activeProfile: 'custom',
-        activeProfilePath: $profileDir,
+        deps: new OrchestratorDependencies(
+            activeProfile: 'custom',
+            activeProfilePath: $profileDir,
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -719,10 +751,12 @@ test('profile identity preamble prepended to role instructions', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        roleDiscovery: $roleDiscovery,
-        activeRole: 'coder',
-        activeProfile: 'persona',
-        activeProfilePath: $profileDir,
+        deps: new OrchestratorDependencies(
+            roleDiscovery: $roleDiscovery,
+            activeRole: 'coder',
+            activeProfile: 'persona',
+            activeProfilePath: $profileDir,
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -748,8 +782,10 @@ test('profile soul frontmatter is stripped from instructions', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        activeProfile: 'frontmatter-test',
-        activeProfilePath: $profileDir,
+        deps: new OrchestratorDependencies(
+            activeProfile: 'frontmatter-test',
+            activeProfilePath: $profileDir,
+        ),
     );
 
     $instructions = $agent->instructions();
@@ -770,8 +806,10 @@ test('getSystemPromptText includes profile soul content', function () {
         config: $this->config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
-        activeProfile: 'system-test',
-        activeProfilePath: $profileDir,
+        deps: new OrchestratorDependencies(
+            activeProfile: 'system-test',
+            activeProfilePath: $profileDir,
+        ),
     );
 
     $systemPromptText = $agent->getSystemPromptText();

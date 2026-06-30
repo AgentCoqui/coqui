@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SkillParser;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Exception\SkillNotFoundException;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\ModManager\Installer\SkillInstaller;
@@ -210,7 +211,7 @@ final class CoquiSkillsTool
             );
         }
 
-        if (!mkdir($skillDir, 0755, true)) {
+        if (!mkdir($skillDir, CoquiDefaults::DIRECTORY_MODE, true)) {
             return ToolResult::error(sprintf('Failed to create skill directory: %s', $skillDir));
         }
 

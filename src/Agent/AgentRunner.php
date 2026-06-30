@@ -48,7 +48,6 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
@@ -69,6 +68,29 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
  */
 final class AgentRunner
 {
+    private readonly ?SkillDiscovery $skillDiscovery;
+    private readonly ?RoleDiscovery $roleDiscovery;
+    private readonly bool $unsafeMode;
+    private readonly bool $backgroundTasksEnabled;
+    private readonly ?MemoryStore $memoryStore;
+    private readonly ?MemorySummarizer $memorySummarizer;
+    private readonly ?MountManager $mountManager;
+    private readonly ?ConfigManager $configManager;
+    private readonly ?ConfigGuard $configGuard;
+    private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
+    private readonly ?ModManagerToolkit $modsToolkit;
+    private readonly ?ArtifactStore $artifactStore;
+    private readonly ?ProjectStore $projectStore;
+    private readonly ?DefaultsLoader $defaultsLoader;
+    private readonly ?TickCallbackInterface $tickCallback;
+    private readonly ?ToolExecutorInterface $toolExecutor;
+    private readonly ?HttpClientInterface $httpClient;
+    private readonly ?ToolkitLoadingRegistry $loadingRegistry;
+    private readonly ?ToolUsageTracker $usageTracker;
+    private readonly ?NotificationStore $notificationStore;
+    /** @var \Closure(string):mixed|null */
+    private readonly ?\Closure $providerResolver;
+
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
@@ -80,29 +102,30 @@ final class AgentRunner
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
         private readonly ProviderFactory $providerFactory,
-        private readonly ?SkillDiscovery $skillDiscovery = null,
-        private readonly ?RoleDiscovery $roleDiscovery = null,
-        private readonly bool $unsafeMode = false,
-        private readonly bool $backgroundTasksEnabled = false,
-        private readonly ?MemoryStore $memoryStore = null,
-        private readonly ?MemorySummarizer $memorySummarizer = null,
-        private readonly ?MountManager $mountManager = null,
-        private readonly ?ConfigManager $configManager = null,
-        private readonly ?ConfigGuard $configGuard = null,
-        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?ModManagerToolkit $modsToolkit = null,
-        private readonly ?TodoStore $todoStore = null,
-        private readonly ?ArtifactStore $artifactStore = null,
-        private readonly ?ProjectStore $projectStore = null,
-        private readonly ?DefaultsLoader $defaultsLoader = null,
-        private readonly ?TickCallbackInterface $tickCallback = null,
-        private readonly ?ToolExecutorInterface $toolExecutor = null,
-        private readonly ?HttpClientInterface $httpClient = null,
-        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
-        private readonly ?ToolUsageTracker $usageTracker = null,
-        private readonly ?NotificationStore $notificationStore = null,
-        private readonly ?\Closure $providerResolver = null,
-    ) {}
+        AgentRunnerDependencies $deps = new AgentRunnerDependencies(),
+    ) {
+        $this->skillDiscovery = $deps->skillDiscovery;
+        $this->roleDiscovery = $deps->roleDiscovery;
+        $this->unsafeMode = $deps->unsafeMode;
+        $this->backgroundTasksEnabled = $deps->backgroundTasksEnabled;
+        $this->memoryStore = $deps->memoryStore;
+        $this->memorySummarizer = $deps->memorySummarizer;
+        $this->mountManager = $deps->mountManager;
+        $this->configManager = $deps->configManager;
+        $this->configGuard = $deps->configGuard;
+        $this->visibilityRegistry = $deps->visibilityRegistry;
+        $this->modsToolkit = $deps->modsToolkit;
+        $this->artifactStore = $deps->artifactStore;
+        $this->projectStore = $deps->projectStore;
+        $this->defaultsLoader = $deps->defaultsLoader;
+        $this->tickCallback = $deps->tickCallback;
+        $this->toolExecutor = $deps->toolExecutor;
+        $this->httpClient = $deps->httpClient;
+        $this->loadingRegistry = $deps->loadingRegistry;
+        $this->usageTracker = $deps->usageTracker;
+        $this->notificationStore = $deps->notificationStore;
+        $this->providerResolver = $deps->providerResolver;
+    }
 
     /**
      * Run a single agent turn with a per-turn observer override.
@@ -142,7 +165,6 @@ final class AgentRunner
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
     ): AgentTurnResult {
         return $this->doRun(
@@ -157,7 +179,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             profile: $profile,
         );
     }
@@ -231,7 +252,6 @@ final class AgentRunner
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
         ?string $turnProcessId = null,
     ): AgentTurnResult {
@@ -291,7 +311,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
@@ -621,7 +640,6 @@ final class AgentRunner
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
         ?string $turnId = null,
         ?Conversation $history = null,
@@ -659,7 +677,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
@@ -905,7 +922,6 @@ final class AgentRunner
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
         ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
@@ -948,59 +964,60 @@ final class AgentRunner
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
-            storage: $this->storage,
-            sessionId: $sessionId,
-            currentTurnId: $currentTurnId,
-            observer: $observer,
-            discovery: $this->discovery,
-            maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activeProfile),
-            executionPolicy: $executionPolicy,
-            sanitizer: $sanitizer,
-            onRestart: $onRestart,
-            credentialResolver: $this->credentialResolver,
-            skillDiscovery: $this->skillDiscovery,
-            roleDiscovery: $this->roleDiscovery,
-            cancellationToken: $cancellationToken,
-            pendingInputProvider: $effectivePendingInputProvider,
-            backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
-                ? new BackgroundTaskToolkit(
-                    storage: $this->storage,
-                    parentSessionId: $sessionId,
-                    roleResolver: $this->roleResolver,
-                    maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
-                        ? $this->config->getBackgroundTaskMaxIterations()
-                        : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
-                    expectedWorkspacePath: $this->workspacePath,
-                )
-                : null,
-            memoryStore: $this->memoryStore,
-            memorySummarizer: $this->memorySummarizer,
-            mountManager: $this->mountManager,
-            configManager: $this->configManager,
-            configGuard: $this->configGuard,
-            visibilityRegistry: $this->visibilityRegistry,
-            modsToolkit: $this->modsToolkit,
-            activeRole: $role !== 'orchestrator' ? $role : null,
-            projectStore: $this->projectStore,
-            defaultsLoader: $this->defaultsLoader,
-            familyResolver: $this->defaultsLoader !== null
-                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
-                : null,
-            unsafeMode: $this->unsafeMode,
-            toolExecutor: $this->toolExecutor,
-            tickCallback: $this->tickCallback,
-            httpClient: $httpClient,
-            loadingRegistry: $this->loadingRegistry,
-            providerFactory: $this->providerFactory,
-            usageTracker: $this->usageTracker,
-            workScopeSessionId: $workScopeSessionId,
-            defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
-            budgetExitThreshold: $budgetExitThreshold,
-            budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
-            activeProfile: $activeProfile,
-            activeProfilePath: $activeProfilePath,
-            profilePreferences: $profilePreferences,
+            deps: new OrchestratorDependencies(
+                discovery: $this->discovery,
+                maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activeProfile),
+                executionPolicy: $executionPolicy,
+                onRestart: $onRestart,
+                credentialResolver: $this->credentialResolver,
+                cancellationToken: $cancellationToken,
+                pendingInputProvider: $effectivePendingInputProvider,
+                backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
+                    ? new BackgroundTaskToolkit(
+                        storage: $this->storage,
+                        parentSessionId: $sessionId,
+                        roleResolver: $this->roleResolver,
+                        maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                            ? $this->config->getBackgroundTaskMaxIterations()
+                            : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+                        expectedWorkspacePath: $this->workspacePath,
+                    )
+                    : null,
+                configManager: $this->configManager,
+                configGuard: $this->configGuard,
+                toolExecutor: $this->toolExecutor,
+                tickCallback: $this->tickCallback,
+                storage: $this->storage,
+                sessionId: $sessionId,
+                currentTurnId: $currentTurnId,
+                observer: $observer,
+                sanitizer: $sanitizer,
+                skillDiscovery: $this->skillDiscovery,
+                roleDiscovery: $this->roleDiscovery,
+                memoryStore: $this->memoryStore,
+                memorySummarizer: $this->memorySummarizer,
+                mountManager: $this->mountManager,
+                visibilityRegistry: $this->visibilityRegistry,
+                modsToolkit: $this->modsToolkit,
+                activeRole: $role !== 'orchestrator' ? $role : null,
+                projectStore: $this->projectStore,
+                defaultsLoader: $this->defaultsLoader,
+                familyResolver: $this->defaultsLoader !== null
+                    ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                    : null,
+                unsafeMode: $this->unsafeMode,
+                httpClient: $httpClient,
+                loadingRegistry: $this->loadingRegistry,
+                providerFactory: $this->providerFactory,
+                usageTracker: $this->usageTracker,
+                workScopeSessionId: $workScopeSessionId,
+                defaultProjectId: $defaultProjectId,
+                budgetExitThreshold: $budgetExitThreshold,
+                budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
+                activeProfile: $activeProfile,
+                activeProfilePath: $activeProfilePath,
+                profilePreferences: $profilePreferences,
+            ),
         );
 
         if ($budgetExitObserver !== null) {
@@ -1385,30 +1402,32 @@ final class AgentRunner
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
-            discovery: $this->discovery,
-            sanitizer: $sanitizer,
-            credentialResolver: $this->credentialResolver,
-            skillDiscovery: $this->skillDiscovery,
-            roleDiscovery: $this->roleDiscovery,
-            memoryStore: $this->memoryStore,
-            memorySummarizer: $this->memorySummarizer,
-            mountManager: $this->mountManager,
-            configManager: $this->configManager,
-            configGuard: $this->configGuard,
-            visibilityRegistry: $this->visibilityRegistry,
-            modsToolkit: $this->modsToolkit,
-            activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
-            projectStore: $this->projectStore,
-            defaultsLoader: $this->defaultsLoader,
-            familyResolver: $this->defaultsLoader !== null
-                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
-                : null,
-            loadingRegistry: $this->loadingRegistry,
-            providerFactory: $this->providerFactory,
-            usageTracker: $this->usageTracker,
-            activeProfile: $profile,
-            activeProfilePath: $resolvedProfilePath,
-            profilePreferences: $resolvedPreferences,
+            deps: new OrchestratorDependencies(
+                discovery: $this->discovery,
+                credentialResolver: $this->credentialResolver,
+                configManager: $this->configManager,
+                configGuard: $this->configGuard,
+                sanitizer: $sanitizer,
+                skillDiscovery: $this->skillDiscovery,
+                roleDiscovery: $this->roleDiscovery,
+                memoryStore: $this->memoryStore,
+                memorySummarizer: $this->memorySummarizer,
+                mountManager: $this->mountManager,
+                visibilityRegistry: $this->visibilityRegistry,
+                modsToolkit: $this->modsToolkit,
+                activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
+                projectStore: $this->projectStore,
+                defaultsLoader: $this->defaultsLoader,
+                familyResolver: $this->defaultsLoader !== null
+                    ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                    : null,
+                loadingRegistry: $this->loadingRegistry,
+                providerFactory: $this->providerFactory,
+                usageTracker: $this->usageTracker,
+                activeProfile: $profile,
+                activeProfilePath: $resolvedProfilePath,
+                profilePreferences: $resolvedPreferences,
+            ),
         );
 
         if ($sessionId !== null && $this->shouldUseConversationHistoryInSystemPrompt()) {
@@ -2012,7 +2031,7 @@ final class AgentRunner
     }
 
     /**
-     * Build a workflow context string summarizing active todos and artifacts.
+     * Build a workflow context string summarizing active artifacts.
      *
      * Injected into the summarization prompt so the LLM preserves
      * structured workflow state when compressing conversation history.
@@ -2020,34 +2039,6 @@ final class AgentRunner
     private function buildWorkflowContext(string $sessionId): ?string
     {
         $sections = [];
-
-        if ($this->todoStore !== null) {
-            try {
-                $stats = $this->todoStore->getStats($sessionId);
-                $total = $stats['total'];
-
-                if ($total > 0) {
-                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
-
-                    $activeTodos = $this->todoStore->list($sessionId, status: 'in_progress');
-                    foreach ($activeTodos as $todo) {
-                        $lines[] = "  - [in_progress] {$todo['title']}";
-                    }
-
-                    $pendingTodos = $this->todoStore->list($sessionId, status: 'pending');
-                    foreach (array_slice($pendingTodos, 0, 5) as $todo) {
-                        $lines[] = "  - [pending] {$todo['title']}";
-                    }
-                    if (count($pendingTodos) > 5) {
-                        $lines[] = '  - ... and ' . (count($pendingTodos) - 5) . ' more pending';
-                    }
-
-                    $sections[] = implode("\n", $lines);
-                }
-            } catch (\Throwable) {
-                // Non-critical — skip if store errors
-            }
-        }
 
         if ($this->artifactStore !== null) {
             try {
@@ -2069,45 +2060,8 @@ final class AgentRunner
                 // Non-critical
             }
         }
-        $this->appendSprintContext($sessionId, $sections);
+
         return $sections !== [] ? implode("\n", $sections) : null;
-    }
-
-    /**
-     * Append active sprint context to workflow sections.
-     *
-     * @param string[] $sections Mutable reference to sections array.
-     */
-    private function appendSprintContext(string $sessionId, array &$sections): void
-    {
-        if ($this->projectStore === null) {
-            return;
-        }
-
-        try {
-            $sprints = $this->projectStore->getActiveSprintsForSession($sessionId);
-            if ($sprints === []) {
-                return;
-            }
-
-            $lines = ['Active sprints:'];
-            foreach (array_slice($sprints, 0, 3) as $sprint) {
-                $title = $sprint['title'];
-                $number = $sprint['sprint_number'];
-                $status = $sprint['status'];
-                $round = $sprint['review_round'] ?? 0;
-                $maxRounds = $sprint['max_review_rounds'] ?? 3;
-                $progress = '';
-                if ($this->todoStore !== null) {
-                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore, $sessionId);
-                    $progress = " — {$stats['percent']}% complete";
-                }
-                $lines[] = "  - Sprint #{$number} '{$title}' ({$status}{$progress}, round {$round}/{$maxRounds})";
-            }
-            $sections[] = implode("\n", $lines);
-        } catch (\Throwable) {
-            // Non-critical
-        }
     }
 
     /**
@@ -2206,7 +2160,7 @@ final class AgentRunner
                 new \CoquiBot\Coqui\Toolkit\ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: \CoquiBot\Coqui\Config\ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
-                    timeout: 60,
+                    timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     rootPath: $this->projectRoot,
                 ),
                 new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),

@@ -11,23 +11,22 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
-use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for managing structured artifacts.
  *
- * Artifacts are versioned, staged outputs (code, documents, configs)
- * that persist across turns within a session. The toolkit provides
- * CRUD operations plus version history and stage transitions.
+ * Artifacts are staged outputs (code, documents, configs) that persist
+ * across turns within a session. Filesystem-backed types live as files
+ * under the project's artifacts/ directory (the file is the source of
+ * truth; history comes from the user's VCS); DB-only types store content
+ * inline. The toolkit provides CRUD operations and stage transitions.
  *
  * Tools:
  * - artifact_create: Create a new artifact
- * - artifact_update: Update content (auto-versions)
+ * - artifact_update: Update content
  * - artifact_get: Retrieve an artifact by ID
  * - artifact_list: List session artifacts with optional filters
  * - artifact_stage: Transition one or many artifacts to a new stage
@@ -39,10 +38,7 @@ final class ArtifactToolkit implements ToolkitInterface
         private readonly ArtifactStore $store,
         private readonly string $sessionId,
         private readonly bool $readOnly = false,
-        private readonly ?PlanTodoGenerator $planTodoGenerator = null,
-        private readonly ?TodoStore $todoStore = null,
         private readonly ?string $defaultProjectId = null,
-        private readonly ?string $defaultSprintId = null,
     ) {}
 
     public function tools(): array
@@ -71,23 +67,21 @@ final class ArtifactToolkit implements ToolkitInterface
             return <<<'GUIDELINES'
             <ARTIFACT-GUIDELINES>
             You can create **artifacts** to track structured outputs (code files, documents, configs).
-            Artifacts are versioned automatically on each update and support staging: draft → review → final.
-            Use `artifact_create` when producing significant code or content that the user may want to iterate on.
+            Artifacts support staging: draft → review → final. Use `artifact_create` when producing
+            significant code or content that the user may want to iterate on.
             </ARTIFACT-GUIDELINES>
             GUIDELINES;
         }
 
         $lines = [];
         foreach ($artifacts as $a) {
-            $todoRef = $this->resolveTodoCount($a['id'], $a['type'] ?? '');
             $lines[] = sprintf(
-                '- **%s** (id: %s) [%s, %s] v%d%s',
+                '- **%s** (id: %s) [%s, %s] v%d',
                 $a['title'],
                 $a['id'],
                 $a['type'],
                 $a['stage'],
                 $a['version'],
-                $todoRef,
             );
         }
         $listing = implode("\n", $lines);
@@ -95,7 +89,7 @@ final class ArtifactToolkit implements ToolkitInterface
         return <<<GUIDELINES
         <ARTIFACT-GUIDELINES>
         This session has **{$count} artifact(s)**. Use `artifact_get` to retrieve content, `artifact_update` to revise.
-        Artifacts are versioned automatically — each update creates a snapshot. Stages: draft → review → final.
+        Stages: draft → review → final.
 
         Current artifacts:
         {$listing}
@@ -107,7 +101,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_create',
-            description: 'Create a new versioned artifact (code, document, config). Returns the artifact ID for future reference.',
+            description: 'Create a new artifact (code, document, config). Filesystem-backed types are written to the project artifacts/ directory. Returns the artifact ID for future reference.',
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
@@ -115,7 +109,6 @@ final class ArtifactToolkit implements ToolkitInterface
                 new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
                 new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
                 new StringParameter('project_id', 'Link artifact to a project (makes it persistent across sessions)', required: false),
-                new StringParameter('sprint_id', 'Link artifact to a sprint', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $title = trim($args['title'] ?? '');
@@ -124,7 +117,6 @@ final class ArtifactToolkit implements ToolkitInterface
                 $language = isset($args['language']) ? trim($args['language']) : null;
                 $filepath = isset($args['filepath']) ? trim($args['filepath']) : null;
                 $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : $this->defaultProjectId;
-                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : $this->defaultSprintId;
 
                 if ($title === '') {
                     return ToolResult::error('Title is required.');
@@ -138,7 +130,6 @@ final class ArtifactToolkit implements ToolkitInterface
                     language: $language,
                     filepath: $filepath,
                     projectId: $projectId,
-                    sprintId: $sprintId,
                 );
 
                 return ToolResult::json([
@@ -156,7 +147,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_update',
-            description: 'Update an artifact\'s content. Automatically creates a new version snapshot.',
+            description: 'Update an artifact\'s content. Filesystem-backed artifacts are written to their canonical file; the version counter is bumped.',
             parameters: [
                 new StringParameter('id', 'Artifact ID (from artifact_create or artifact_list)', required: true),
                 new StringParameter('content', 'The updated full content', required: true),
@@ -200,35 +191,15 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_get',
-            description: 'Retrieve an artifact by ID, including its content and metadata. Optionally retrieve a specific version.',
+            description: 'Retrieve an artifact by ID, including its current content and metadata.',
             parameters: [
                 new StringParameter('id', 'Artifact ID', required: true),
-                new NumberParameter('version', 'Specific version number to retrieve (omit for latest)', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $id = trim($args['id'] ?? '');
 
                 if ($id === '') {
                     return ToolResult::error('Artifact ID is required.');
-                }
-
-                // If a specific version is requested, fetch from version history
-                if (isset($args['version'])) {
-                    $version = (int) $args['version'];
-                    $versionData = $this->store->getVersion($id, $version);
-                    if ($versionData === null) {
-                        return ToolResult::error("Version {$version} not found for artifact {$id}");
-                    }
-
-                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    return ToolResult::json([
-                        'id' => $id,
-                        'title' => $artifact['title'] ?? '',
-                        'version' => $version,
-                        'content' => $versionData['content'],
-                        'change_summary' => $versionData['change_summary'],
-                        'created_at' => $versionData['created_at'],
-                    ]);
                 }
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
@@ -245,19 +216,17 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_list',
-            description: 'List artifacts in the current session, optionally filtered by type, stage, project, sprint, or creation time.',
+            description: 'List artifacts in the current session, optionally filtered by type, stage, project, or creation time.',
             parameters: [
                 new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage', ['draft', 'review', 'final'], required: false),
-                new StringParameter('project_id', 'Filter by project ID — useful in loop/sprint contexts to see only relevant artifacts', required: false),
-                new StringParameter('sprint_id', 'Filter by sprint ID', required: false),
+                new StringParameter('project_id', 'Filter by project ID — useful in loop contexts to see only relevant artifacts', required: false),
                 new StringParameter('created_after', 'Only return artifacts created after this ISO 8601 timestamp (e.g. 2026-04-03T12:00:00Z)', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $type = isset($args['type']) ? trim($args['type']) : null;
                 $stage = isset($args['stage']) ? trim($args['stage']) : null;
                 $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : null;
-                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
                 $createdAfter = isset($args['created_after']) && trim($args['created_after']) !== '' ? trim($args['created_after']) : null;
 
                 $artifacts = $this->store->list(
@@ -265,7 +234,6 @@ final class ArtifactToolkit implements ToolkitInterface
                     type: $type !== '' ? $type : null,
                     stage: $stage !== '' ? $stage : null,
                     projectId: $projectId,
-                    sprintId: $sprintId,
                     createdAfter: $createdAfter,
                 );
 
@@ -284,7 +252,6 @@ final class ArtifactToolkit implements ToolkitInterface
                     'storage_mode' => $a['storage_mode'] ?? 'database',
                     'canonical_path' => $a['canonical_path'] ?? null,
                     'project_id' => $a['project_id'] ?? null,
-                    'sprint_id' => $a['sprint_id'] ?? null,
                     'updated_at' => $a['updated_at'],
                     'created_at' => $a['created_at'],
                 ], $artifacts);
@@ -309,7 +276,6 @@ final class ArtifactToolkit implements ToolkitInterface
                 new EnumParameter('current_stage', 'Filter by current stage (bulk mode)', ['draft', 'review', 'final'], required: false),
                 new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
-                new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),
                 new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
                 new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
             ],
@@ -333,27 +299,12 @@ final class ArtifactToolkit implements ToolkitInterface
                         return ToolResult::error("Failed to update stage for artifact {$id}");
                     }
 
-                    $response = [
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $artifact['title'],
                         'previous_stage' => $artifact['stage'],
                         'new_stage' => $stage,
-                    ];
-
-                    // Auto-generate todos from finalized plan artifacts
-                    if ($stage === 'final' && $artifact['type'] === 'plan' && $this->planTodoGenerator !== null) {
-                        $todoIds = $this->planTodoGenerator->generate(
-                            artifactId: $id,
-                            sessionId: $this->sessionId,
-                            planContent: $artifact['content'] ?? '',
-                        );
-                        $response['todos_generated'] = count($todoIds);
-                        if ($todoIds === []) {
-                            $response['todos_note'] = 'Auto-generation failed or extracted no steps. Use todo_add to create todos manually.';
-                        }
-                    }
-
-                    return ToolResult::json($response);
+                    ]);
                 }
 
                 // Bulk mode
@@ -386,14 +337,13 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_delete',
-            description: 'Delete one or many artifacts and their version history. Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
+            description: 'Delete one or many artifacts (and their canonical files, if filesystem-backed). Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
             parameters: [
                 new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
                 new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),
                 new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage (bulk mode)', ['draft', 'review', 'final'], required: false),
                 new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
-                new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),
                 new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
                 new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
             ],
@@ -446,7 +396,6 @@ final class ArtifactToolkit implements ToolkitInterface
         $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : null;
         $stage = isset($args[$stageFilterKey]) && trim((string) $args[$stageFilterKey]) !== '' ? trim((string) $args[$stageFilterKey]) : null;
         $projectId = isset($args['project_id']) && trim((string) $args['project_id']) !== '' ? trim((string) $args['project_id']) : null;
-        $sprintId = isset($args['sprint_id']) && trim((string) $args['sprint_id']) !== '' ? trim((string) $args['sprint_id']) : null;
         $createdAfter = isset($args['created_after']) && trim((string) $args['created_after']) !== '' ? trim((string) $args['created_after']) : null;
         $all = (bool) ($args['all'] ?? false);
 
@@ -479,7 +428,7 @@ final class ArtifactToolkit implements ToolkitInterface
             return [array_values(array_unique($matched)), $failed, null];
         }
 
-        if (!$all && $type === null && $stage === null && $projectId === null && $sprintId === null && $createdAfter === null) {
+        if (!$all && $type === null && $stage === null && $projectId === null && $createdAfter === null) {
             return [[], [], 'Specify ids, all=true, or at least one filter to select artifacts.'];
         }
 
@@ -489,7 +438,6 @@ final class ArtifactToolkit implements ToolkitInterface
             stage: $stage,
             limit: 5000,
             projectId: $projectId,
-            sprintId: $sprintId,
             createdAfter: $createdAfter,
         );
 
@@ -500,28 +448,5 @@ final class ArtifactToolkit implements ToolkitInterface
         );
 
         return [$matched, [], null];
-    }
-
-    /**
-     * Resolve linked todo count for plan artifacts in guidelines.
-     */
-    private function resolveTodoCount(string $artifactId, string $type): string
-    {
-        if ($type !== 'plan' || $this->todoStore === null) {
-            return '';
-        }
-
-        try {
-            $stats = $this->todoStore->getStats($this->sessionId, $artifactId);
-            $total = $stats['total'];
-            if ($total > 0) {
-                $completed = $stats['completed'];
-                return " — todos: {$completed}/{$total}";
-            }
-        } catch (\Throwable) {
-            // Non-critical
-        }
-
-        return '';
     }
 }

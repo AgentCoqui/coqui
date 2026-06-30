@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -71,20 +74,7 @@ final class NotificationStore
 
     private function migrateAddColumn(string $column, string $definition): void
     {
-        $stmt = $this->db->query('PRAGMA table_info(notifications)');
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($columns as $existing) {
-            if (($existing['name'] ?? null) === $column) {
-                return;
-            }
-        }
-
-        $this->db->exec("ALTER TABLE notifications ADD COLUMN {$column} {$definition}");
+        SchemaHelper::addColumnIfMissing($this->db, 'notifications', $column, $definition);
     }
 
     private function createIndexes(): void
@@ -143,8 +133,8 @@ final class NotificationStore
         ?array $metadata = null,
         ?string $expiresAt = null,
     ): ?string {
-        $id = bin2hex(random_bytes(12));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex(12);
+        $now = Clock::nowUtc();
         $metadataJson = $metadata !== null ? json_encode($metadata, JSON_THROW_ON_ERROR) : null;
 
         // For actionable notifications, set initial claim status
@@ -202,7 +192,7 @@ final class NotificationStore
 
         $stmt->execute([
             ':session_id' => $sessionId,
-            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+            ':now' => Clock::nowUtc(),
             ':limit' => $limit,
         ]);
 
@@ -228,7 +218,7 @@ final class NotificationStore
             if ($notifications !== []) {
                 $ids = array_column($notifications, 'id');
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                $now = gmdate('Y-m-d\TH:i:s\Z');
+                $now = Clock::nowUtc();
 
                 $stmt = $this->db->prepare(
                     "UPDATE notifications SET read_at = ? WHERE id IN ({$placeholders})",
@@ -258,7 +248,7 @@ final class NotificationStore
         }
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(
             "UPDATE notifications SET read_at = ? WHERE id IN ({$placeholders})",
@@ -271,7 +261,7 @@ final class NotificationStore
      */
     public function markAllRead(string $sessionId): int
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
@@ -304,7 +294,7 @@ final class NotificationStore
 
         $stmt->execute([
             ':session_id' => $sessionId,
-            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+            ':now' => Clock::nowUtc(),
         ]);
 
         return (int) $stmt->fetchColumn();
@@ -345,7 +335,7 @@ final class NotificationStore
         $kindFilter = '';
         $params = [
             ':session_id' => $sessionId,
-            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+            ':now' => Clock::nowUtc(),
         ];
 
         if ($kinds !== null && $kinds !== []) {
@@ -389,7 +379,7 @@ final class NotificationStore
     {
         $kindFilter = '';
         $params = [
-            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+            ':now' => Clock::nowUtc(),
         ];
 
         if ($kinds !== null && $kinds !== []) {
@@ -443,7 +433,7 @@ final class NotificationStore
 
         $stmt->execute([
             ':session_id' => $sessionId,
-            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+            ':now' => Clock::nowUtc(),
         ]);
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -462,7 +452,7 @@ final class NotificationStore
      */
     public function claim(string $id, string $claimedBy, int $leaseSeconds = 300): bool
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $leaseExpiresAt = gmdate('Y-m-d\TH:i:s\Z', time() + max(1, $leaseSeconds));
 
         $stmt = $this->db->prepare(<<<'SQL'
@@ -490,7 +480,7 @@ final class NotificationStore
      */
     public function completeClaim(string $id): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
@@ -512,7 +502,7 @@ final class NotificationStore
      */
     public function failClaim(string $id, ?string $lastError = null): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
@@ -563,7 +553,7 @@ final class NotificationStore
      */
     public function reclaimExpiredClaims(int $maxAttempts = 3, int $retryDelaySeconds = 60): array
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $expired = $this->db->prepare(<<<'SQL'
             SELECT id, attempt_count
             FROM notifications
@@ -663,7 +653,7 @@ final class NotificationStore
                 AND expires_at IS NOT NULL
                 AND expires_at < :now
         SQL);
-        $stmt2->execute([':now' => gmdate('Y-m-d\TH:i:s\Z')]);
+        $stmt2->execute([':now' => Clock::nowUtc()]);
         $count += $stmt2->rowCount();
 
         // Prune old actionable notifications (completed or failed)
@@ -683,7 +673,7 @@ final class NotificationStore
                 AND expires_at IS NOT NULL
                 AND expires_at < :now
         SQL);
-        $stmt4->execute([':now' => gmdate('Y-m-d\TH:i:s\Z')]);
+        $stmt4->execute([':now' => Clock::nowUtc()]);
         $count += $stmt4->rowCount();
 
         return $count;

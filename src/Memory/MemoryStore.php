@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Memory;
 
 use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Memory\MemoryEntry;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SqlitePragmas;
 use DateTimeImmutable;
 use PDO;
 
@@ -94,7 +97,7 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
         $tags = $entry->metadata['tags'] ?? '';
         $importance = (float) ($entry->metadata['importance'] ?? self::AREA_DEFAULT_IMPORTANCE[$entry->area] ?? 0.5);
@@ -706,16 +709,12 @@ final class MemoryStore
     {
         $dir = dirname($this->dbPath);
         if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $db = new PDO("sqlite:{$this->dbPath}");
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $db->exec('PRAGMA journal_mode=WAL');
-        $db->exec('PRAGMA foreign_keys=ON');
-        $db->exec('PRAGMA synchronous=NORMAL');
-        $db->exec('PRAGMA cache_size=-8000');
-        $db->exec('PRAGMA temp_store=MEMORY');
+        SqlitePragmas::applyTo($db);
 
         return $db;
     }

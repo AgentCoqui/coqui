@@ -272,7 +272,7 @@ final class ConversationSummarizer
             - Files modified or created
             - Tool actions taken and their outcomes
             - Unresolved questions or pending tasks
-            - Current plan/todo status and next steps
+            - Current plan status and next steps
             - User preferences expressed{$focusInstruction}{$workflowSection}
 
             Preserve nuance when the conversation contains identity, research, or phenomenological material.

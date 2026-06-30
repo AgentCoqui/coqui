@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
+
 /**
  * Factory for toolkit-scoped SQLite databases.
  *
@@ -33,18 +35,14 @@ final readonly class ToolkitDatabaseFactory
 
         $dir = $this->workspacePath;
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $dbPath = $dir . '/' . $name . '.db';
 
         $pdo = new \PDO("sqlite:{$dbPath}");
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $pdo->exec('PRAGMA journal_mode=WAL');
-        $pdo->exec('PRAGMA foreign_keys=ON');
-        $pdo->exec('PRAGMA synchronous=NORMAL');
-        $pdo->exec('PRAGMA cache_size=-4000');
-        $pdo->exec('PRAGMA temp_store=MEMORY');
+        SqlitePragmas::applyTo($pdo, CoquiDefaults::SQLITE_TOOLKIT_CACHE_SIZE_KB);
 
         return $pdo;
     }

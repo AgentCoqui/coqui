@@ -13,13 +13,12 @@ use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ArtifactStore;
-use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use PDO;
@@ -288,7 +287,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
             $this->ok($io, 'Config: valid JSON', $jsonOutput);
             $results['valid_json'] = ['status' => 'ok'];
         } catch (\JsonException $e) {
@@ -339,7 +338,7 @@ final class DoctorCommand extends Command
             $this->ok($io, "Workspace: {$workspacePath}", $jsonOutput);
             $results['exists'] = ['status' => 'ok', 'path' => $workspacePath];
         } elseif ($repair) {
-            mkdir($workspacePath, 0755, true);
+            mkdir($workspacePath, CoquiDefaults::DIRECTORY_MODE, true);
             $this->ok($io, "Workspace: created {$workspacePath} (repaired)", $jsonOutput);
             $results['exists'] = ['status' => 'ok', 'repaired' => true];
         } else {
@@ -363,7 +362,7 @@ final class DoctorCommand extends Command
             $content = file_get_contents($composerJson);
             if ($content !== false) {
                 try {
-                    json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+                    json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
                     $this->ok($io, 'Workspace: composer.json valid', $jsonOutput);
                     $results['composer_json'] = ['status' => 'ok'];
                 } catch (\JsonException $e) {
@@ -397,7 +396,7 @@ final class DoctorCommand extends Command
             if (is_dir($path)) {
                 $results["dir_{$subdir}"] = ['status' => 'ok'];
             } elseif ($repair) {
-                mkdir($path, 0755, true);
+                mkdir($path, CoquiDefaults::DIRECTORY_MODE, true);
                 $results["dir_{$subdir}"] = ['status' => 'ok', 'repaired' => true];
             } else {
                 $this->warn($io, "Workspace: {$subdir}/ directory missing", $jsonOutput);
@@ -460,9 +459,7 @@ final class DoctorCommand extends Command
         $pdo = $storage->getPdo();
 
         $storeChecks = [
-            'evaluation_store' => static fn(PDO $db): mixed => new EvaluationStore($db),
             'artifact_store' => static fn(PDO $db): mixed => new ArtifactStore($db),
-            'todo_store' => static fn(PDO $db): mixed => new TodoStore($db),
             'project_store' => static fn(PDO $db): mixed => new ProjectStore($db),
             'loop_store' => static fn(PDO $db): mixed => new LoopStore($db),
             'schedule_store' => static fn(PDO $db): mixed => new ScheduleStore($db),
@@ -488,11 +485,8 @@ final class DoctorCommand extends Command
         $results['stats'] = ['status' => 'ok', 'data' => $stats];
 
         $extendedStats = [
-            'evaluations' => $this->queryTableCount($pdo, 'evaluations'),
             'artifacts' => $this->queryTableCount($pdo, 'artifacts'),
-            'todos' => $this->queryTableCount($pdo, 'todos'),
             'projects' => $this->queryTableCount($pdo, 'projects'),
-            'sprints' => $this->queryTableCount($pdo, 'sprints'),
             'loops' => $this->queryTableCount($pdo, 'loops'),
             'scheduled_tasks' => $this->queryTableCount($pdo, 'scheduled_tasks'),
             'webhook_subscriptions' => $this->queryTableCount($pdo, 'webhook_subscriptions'),
@@ -500,10 +494,8 @@ final class DoctorCommand extends Command
         $this->ok(
             $io,
             sprintf(
-                'Database: %d evaluations, %d artifacts, %d todos, %d projects, %d loops, %d schedules, %d webhooks',
-                $extendedStats['evaluations'],
+                'Database: %d artifacts, %d projects, %d loops, %d schedules, %d webhooks',
                 $extendedStats['artifacts'],
-                $extendedStats['todos'],
                 $extendedStats['projects'],
                 $extendedStats['loops'],
                 $extendedStats['scheduled_tasks'],
@@ -712,7 +704,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return $results;
         }
@@ -815,7 +807,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($response, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
             $models = $data['models'] ?? [];
             $modelNames = array_map(fn(array $m): string => $m['name'] ?? 'unknown', $models);
             $count = count($modelNames);
@@ -965,18 +957,18 @@ final class DoctorCommand extends Command
     private function checkLauncher(SymfonyStyle $io, bool $jsonOutput): array
     {
         $results = [];
-        $launcherPath = dirname(__DIR__, 2) . '/bin/coqui-launcher';
+        $launcherPath = dirname(__DIR__, 2) . '/bin/coqui';
 
         if (file_exists($launcherPath)) {
             if (is_executable($launcherPath)) {
-                $this->ok($io, 'Launcher: bin/coqui-launcher exists and is executable', $jsonOutput);
+                $this->ok($io, 'Launcher: bin/coqui exists and is executable', $jsonOutput);
                 $results['launcher'] = ['status' => 'ok'];
             } else {
-                $this->warn($io, 'Launcher: bin/coqui-launcher exists but is not executable', $jsonOutput);
+                $this->warn($io, 'Launcher: bin/coqui exists but is not executable', $jsonOutput);
                 $results['launcher'] = ['status' => 'warn'];
             }
         } else {
-            $this->warn($io, 'Launcher: bin/coqui-launcher not found', $jsonOutput);
+            $this->warn($io, 'Launcher: bin/coqui not found', $jsonOutput);
             $results['launcher'] = ['status' => 'warn'];
         }
 

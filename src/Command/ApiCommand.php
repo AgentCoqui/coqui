@@ -15,8 +15,6 @@ use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\LoopExecutor;
-use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
-use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
@@ -24,7 +22,6 @@ use CoquiBot\Coqui\Api\Handler\ChannelHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
-use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
@@ -61,17 +58,15 @@ use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
 use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
 use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
-use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
-use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ChannelStore;
-use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler as McpOAuthHandler;
@@ -105,7 +100,7 @@ final class ApiCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', '3300')
+            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', (string) CoquiDefaults::API_DEFAULT_PORT)
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Host to bind to', '127.0.0.1')
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
@@ -127,7 +122,7 @@ final class ApiCommand extends Command
             $host = $envHost;
         }
 
-        $port = is_string($input->getOption('port')) ? $input->getOption('port') : '3300';
+        $port = is_string($input->getOption('port')) ? $input->getOption('port') : (string) CoquiDefaults::API_DEFAULT_PORT;
         $unsafeMode = (bool) $input->getOption('unsafe')
             || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
         $corsOrigin = is_string($input->getOption('cors-origin'))
@@ -241,13 +236,12 @@ final class ApiCommand extends Command
         $lifecycle = new ApiLifecycleController(
             runtimeStateStore: $runtimeStateStore,
             managedByLauncher: getenv('COQUI_LAUNCHER_MANAGED') === '1',
-            startedAt: gmdate('Y-m-d\TH:i:s\Z'),
+            startedAt: Clock::nowUtc(),
             pid: getmypid() ?: 0,
         );
         $lifecycle->markBooted();
 
         $artifactStore = new ArtifactStore($storage->getPdo());
-        $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
         // Schedule & webhook infrastructure
         $verifierRegistry = new WebhookVerifierRegistry();
 
@@ -277,27 +271,11 @@ final class ApiCommand extends Command
             $storage,
             $boot->roleResolver(),
         );
-        $qualityAutomation = new QualityAutomationCoordinator(
-            config: $boot->config(),
-            storage: $storage,
-            scheduleStore: $scheduleStore,
-        );
-        $createdQualitySchedules = $qualityAutomation->ensureDefaultSchedules();
-        if ($createdQualitySchedules !== []) {
-            $output->writeln(
-                sprintf(
-                    '<fg=gray>Bootstrapped quality schedules: %s</>',
-                    implode(', ', $createdQualitySchedules),
-                ),
-                OutputInterface::VERBOSITY_VERBOSE,
-            );
-        }
-
         // Workspace file watcher — polls directories for changes
         $watcher = new WorkspaceWatcher();
         $schedulesDir = $boot->workspacePath() . '/schedules';
         if (!is_dir($schedulesDir)) {
-            @mkdir($schedulesDir, 0755, true);
+            @mkdir($schedulesDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
         $watcher->register(new ScheduleFileWatchJob($schedulesDir, $scheduleStore));
         $watcher->initialSync();
@@ -333,42 +311,25 @@ final class ApiCommand extends Command
                     $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
                 }
             } catch (\Throwable) {
-                // Goal evaluation degrades gracefully — loops fall back to manual
+                // Goal evaluation degrades gracefully — goal_bound loops run to their iteration limit
             }
-
-            // Build tool executor for tool_bound evaluation
-            $toolBoundEvaluator = new ToolBoundEvaluator(
-                new BackgroundToolExecutor($boot, $workDir, $unsafeMode),
-            );
 
             $loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
                 sessionStorage: $storage,
-                todoStore: $todoStore,
-                artifactStore: $artifactStore,
                 goalEvaluator: $goalEvaluator,
-                toolBoundEvaluator: $toolBoundEvaluator,
             );
             $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
         }
 
         // Create handlers
-        $evaluationStore = new EvaluationStore($storage->getPdo());
-        $qualityStatus = new QualityAutomationStatusService(
-            config: $boot->config(),
-            storage: $storage,
-            evaluationStore: $evaluationStore,
-            scheduleStore: $scheduleStore,
-        );
-
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus, $lifecycle);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $lifecycle);
         $profileSessionLifecycle = new ProfileSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
             roleResolver: $boot->roleResolver(),
             memoryStore: $boot->memoryStore(),
-            todoStore: $boot->todoStore(),
             artifactStore: $boot->artifactStore(),
         );
 
@@ -394,8 +355,7 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus, $lifecycle);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $lifecycle);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -431,7 +391,6 @@ final class ApiCommand extends Command
             ),
         ));
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
-        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
@@ -453,7 +412,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -482,7 +441,7 @@ final class ApiCommand extends Command
         // Create ReactPHP HTTP server with explicit middleware for file upload support.
         // The default auto-registered middleware caps body at 64 KiB which is too small
         // for file uploads. We configure a 50 MiB buffer and multipart parser.
-        $maxUploadBytes = 50 * 1024 * 1024; // 50 MiB
+        $maxUploadBytes = CoquiDefaults::MAX_UPLOAD_FILE_SIZE; // 50 MiB
         $server = new HttpServer(
             new StreamingRequestMiddleware(),
             new LimitConcurrentRequestsMiddleware(100),
@@ -548,7 +507,7 @@ final class ApiCommand extends Command
 
         $output->writeln('');
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
-        $output->writeln(sprintf('Project root: <fg=gray>%s</>', $workDir));
+        $output->writeln(sprintf('Server: <fg=gray>%s</>', $workDir));
         $output->writeln(sprintf('Workspace: <fg=gray>%s</>', $boot->workspacePath()));
         $output->writeln(sprintf('PID: <fg=gray>%s</>', getmypid()));
         $output->writeln('');
@@ -646,7 +605,6 @@ final class ApiCommand extends Command
         RoleHandler $role,
         TaskHandler $task,
         FileUploadHandler $fileUpload,
-        EvaluationHandler $evaluation,
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
@@ -655,7 +613,6 @@ final class ApiCommand extends Command
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
-        \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
@@ -749,29 +706,14 @@ final class ApiCommand extends Command
             $router->delete($v1 . '/projects/{idOrSlug}', [$project, 'delete']);
             $router->post($v1 . '/projects/{idOrSlug}/archive', [$project, 'archive']);
             $router->post($v1 . '/projects/{idOrSlug}/activate', [$project, 'activate']);
-            $router->post($v1 . '/projects/{idOrSlug}/sprints', [$project, 'createSprint']);
-            $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
-            $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
-            $router->patch($v1 . '/sprints/{id}', [$project, 'updateSprint']);
-            $router->delete($v1 . '/sprints/{id}', [$project, 'deleteSprint']);
-            $router->post($v1 . '/sprints/{id}/start', [$project, 'startSprint']);
-            $router->post($v1 . '/sprints/{id}/submit-review', [$project, 'submitReview']);
-            $router->post($v1 . '/sprints/{id}/complete', [$project, 'completeSprint']);
-            $router->post($v1 . '/sprints/{id}/reject', [$project, 'rejectSprint']);
         }
 
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
-        // Evaluations (read-only — creation is evaluator-role/tool driven)
-        $router->get($v1 . '/evaluations', [$evaluation, 'list']);
-        $router->get($v1 . '/evaluations/stats', [$evaluation, 'stats']);
-        $router->get($v1 . '/evaluations/{id}', [$evaluation, 'get']);
-
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
-        $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/backstory', [$backstory, 'get']);
@@ -781,25 +723,9 @@ final class ApiCommand extends Command
         // Artifacts
         $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
-        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
-        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'createVersion']);
-        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore', [$artifact, 'restoreVersion']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
         $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
         $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
-
-        // Todos
-        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
-        $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
-        $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
-        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
-        $router->post($v1 . '/sessions/{id}/todos/reorder', [$todo, 'reorder']);
-        $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
-        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
-        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/reopen', [$todo, 'reopen']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/cancel', [$todo, 'cancel']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);

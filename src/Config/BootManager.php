@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Provider\ReactCliRuntime;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\OpenClawConfig as CoquiOpenClawConfig;
 use CoquiBot\Coqui\Contract\MountDefinition;
@@ -28,11 +29,9 @@ use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Exception\InteractionCancelledException;
 use CoquiBot\Coqui\Exception\ShutdownRequestedException;
-use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -65,7 +64,6 @@ final class BootManager
     private MemorySummarizer $memorySummarizer;
     private ConfigManager $configManager;
     private ?ArtifactStore $artifactStore = null;
-    private ?TodoStore $todoStore = null;
     private ?ProjectStore $projectStore = null;
     private ?ModManagerToolkit $modsToolkit = null;
     private ?LoopStore $loopStore = null;
@@ -98,7 +96,12 @@ final class BootManager
         ?string $configPath = null,
         bool $skipMaintenance = false,
     ): bool {
-        $this->loadConfig($io, $configPath);
+        try {
+            $this->loadConfig($io, $configPath);
+        } catch (ShutdownRequestedException) {
+            return false;
+        }
+
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->initializeWorkspace();
         $this->initializeMounts();
@@ -147,7 +150,11 @@ final class BootManager
     public function providerFactory(?HttpClientInterface $httpClient = null): ProviderFactory
     {
         if ($this->providerFactory === null) {
-            $this->providerFactory = new ProviderFactory($this->config, $httpClient);
+            $this->providerFactory = new ProviderFactory(
+                config: $this->config,
+                httpClient: $httpClient,
+                cliRuntime: new ReactCliRuntime(),
+            );
         }
 
         return $this->providerFactory;
@@ -290,11 +297,6 @@ final class BootManager
         return $this->artifactStore;
     }
 
-    public function todoStore(): ?TodoStore
-    {
-        return $this->todoStore;
-    }
-
     public function projectStore(): ?ProjectStore
     {
         return $this->projectStore;
@@ -368,56 +370,38 @@ final class BootManager
             $explicitPath = $configPath;
         }
 
-        // Try loading from workspace (seeds from project root automatically)
+        // Gate first-time users behind setup wizard before ConfigManager can silently
+        // create a broken default config (it never throws; it always succeeds with defaults).
+        if ($io instanceof SymfonyStyle && $explicitPath === null) {
+            $workspaceConfigExists = file_exists($this->configManager->path());
+            $projectConfigExists = file_exists(
+                PathHelper::trimTrailingSlash($this->workDir) . '/openclaw.json',
+            );
+
+            if (!$workspaceConfigExists && !$projectConfigExists) {
+                $this->runFirstTimeSetup($io);
+                // If we reach here the wizard saved a config — fall through to load it.
+            }
+        }
+
+        // Load config (guaranteed to exist when the interactive wizard ran successfully).
         try {
             $this->config = $this->configManager->load($explicitPath);
             $this->configPath = $this->configManager->path();
 
-            // Show seed notice if config was just created from project root
             if ($io instanceof SymfonyStyle && $this->wasSeededFromProjectRoot($explicitPath)) {
-                $io->text('<fg=gray>Config seeded from project root to workspace.</>'); 
+                $io->text('<fg=gray>Config seeded from project root to workspace.</>');
             }
 
             return;
         } catch (\Throwable $e) {
-            // Config load failed — fall through to wizard or defaults
+            // Config file exists but is malformed or unreadable — show error and fall back.
             if ($io instanceof SymfonyStyle) {
                 $io->warning('Failed to load config: ' . $e->getMessage());
             }
         }
 
-        // Interactive setup wizard — only available with SymfonyStyle
-        if ($io instanceof SymfonyStyle) {
-            $prompt = new InterruptiblePrompt($io);
-            $io->warning('No openclaw.json configuration found.');
-            $io->text([
-                'Coqui needs an openclaw.json file to know which AI providers and models to use.',
-                'Without it, you may see connection errors like "404 Not Found".',
-                '',
-            ]);
-
-            try {
-                if ($prompt->confirm('Would you like to run the setup wizard now?', true)) {
-                    $outputPath = $this->configManager->path();
-                    $wizard = new SetupWizard($io, $this->defaultsLoader);
-                    $saved = $wizard->runAndSave($outputPath);
-
-                    if ($saved && file_exists($outputPath)) {
-                        $this->config = $this->configManager->load();
-                        $this->configPath = $this->configManager->path();
-                        return;
-                    }
-                }
-            } catch (InteractionCancelledException) {
-                $io->text('<fg=gray>Setup wizard cancelled.</>');
-            } catch (ShutdownRequestedException) {
-                $io->text('<fg=gray>Setup wizard interrupted. Continuing with defaults.</>');
-            }
-
-            $defaultModel = $this->defaultsLoader->defaultModel();
-            $io->text("<fg=gray>Using defaults (model: {$defaultModel}). Run <fg=cyan>coqui setup</> to configure.</>");
-        }
-
+        // Malformed config recovery: overwrite with defaults so the next boot succeeds.
         $this->config = $this->buildDefaultConfig();
         $this->configManager->save([
             'agents' => $this->config->get('agents') ?? [],
@@ -595,7 +579,6 @@ final class BootManager
             $fileService = new ArtifactFileService($this->workspacePath);
         }
         $this->artifactStore = new ArtifactStore($pdo, $fileService, $this->projectStore);
-        $this->todoStore = new TodoStore($pdo);
         $this->loopStore = new LoopStore($pdo);
         $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
@@ -603,9 +586,6 @@ final class BootManager
 
         if (!$skipMaintenance) {
             $this->artifactStore->cleanupFinalized();
-            $this->todoStore->cleanupOrphaned();
-            $this->todoStore->cleanupStale();
-            $this->todoStore->cleanupUnlinked();
 
             $notifConfig = $this->config->getNotificationConfig();
             $this->notificationStore->prune(
@@ -721,6 +701,41 @@ final class BootManager
     private function initializeMods(): void
     {
         $this->modsToolkit = ModManagerToolkit::fromEnv($this->workspacePath);
+    }
+
+    /**
+     * Gate first-time boot behind the setup wizard.
+     *
+     * Runs automatically when no openclaw.json is found. Throws
+     * ShutdownRequestedException if the wizard is cancelled or the user
+     * declines to save, preventing boot from continuing with broken defaults.
+     */
+    private function runFirstTimeSetup(SymfonyStyle $io): void
+    {
+        $io->warning('No openclaw.json configuration found.');
+        $io->text([
+            'Coqui needs an openclaw.json file to know which AI providers and models to use.',
+            'Please complete the setup wizard to get started.',
+            '',
+        ]);
+
+        try {
+            $wizard = new SetupWizard($io, $this->defaultsLoader);
+            $saved = $wizard->runAndSave($this->configManager->path());
+
+            if ($saved) {
+                return;
+            }
+        } catch (InteractionCancelledException) {
+            // fall through to gating error below
+        } catch (ShutdownRequestedException $e) {
+            throw $e;
+        }
+
+        $io->newLine();
+        $io->text('<fg=yellow>Coqui requires a valid configuration to start.</>');
+        $io->text('Run <fg=cyan>coqui setup</> to configure your AI provider and models.');
+        throw new ShutdownRequestedException('Configuration required');
     }
 
     private function buildDefaultConfig(): CoquiOpenClawConfig

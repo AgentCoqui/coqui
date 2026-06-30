@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 
 /**
  * Converts inbound channel events into Coqui background tasks and outbound deliveries.
@@ -135,7 +136,7 @@ final readonly class ChannelExecutionManager
 
             if ($taskStatus !== 'completed') {
                 $error = $this->stringOrNull($task['error'] ?? null) ?? sprintf('Background task ended with status %s.', $taskStatus);
-                $this->failEvent((string) $event['id'], $error, $task['completed_at'] ?? gmdate('Y-m-d\TH:i:s\Z'));
+                $this->failEvent((string) $event['id'], $error, $task['completed_at'] ?? Clock::nowUtc());
                 continue;
             }
 
@@ -149,7 +150,7 @@ final readonly class ChannelExecutionManager
 
             $result = trim((string) ($task['result'] ?? ''));
             if ($result === '') {
-                $this->failEvent((string) $event['id'], 'Background task completed without reply content.', $task['completed_at'] ?? gmdate('Y-m-d\TH:i:s\Z'));
+                $this->failEvent((string) $event['id'], 'Background task completed without reply content.', $task['completed_at'] ?? Clock::nowUtc());
                 continue;
             }
 
@@ -192,7 +193,7 @@ final readonly class ChannelExecutionManager
                 $this->channelStore->updateInboundEventState(
                     eventId: (string) $event['id'],
                     status: 'processed',
-                    processedAt: $this->stringOrNull($delivery['sent_at'] ?? null) ?? gmdate('Y-m-d\TH:i:s\Z'),
+                    processedAt: $this->stringOrNull($delivery['sent_at'] ?? null) ?? Clock::nowUtc(),
                     sessionId: $this->stringOrNull($event['session_id'] ?? null),
                     taskId: $this->stringOrNull($event['task_id'] ?? null),
                 );
@@ -203,7 +204,7 @@ final readonly class ChannelExecutionManager
                 $this->failEvent(
                     (string) $event['id'],
                     $this->stringOrNull($delivery['last_error'] ?? null) ?? 'Reply delivery failed.',
-                    $this->stringOrNull($delivery['failed_at'] ?? null) ?? gmdate('Y-m-d\TH:i:s\Z'),
+                    $this->stringOrNull($delivery['failed_at'] ?? null) ?? Clock::nowUtc(),
                 );
             }
         }
@@ -345,7 +346,7 @@ final readonly class ChannelExecutionManager
             eventId: $eventId,
             status: 'rejected',
             error: $reason,
-            processedAt: gmdate('Y-m-d\TH:i:s\Z'),
+            processedAt: Clock::nowUtc(),
         );
     }
 
@@ -355,7 +356,7 @@ final readonly class ChannelExecutionManager
             eventId: $eventId,
             status: 'failed',
             error: $reason,
-            processedAt: $processedAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            processedAt: $processedAt ?? Clock::nowUtc(),
         );
     }
 

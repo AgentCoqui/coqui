@@ -15,8 +15,8 @@ Artifacts are versioned, structured outputs that persist across turns within a s
 
 Use descriptive types that match the content: `code`, `document`, `config`, `plan`, `schema`, `script`, `test`, `report`, `template`, `sketch`, `hypothesis`, or any custom type.
 
-- **`sketch`** — rough, unpolished idea capture. Intentionally informal and exploratory. No lifecycle pressure — sketches can stay in `draft` indefinitely. Use during brainstorming or early design when ideas are forming. Does not auto-generate todos.
-- **`hypothesis`** — a testable idea with rationale. Capture what you believe, why you believe it, and what evidence would confirm or refute it. Does not auto-generate todos. Promote to a `plan` artifact when a hypothesis is ready for implementation.
+- **`sketch`** — rough, unpolished idea capture. Intentionally informal and exploratory. No lifecycle pressure — sketches can stay in `draft` indefinitely. Use during brainstorming or early design when ideas are forming.
+- **`hypothesis`** — a testable idea with rationale. Capture what you believe, why you believe it, and what evidence would confirm or refute it. Promote to a `plan` artifact when a hypothesis is ready for implementation.
 
 ### Stage Lifecycle
 
@@ -30,7 +30,3 @@ Use descriptive types that match the content: `code`, `document`, `config`, `pla
 2. **Update, don't recreate.** Version history preserves all prior states.
 3. **Set `language` and `filepath`** when applicable for proper context.
 4. **Advance stages deliberately.** Only `final` after user approval. Use bulk ops for cleanup workflows.
-
-### Todo Integration
-
-All todos **must** be linked to an artifact via `artifact_id`. When a plan artifact reaches `final`, todos are auto-generated from its content. Use `todo_list(artifact_id: "<id>")` to see linked todos. IDs in guidelines are full UUIDs — use them directly.

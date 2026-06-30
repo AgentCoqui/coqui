@@ -33,8 +33,6 @@ final class ExecutionPolicyFactory
         'project_delete' => ['*'],
         'restart_coqui' => ['*'],
         'schedule_delete' => ['*'],
-        'sprint_delete' => ['*'],
-        'todo_delete' => ['*'],
     ];
 
     public function __construct(

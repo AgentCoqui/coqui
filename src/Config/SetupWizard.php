@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Repl\InterruptiblePrompt;
+use CoquiBot\Coqui\Support\IdGenerator;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -146,7 +147,7 @@ final class SetupWizard
 
         $dir = dirname($outputPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         file_put_contents($outputPath, $json);
@@ -1059,7 +1060,7 @@ final class SetupWizard
             return;
         }
 
-        $apiKey = bin2hex(random_bytes(16));
+        $apiKey = IdGenerator::hex();
 
         if ($this->credentialResolver !== null) {
             $this->credentialResolver->set('COQUI_API_KEY', $apiKey);

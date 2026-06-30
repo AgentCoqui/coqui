@@ -4,6 +4,7 @@ display_name: Vision Analyzer
 description: Analyzes images from file paths, URLs, or base64 data and returns structured descriptions
 version: 2
 access_level: minimal
+category: system
 is_builtin: true
 max_iterations: 5
 toolkits: "-*"

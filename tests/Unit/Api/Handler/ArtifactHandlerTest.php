@@ -39,7 +39,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
-        $sprintId = $fixture['projectStore']->createSprint($projectId, 'Artifact Sprint');
 
         $createResponse = $fixture['handler']->create(
             new ServerRequest(
@@ -51,7 +50,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
                     'content' => 'Initial contract draft',
                     'type' => 'document',
                     'project_id' => $projectId,
-                    'sprint_id' => $sprintId,
                     'tags' => ['api', 'flutter'],
                     'summary' => 'App contract draft',
                 ]) ?: '',
@@ -86,7 +84,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
         expect($createBody['metadata']['tags'])->toBe(['api', 'flutter']);
         expect($createBody['metadata']['summary'])->toBe('App contract draft');
         expect($createBody['project_id'])->toBe($projectId);
-        expect($createBody['sprint_id'])->toBe($sprintId);
 
         expect($updateResponse->getStatusCode())->toBe(200);
         expect($updateBody['title'])->toBe('API Contract v2');
@@ -96,58 +93,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
         expect($updateBody['metadata']['tags'])->toBe(['api', 'flutter', 'crud']);
         expect($updateBody['metadata']['summary'])->toBe('Expanded app contract draft');
         expect((int) $updateBody['version'])->toBe(2);
-    } finally {
-        cleanupArtifactHandlerFixture($fixture);
-    }
-});
-
-test('artifact handler creates versions and restores an older version', function () {
-    $fixture = createArtifactHandlerFixture();
-
-    try {
-        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $artifactId = $fixture['artifactStore']->create($sessionId, 'Plan', 'Version 1 content');
-
-        $versionResponse = $fixture['handler']->createVersion(
-            new ServerRequest(
-                'POST',
-                '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions',
-                ['Content-Type' => 'application/json'],
-                json_encode([
-                    'content' => 'Version 2 content',
-                    'change_summary' => 'Expanded the plan',
-                ]) ?: '',
-            ),
-            $sessionId,
-            $artifactId,
-        );
-        $versionsResponse = $fixture['handler']->versions(
-            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions'),
-            $sessionId,
-            $artifactId,
-        );
-        $versionsBody = json_decode((string) $versionsResponse->getBody(), true);
-        $versionOneId = $versionsBody['versions'][1]['id'];
-
-        $restoreResponse = $fixture['handler']->restoreVersion(
-            new ServerRequest(
-                'POST',
-                '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions/' . $versionOneId . '/restore',
-            ),
-            $sessionId,
-            $artifactId,
-            $versionOneId,
-        );
-        $restoreBody = json_decode((string) $restoreResponse->getBody(), true);
-
-        expect($versionResponse->getStatusCode())->toBe(200);
-        expect(json_decode((string) $versionResponse->getBody(), true)['content'])->toBe('Version 2 content');
-        expect($versionsResponse->getStatusCode())->toBe(200);
-        expect($versionsBody['count'])->toBe(2);
-
-        expect($restoreResponse->getStatusCode())->toBe(200);
-        expect($restoreBody['content'])->toBe('Version 1 content');
-        expect((int) $restoreBody['version'])->toBe(3);
     } finally {
         cleanupArtifactHandlerFixture($fixture);
     }

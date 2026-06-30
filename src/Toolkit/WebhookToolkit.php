@@ -50,7 +50,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
             ? "Active webhooks: {$activeCount} ({$totalTriggers} total deliveries)"
             : 'No active webhooks';
 
-        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
+        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:' . CoquiDefaults::API_DEFAULT_PORT;
 
         return <<<GUIDELINES
         ## Webhooks
@@ -277,7 +277,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
         );
 
         $webhook = $this->webhookStore->get($id);
-        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
+        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:' . CoquiDefaults::API_DEFAULT_PORT;
 
         return ToolResult::json([
             'id' => $id,
@@ -302,7 +302,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
         }
 
         $lines = [];
-        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
+        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:' . CoquiDefaults::API_DEFAULT_PORT;
         foreach ($webhooks as $w) {
             $status = ((int) $w['enabled']) ? '✓' : '✗';
             $triggers = (int) $w['trigger_count'];
@@ -425,7 +425,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $name = (string) $webhook['name'];
 
         $newSecret = $this->webhookStore->rotateSecret($id);
-        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
+        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:' . CoquiDefaults::API_DEFAULT_PORT;
 
         return ToolResult::json([
             'message' => "Secret rotated for webhook '{$name}'. Update the external service immediately.",

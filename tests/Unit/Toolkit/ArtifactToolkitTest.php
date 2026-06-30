@@ -118,17 +118,17 @@ test('artifact_get tool retrieves artifact', function () {
     expect($data['content'])->toBe('body');
 });
 
-test('artifact_get tool retrieves specific version', function () {
+test('artifact_get tool returns the current content', function () {
     $id = $this->store->create($this->sessionId, 'Versioned', 'original');
     $this->store->update($id, 'updated');
 
     $tool = toolFromToolkit($this->toolkit, 'artifact_get');
 
-    $result = $tool->execute(['id' => $id, 'version' => 1]);
+    $result = $tool->execute(['id' => $id]);
 
     $data = assertStructuredToolResult($result);
-    expect($data['content'])->toBe('original');
-    expect($data['version'])->toBe(1);
+    expect($data['content'])->toBe('updated');
+    expect($data['version'])->toBe(2);
 });
 
 test('artifact_list tool returns artifacts', function () {

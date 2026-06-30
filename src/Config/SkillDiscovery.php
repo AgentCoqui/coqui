@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SkillProperties;
 use CoquiBot\Coqui\Exception\SkillNotFoundException;
 use CoquiBot\Coqui\Exception\SkillParseException;
@@ -226,7 +227,7 @@ final class SkillDiscovery
     public function ensureSkillsDir(): void
     {
         if (!is_dir($this->skillsDir)) {
-            mkdir($this->skillsDir, 0755, true);
+            mkdir($this->skillsDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 

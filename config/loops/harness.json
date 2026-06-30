@@ -25,16 +25,14 @@
         {
             "name": "implement",
             "role": "coder",
-            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code directly to the filesystem using the project directory. If reworking from a previous iteration, focus on the specific issues identified by the reviewer.\n\nAfter implementation:\n1. Run verification commands (tests, lint, type checks) via shell\n2. Update todos to reflect completed work via todo_complete\n3. Summarize what was done, what was verified, and any known gaps",
-            "order": 1,
-            "requires_artifact_from": 0
+            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code directly to the filesystem using the project directory. If reworking from a previous iteration, focus on the specific issues identified by the reviewer.\n\nAfter implementation:\n1. Run verification commands (tests, lint, type checks) via shell\n2. Summarize what was done, what was verified, and any known gaps",
+            "order": 1
         },
         {
             "name": "evaluate",
             "role": "reviewer",
             "prompt": "Review the implementation against the original goal and the plan. Verify actual file state using shell tools (ls, cat, grep, find). Check for correctness, completeness, code quality, and edge cases. Cross-check the coder's claimed changes against the real workspace. If the implementation meets the acceptance criteria, approve it. If not, provide specific, actionable feedback for the next iteration.",
-            "order": 2,
-            "requires_artifact_from": 1
+            "order": 2
         }
     ],
     "termination_condition": {

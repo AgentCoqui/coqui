@@ -14,17 +14,15 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
-use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
-use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
-use CoquiBot\Coqui\Repl\Handler\TodoHandler;
+use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\ImagePreviewService;
@@ -55,20 +53,18 @@ final class SlashCommandRouter
     public function __construct(
         private readonly SessionHandler $session,
         private readonly TaskHandler $task,
-        private readonly TodoHandler $todo,
         private readonly ScheduleHandler $schedule,
         private readonly BudgetHandler $budget,
         private readonly ChannelHandler $channel,
-        private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
         private readonly GroupHandler $group,
         private readonly ProfileHandler $profile,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
         private readonly ConfigHandler $config,
+        private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
-        private readonly EvaluationHandler $evaluation,
         private readonly LoopHandler $loop,
         private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
@@ -112,11 +108,10 @@ final class SlashCommandRouter
             '/sessions' => $this->handleSessions($io, $sessionId),
             '/resume' => $this->handleResume($io, $arg),
             '/model' => $this->handleModel($io, $arg),
+            '/thinking' => $this->handleThinking($io, $arg, $activeRole, $activeProfile),
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
-            '/todos' => $this->handleTodos($io, $arg, $sessionId),
             '/projects' => $this->handleProjects($io, $arg, $sessionId, $activeProjectId),
-            '/sprints' => $this->handleSprints($io, $arg, $sessionId),
             '/task' => $this->handleTask($io, $arg),
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
@@ -132,9 +127,7 @@ final class SlashCommandRouter
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
-            '/quality' => $this->handleQuality($io),
             '/webhooks' => $this->handleWebhooks($io, $arg),
-            '/evaluations' => $this->handleEvaluations($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
@@ -193,6 +186,12 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleThinking(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    {
+        $this->thinking->handle($io, $arg, $activeRole, $activeProfile);
+        return RouteResult::continue();
+    }
+
     private function handleConfig(SymfonyStyle $io, string $arg): RouteResult
     {
         $result = $this->config->handle($io, $arg);
@@ -208,12 +207,6 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleTodos(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
-    {
-        $this->todo->handle($io, $arg, $sessionId);
-        return RouteResult::continue();
-    }
-
     private function handleProjects(SymfonyStyle $io, string $arg, string $sessionId, ?string $activeProjectId): RouteResult
     {
         [$projectId, $projectSlug] = $this->project->handleProjects($io, $arg, $sessionId, $activeProjectId);
@@ -226,12 +219,6 @@ final class SlashCommandRouter
             return RouteResult::stateChange(newActiveProjectId: $projectId);
         }
 
-        return RouteResult::continue();
-    }
-
-    private function handleSprints(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
-    {
-        $this->project->handleSprints($io, $arg, $sessionId);
         return RouteResult::continue();
     }
 
@@ -444,21 +431,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleQuality(SymfonyStyle $io): RouteResult
-    {
-        $this->quality->handle($io);
-        return RouteResult::continue();
-    }
-
     private function handleWebhooks(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->webhook->handle($io, $arg);
-        return RouteResult::continue();
-    }
-
-    private function handleEvaluations(SymfonyStyle $io, string $arg): RouteResult
-    {
-        $this->evaluation->handle($io, $arg);
         return RouteResult::continue();
     }
 

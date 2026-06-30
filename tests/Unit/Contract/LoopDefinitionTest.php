@@ -87,7 +87,7 @@ test('fromJson then toJson produces valid JSON', function () {
         'name' => 'test-loop',
         'description' => 'A test definition',
         'roles' => [['role' => 'coder', 'prompt' => 'Do stuff.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     $def = LoopDefinition::fromJson($json);
@@ -110,7 +110,7 @@ test('roleNames returns all role names', function () {
             ['role' => 'coder', 'prompt' => 'Code.'],
             ['role' => 'reviewer', 'prompt' => 'Review.'],
         ],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     expect($def->roleNames())->toBe(['plan', 'coder', 'reviewer']);
@@ -124,7 +124,7 @@ test('stageCount returns number of roles', function () {
             ['role' => 'coder', 'prompt' => 'Code.'],
             ['role' => 'reviewer', 'prompt' => 'Review.'],
         ],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     expect($def->stageCount())->toBe(2);
@@ -139,7 +139,7 @@ test('constructor throws on empty name', function () {
         'name' => '',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'slug-safe');
 
@@ -148,7 +148,7 @@ test('constructor throws on invalid slug characters', function () {
         'name' => 'My Loop!',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'slug-safe');
 
@@ -157,7 +157,7 @@ test('constructor throws on uppercase name', function () {
         'name' => 'MyLoop',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'slug-safe');
 
@@ -166,7 +166,7 @@ test('constructor throws on empty description', function () {
         'name' => 'test',
         'description' => '',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'description');
 
@@ -175,7 +175,7 @@ test('constructor throws on empty roles list', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'at least one role');
 
@@ -184,7 +184,7 @@ test('fromArray throws when roles entry is not an array', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => ['not-an-array'],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 })->throws(\InvalidArgumentException::class, 'must be an object');
 
@@ -205,7 +205,7 @@ test('name with hyphens and underscores is valid', function () {
         'name' => 'my-loop_v2',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     expect($def->name)->toBe('my-loop_v2');
@@ -220,7 +220,7 @@ test('fromArray parses parameters', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code {{subject}}.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Subject to investigate', 'required' => true],
             ['name' => 'format', 'description' => 'Output format', 'required' => false, 'default' => 'markdown'],
@@ -239,7 +239,7 @@ test('fromArray defaults to empty parameters', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     expect($def->parameters)->toBe([]);
@@ -250,7 +250,7 @@ test('toArray includes parameters when present', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
@@ -267,7 +267,7 @@ test('toArray omits parameters when empty', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     $array = $def->toArray();
@@ -279,7 +279,7 @@ test('requiredParameterNames returns only required params', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Required', 'required' => true],
             ['name' => 'format', 'description' => 'Optional', 'required' => false, 'default' => 'md'],
@@ -295,7 +295,7 @@ test('resolveParameters merges provided values with defaults', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'markdown'],
@@ -315,7 +315,7 @@ test('resolveParameters allows overriding defaults', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'markdown'],
         ],
@@ -331,7 +331,7 @@ test('resolveParameters returns empty for no-parameter definitions', function ()
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]);
 
     expect($def->resolveParameters([]))->toBe([]);
@@ -342,7 +342,7 @@ test('fromArray throws when parameters entry is not an array', function () {
         'name' => 'test',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => ['not-an-array'],
     ]);
 })->throws(\InvalidArgumentException::class, 'must be an object');

@@ -4,6 +4,7 @@ display_name: Explorer
 description: Read-only codebase exploration agent for gathering context and analyzing project structure
 version: 2
 access_level: readonly-shell
+category: explore
 is_builtin: true
 max_iterations: 20
 toolkits: "+*, -MemoryToolkit, -spawn_agent, -php_execute"

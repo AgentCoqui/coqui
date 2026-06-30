@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 /**
  * Loads and provides typed access to config/defaults.json.
  *
@@ -28,7 +30,7 @@ final readonly class DefaultsLoader
             throw new \RuntimeException("Unable to read defaults file: {$path}");
         }
 
-        $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         if (!is_array($decoded)) {
             throw new \RuntimeException("Invalid defaults file: expected JSON object");
         }

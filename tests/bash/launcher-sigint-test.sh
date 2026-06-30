@@ -2,7 +2,7 @@
 #
 # tests/bash/launcher-sigint-test.sh
 #
-# Unit tests for bash array expansion safety in bin/coqui-launcher.
+# Unit tests for bash array expansion safety in bin/coqui.
 #
 # These tests guard against the regression where `session_services[@]` with
 # `set -u` threw "unbound variable" on macOS (bash 3.2) when the array was
@@ -21,7 +21,7 @@ pass() { PASS=$((PASS + 1)); echo "  ✓  $1"; }
 fail() { FAIL=$((FAIL + 1)); ERRORS+=("$1"); echo "  ✗  $1"; }
 
 echo ""
-echo "  coqui-launcher — signal handling unit tests"
+echo "  coqui — signal handling unit tests"
 echo ""
 
 # ---------------------------------------------------------------------------

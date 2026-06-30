@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -256,7 +257,7 @@ final class ScheduleHandler
                 $io->text('<fg=gray>Cancelled.</>');
                 return;
             }
-            $now = gmdate('Y-m-d\TH:i:s\Z');
+            $now = Clock::nowUtc();
             $count = 0;
             foreach ($enabled as $s) {
                 $store->forceNextRun((string) $s['id'], $now);
@@ -281,7 +282,7 @@ final class ScheduleHandler
             return;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $store->forceNextRun((string) $schedule['id'], $now);
         $io->success("Schedule '{$schedule['name']}' will fire on the next API scheduler tick (within 60 seconds).");
     }

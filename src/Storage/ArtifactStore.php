@@ -4,15 +4,24 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
- * SQLite-backed artifact persistence.
+ * SQLite-backed artifact index.
  *
  * Artifacts represent structured outputs created by agents: code files,
  * documents, configurations, etc. Each artifact tracks lineage (which
- * session/turn created it), supports staging (draft → review → final),
- * and maintains a version history.
+ * session/turn created it) and supports staging (draft → review → final).
+ *
+ * For filesystem-backed types (plan, document, code, config) the canonical
+ * content lives on disk under the project's artifacts/ directory and the DB
+ * `content` column is left empty — the file is the source of truth and history
+ * comes from the user's own VCS. Only DB-only types (loop_output, data, other)
+ * store content inline. A monotonically increasing `version` counter is kept on
+ * the row for display, but full per-version snapshots are not retained.
  */
 final class ArtifactStore
 {
@@ -54,28 +63,19 @@ final class ArtifactStore
             )
         SQL);
 
-        $this->db->exec(<<<'SQL'
-            CREATE TABLE IF NOT EXISTS artifact_versions (
-                id TEXT PRIMARY KEY,
-                artifact_id TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                change_summary TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-            )
-        SQL);
+        // Legacy: drop the per-version snapshot table (artifacts now keep only a
+        // version counter on the row; full content history lives in the user's VCS).
+        $this->db->exec('DROP INDEX IF EXISTS idx_artifact_versions_artifact');
+        $this->db->exec('DROP TABLE IF EXISTS artifact_versions');
 
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_artifacts_session ON artifacts(session_id)
         SQL);
 
-        $this->db->exec(<<<'SQL'
-            CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id)
-        SQL);
-
         // Harness columns — added to existing installations via migration
         $this->migrateAddColumn('artifacts', 'project_id', "TEXT");
+        // sprint_id is a dormant column retained from the removed sprint subsystem;
+        // it is never written or read. Kept because SQLite cannot cheaply drop columns.
         $this->migrateAddColumn('artifacts', 'sprint_id', "TEXT");
         $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -87,22 +87,15 @@ final class ArtifactStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     /**
-     * Create a new artifact and save its first version.
+     * Create a new artifact.
+     *
+     * Filesystem-backed types write their content to a canonical file and leave
+     * the DB `content` column empty (the file is authoritative). DB-only types
+     * store content inline.
      *
      * @param array<string, mixed> $metadata Optional structured metadata.
      */
@@ -117,11 +110,10 @@ final class ArtifactStore
         ?string $turnId = null,
         ?array $metadata = null,
         ?string $projectId = null,
-        ?string $sprintId = null,
         bool $persistent = false,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Auto-persist artifacts linked to projects — project-linked artifacts
         // survive cleanupFinalized() so they remain available to later loop stages
@@ -129,8 +121,8 @@ final class ArtifactStore
         $isPersistent = $persistent || ($projectId !== null && $projectId !== '');
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, persistent, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -144,15 +136,12 @@ final class ArtifactStore
             $stage,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
-            $sprintId,
             $isPersistent ? 1 : 0,
             $now,
             $now,
         ]);
-        // Save initial version
-        $this->saveVersion($id, 1, $content, 'Initial version');
-
-        // Filesystem-backed: resolve canonical path, write file, update DB metadata
+        // Filesystem-backed: resolve canonical path, write file, and clear the DB
+        // content (the file becomes the source of truth).
         if ($this->fileService !== null && $this->fileService->isFilesystemBacked($type, $filepath, $projectId)) {
             $projectDir = $this->resolveProjectDirectory($projectId);
             $canonicalPath = $this->fileService->resolveCanonicalPath($id, $type, $title, $filepath, $projectId, $projectDir);
@@ -160,7 +149,7 @@ final class ArtifactStore
             if ($canonicalPath !== null && $this->fileService->writeContent($canonicalPath, $content)) {
                 $contentHash = $this->fileService->computeContentHash($content);
                 $this->db->prepare(
-                    'UPDATE artifacts SET storage_mode = ?, canonical_path = ?, content_hash = ?, filepath = COALESCE(filepath, ?) WHERE id = ?',
+                    "UPDATE artifacts SET storage_mode = ?, canonical_path = ?, content_hash = ?, content = '', filepath = COALESCE(filepath, ?) WHERE id = ?",
                 )->execute(['filesystem', $canonicalPath, $contentHash, $canonicalPath, $id]);
             }
         }
@@ -181,16 +170,23 @@ final class ArtifactStore
         ?string $stage = null,
         ?string $sessionId = null,
     ): bool {
-        $artifact = $this->get($id, $sessionId);
+        $artifact = $this->getRaw($id, $sessionId);
         if ($artifact === null) {
             return false;
         }
 
         $newVersion = (int) $artifact['version'] + 1;
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
+        $canonicalPath = $artifact['canonical_path'] ?? null;
+        $isFilesystemBacked = $this->fileService !== null
+            && is_string($canonicalPath) && $canonicalPath !== ''
+            && ($artifact['storage_mode'] ?? 'database') === 'filesystem';
+
+        // Filesystem-backed artifacts keep the DB content empty (the file is the
+        // source of truth); DB-only artifacts store content inline.
         $sets = ['content = ?', 'version = ?', 'updated_at = ?'];
-        $params = [$content, $newVersion, $now];
+        $params = [$isFilesystemBacked ? '' : $content, $newVersion, $now];
 
         if ($title !== null) {
             $sets[] = 'title = ?';
@@ -202,20 +198,15 @@ final class ArtifactStore
             $params[] = $stage;
         }
 
+        if ($isFilesystemBacked) {
+            $this->fileService->writeContent((string) $canonicalPath, $content);
+            $sets[] = 'content_hash = ?';
+            $params[] = $this->fileService->computeContentHash($content);
+        }
+
         $params[] = $id;
         $sql = 'UPDATE artifacts SET ' . implode(', ', $sets) . ' WHERE id = ?';
         $this->db->prepare($sql)->execute($params);
-
-        // Save version snapshot
-        $this->saveVersion($id, $newVersion, $content, $changeSummary);
-
-        // Filesystem-backed: write updated content to canonical file
-        $canonicalPath = $artifact['canonical_path'] ?? null;
-        if ($this->fileService !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
-            $this->fileService->writeContent($canonicalPath, $content);
-            $contentHash = $this->fileService->computeContentHash($content);
-            $this->db->prepare('UPDATE artifacts SET content_hash = ? WHERE id = ?')->execute([$contentHash, $id]);
-        }
 
         return true;
     }
@@ -223,7 +214,7 @@ final class ArtifactStore
     /**
      * Patch non-versioned artifact fields.
      *
-     * Supported keys: title, language, metadata, project_id, sprint_id, persistent.
+     * Supported keys: title, language, metadata, project_id, persistent.
      *
      * @param array<string, mixed> $patch
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
@@ -236,7 +227,7 @@ final class ArtifactStore
         }
 
         $sets = ['updated_at = ?'];
-        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+        $params = [Clock::nowUtc()];
 
         if (array_key_exists('title', $patch)) {
             $sets[] = 'title = ?';
@@ -267,15 +258,6 @@ final class ArtifactStore
             } else {
                 $sets[] = 'project_id = ?';
                 $params[] = $patch['project_id'];
-            }
-        }
-
-        if (array_key_exists('sprint_id', $patch)) {
-            if ($patch['sprint_id'] === null) {
-                $sets[] = 'sprint_id = NULL';
-            } else {
-                $sets[] = 'sprint_id = ?';
-                $params[] = $patch['sprint_id'];
             }
         }
 
@@ -360,7 +342,6 @@ final class ArtifactStore
         ?string $stage = null,
         int $limit = 50,
         ?string $projectId = null,
-        ?string $sprintId = null,
         ?string $createdAfter = null,
     ): array {
         $where = ['session_id = ?'];
@@ -379,11 +360,6 @@ final class ArtifactStore
         if ($projectId !== null) {
             $where[] = 'project_id = ?';
             $params[] = $projectId;
-        }
-
-        if ($sprintId !== null) {
-            $where[] = 'sprint_id = ?';
-            $params[] = $sprintId;
         }
 
         if ($createdAfter !== null) {
@@ -451,59 +427,6 @@ final class ArtifactStore
     }
 
     /**
-     * Get version history for an artifact.
-     *
-     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
-     * @return list<array<string, mixed>>
-     */
-    public function getVersions(string $artifactId, ?string $sessionId = null): array
-    {
-        if ($sessionId !== null && $this->get($artifactId, $sessionId) === null) {
-            return [];
-        }
-
-        $stmt = $this->db->prepare(
-            'SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version DESC',
-        );
-        $stmt->execute([$artifactId]);
-
-        /** @var list<array<string, mixed>> */
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Get a specific version of an artifact.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function getVersion(string $artifactId, int $version): ?array
-    {
-        $stmt = $this->db->prepare(
-            'SELECT * FROM artifact_versions WHERE artifact_id = ? AND version = ?',
-        );
-        $stmt->execute([$artifactId, $version]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row !== false ? $row : null;
-    }
-
-    /**
-     * Get a specific stored version record by its row ID.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function getVersionById(string $artifactId, string $versionId): ?array
-    {
-        $stmt = $this->db->prepare(
-            'SELECT * FROM artifact_versions WHERE artifact_id = ? AND id = ?',
-        );
-        $stmt->execute([$artifactId, $versionId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row !== false ? $row : null;
-    }
-
-    /**
      * Update only the stage of an artifact (e.g. draft → review → final).
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
@@ -511,8 +434,8 @@ final class ArtifactStore
     public function updateStage(string $id, string $stage, ?string $sessionId = null): bool
     {
         // For filesystem-backed artifacts, sync disk content to DB before stage transition.
-        // This ensures PlanTodoGenerator and other post-finalization consumers see the
-        // latest content even if the file was edited externally.
+        // This ensures post-finalization consumers see the latest content even if the
+        // file was edited externally.
         // Uses getRaw() to avoid the disk-content overlay that get() applies.
         if ($this->fileService !== null) {
             $artifact = $this->getRaw($id, $sessionId);
@@ -526,7 +449,7 @@ final class ArtifactStore
             }
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($sessionId !== null) {
             $stmt = $this->db->prepare(
@@ -586,7 +509,7 @@ final class ArtifactStore
             return 0;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $count = 0;
 
         $this->db->beginTransaction();
@@ -638,21 +561,5 @@ final class ArtifactStore
         } catch (\InvalidArgumentException) {
             return null;
         }
-    }
-
-    private function saveVersion(
-        string $artifactId,
-        int $version,
-        string $content,
-        ?string $changeSummary,
-    ): void {
-        $versionId = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-
-        $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO artifact_versions (id, artifact_id, version, content, change_summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        SQL);
-        $stmt->execute([$versionId, $artifactId, $version, $content, $changeSummary, $now]);
     }
 }

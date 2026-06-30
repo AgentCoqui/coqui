@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Storage;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Filesystem-backed content resolution for hybrid artifacts.
  *
  * Handles canonical path generation, file I/O, and drift detection
  * for artifacts whose content lives on disk as the source of truth.
- * The DB remains the index/coordination layer (stage, version history,
- * project/sprint linking), while the filesystem holds canonical content.
+ * The DB remains the index/coordination layer (stage, project linking),
+ * while the filesystem holds canonical content.
  *
  * Artifact types eligible for filesystem backing:
  * - plan, document: auto-generate canonical paths under project or session dirs
@@ -112,7 +113,7 @@ final class ArtifactFileService
         $dir = dirname($absolutePath);
 
         if (!is_dir($dir)) {
-            if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
+            if (!mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true) && !is_dir($dir)) {
                 return false;
             }
         }

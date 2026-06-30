@@ -21,7 +21,6 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\ModManager\Config\ModRegistry;
 use CoquiBot\ModManager\ModManagerToolkit;
@@ -55,7 +54,6 @@ function createTabCompletionFixture(): array
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     new ArtifactStore($storage->getPdo(), null, $projectStore);
-    $todoStore = new TodoStore($storage->getPdo());
     $scheduleStore = new ScheduleStore($storage->getPdo());
     $loopStore = new LoopStore($storage->getPdo());
     $webhookStore = new WebhookStore($storage->getPdo());
@@ -89,7 +87,6 @@ function createTabCompletionFixture(): array
         roleResolver: $roleResolver,
         roleDiscovery: $roleDiscovery,
         profileDiscovery: $profileDiscovery,
-        todoStore: $todoStore,
         projectStore: $projectStore,
         loopDiscovery: $loopDiscovery,
         discovery: $discovery,
@@ -98,7 +95,6 @@ function createTabCompletionFixture(): array
     );
 
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
-    $todoId = $todoStore->create($sessionId, 'Review command help');
     $projectStore->createProject('Docs Cleanup', 'docs-cleanup');
     $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', 'Run nightly review');
     $loopId = $loopStore->createLoop('harness', 'Keep REPL docs aligned', []);
@@ -122,7 +118,6 @@ function createTabCompletionFixture(): array
         'sessionId' => $sessionId,
         'otherSessionId' => $otherSessionId,
         'resumeSessionId' => $resumeSessionId,
-        'todoId' => $todoId,
         'scheduleId' => $scheduleId,
         'loopId' => $loopId,
         'webhookId' => $webhookId,
@@ -142,7 +137,6 @@ function testBootManagerForTabCompletion(
     RoleResolver $roleResolver,
     RoleDiscovery $roleDiscovery,
     ProfileDiscovery $profileDiscovery,
-    TodoStore $todoStore,
     ProjectStore $projectStore,
     LoopDiscovery $loopDiscovery,
     ToolkitDiscovery $discovery,
@@ -158,7 +152,6 @@ function testBootManagerForTabCompletion(
         $roleResolver,
         $roleDiscovery,
         $profileDiscovery,
-        $todoStore,
         $projectStore,
         $loopDiscovery,
         $discovery,
@@ -169,7 +162,6 @@ function testBootManagerForTabCompletion(
         $this->roleResolver = $roleResolver;
         $this->roleDiscovery = $roleDiscovery;
         $this->profileDiscovery = $profileDiscovery;
-        $this->todoStore = $todoStore;
         $this->projectStore = $projectStore;
         $this->loopDiscovery = $loopDiscovery;
         $this->discovery = $discovery;
@@ -206,7 +198,6 @@ test('static command completion covers catalog argument hints', function (): voi
         $cases = [
             '/config ' => ['show', 'edit'],
             '/tasks ' => ['all', 'pending', 'running', 'cancelling', 'completed', 'failed', 'cancelled'],
-            '/todos ' => ['pending', 'in_progress', 'completed', 'cancelled', 'delete', 'complete', 'cancel', 'clear'],
             '/schedules ' => ['status', 'enable', 'disable', 'delete', 'trigger'],
             '/loops ' => ['start', 'definitions', 'defs', 'status', 'pause', 'resume', 'stop', 'running', 'paused', 'completed', 'failed', 'cancelled'],
             '/webhooks ' => ['status', 'deliveries', 'enable', 'disable', 'delete', 'rotate'],
@@ -214,7 +205,6 @@ test('static command completion covers catalog argument hints', function (): voi
             '/summarize ' => ['recent', 'focus'],
             '/roles ' => ['list', 'update', 'ignore', 'unignore'],
             '/backstory ' => ['generate', 'failed'],
-            '/evaluations ' => ['A', 'B', 'C', 'D', 'F'],
             '/multiline ' => ['on', 'off'],
         ];
 
@@ -258,10 +248,6 @@ test('role, profile, session, task, and todo completion use live state', functio
         expect($fixture['completion']->complete('/task '))->toContain($fixture['completedTaskId']);
         expect($fixture['completion']->complete('/task-cancel '))->toContain($fixture['pendingTaskId']);
         expect($fixture['completion']->complete('/task-cancel '))->not->toContain($fixture['completedTaskId']);
-        expect($fixture['completion']->complete('/todos complete '))->toContain('all');
-        expect($fixture['completion']->complete('/todos complete '))->toContain($fixture['todoId']);
-        expect($fixture['completion']->complete('/todos cancel '))->toContain($fixture['todoId']);
-        expect($fixture['completion']->complete('/todos cancel '))->not->toContain('all');
     } finally {
         cleanupTabCompletionFixture($fixture);
     }
@@ -290,7 +276,6 @@ test('project, schedule, loop, and webhook completion cover filters and live ide
     try {
         expect($fixture['completion']->complete('/projects '))->toContain('clear');
         expect($fixture['completion']->complete('/projects '))->toContain('docs-cleanup');
-        expect($fixture['completion']->complete('/sprints d'))->toContain('docs-cleanup');
         expect($fixture['completion']->complete('/loops st'))->toContain('start');
         expect($fixture['completion']->complete('/loops st'))->toContain('status');
         expect($fixture['completion']->complete('/loops st'))->toContain('stop');

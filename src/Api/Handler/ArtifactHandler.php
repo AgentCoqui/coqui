@@ -19,12 +19,13 @@ use React\Http\Message\Response;
  *
  * GET    /api/v1/sessions/{id}/artifacts                  — list artifacts
  * GET    /api/v1/sessions/{id}/artifacts/{artifactId}     — get artifact
- * GET    /api/v1/sessions/{id}/artifacts/{artifactId}/versions — version history
  *
  * Mutating operations (create, update, delete) are REPL-only.
  */
 final readonly class ArtifactHandler
 {
+    use DecodesRequestBody;
+
     /** @var list<string> */
     private const array ALLOWED_STAGES = ['draft', 'review', 'final'];
 
@@ -70,30 +71,6 @@ final readonly class ArtifactHandler
     }
 
     /**
-     * GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions
-     */
-    public function versions(ServerRequestInterface $request, string $id, string $artifactId): Response
-    {
-        $session = $this->requireReadableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $versions = $this->store->getVersions($artifactId, sessionId: $id);
-
-        return Router::jsonResponse([
-            'artifact_id' => $artifactId,
-            'versions' => $versions,
-            'count' => count($versions),
-        ]);
-    }
-
-    /**
      * POST /api/v1/sessions/{id}/artifacts
      */
     public function create(ServerRequestInterface $request, string $id): Response
@@ -103,7 +80,7 @@ final readonly class ArtifactHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -130,10 +107,9 @@ final readonly class ArtifactHandler
         $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
         $filepath = array_key_exists('filepath', $body) ? $this->nullableString($body['filepath']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
-        $sprintId = array_key_exists('sprint_id', $body) ? $this->nullableId($body['sprint_id']) : null;
         $persistent = array_key_exists('persistent', $body) ? filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN) : false;
 
-        $linkValidation = $this->validateArtifactLinks($projectId, $sprintId);
+        $linkValidation = $this->validateArtifactLinks($projectId);
         if ($linkValidation instanceof Response) {
             return $linkValidation;
         }
@@ -153,7 +129,6 @@ final readonly class ArtifactHandler
             stage: $stage,
             metadata: $metadata,
             projectId: $projectId,
-            sprintId: $sprintId,
             persistent: $persistent,
         );
 
@@ -175,12 +150,12 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $allowedKeys = ['title', 'content', 'change_summary', 'stage', 'metadata', 'tags', 'summary', 'language', 'project_id', 'sprint_id', 'persistent'];
+        $allowedKeys = ['title', 'content', 'change_summary', 'stage', 'metadata', 'tags', 'summary', 'language', 'project_id', 'persistent'];
         $unknownKeys = array_values(array_filter(
             array_keys($body),
             static fn(string $key): bool => !in_array($key, $allowedKeys, true),
@@ -213,9 +188,8 @@ final readonly class ArtifactHandler
 
         $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
-        $sprintId = array_key_exists('sprint_id', $body) ? $this->nullableId($body['sprint_id']) : null;
 
-        $linkValidation = $this->validateArtifactLinks(array_key_exists('project_id', $body) ? $projectId : null, array_key_exists('sprint_id', $body) ? $sprintId : null, $artifact);
+        $linkValidation = $this->validateArtifactLinks(array_key_exists('project_id', $body) ? $projectId : null, $artifact);
         if ($linkValidation instanceof Response) {
             return $linkValidation;
         }
@@ -260,10 +234,6 @@ final readonly class ArtifactHandler
                 $patch['project_id'] = $projectId;
             }
 
-            if (array_key_exists('sprint_id', $body)) {
-                $patch['sprint_id'] = $sprintId;
-            }
-
             if (array_key_exists('persistent', $body)) {
                 $patch['persistent'] = filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN);
             } elseif (array_key_exists('project_id', $body) && $projectId !== null) {
@@ -288,10 +258,6 @@ final readonly class ArtifactHandler
 
             if (array_key_exists('project_id', $body)) {
                 $patch['project_id'] = $projectId;
-            }
-
-            if (array_key_exists('sprint_id', $body)) {
-                $patch['sprint_id'] = $sprintId;
             }
 
             if (array_key_exists('persistent', $body)) {
@@ -328,76 +294,6 @@ final readonly class ArtifactHandler
             'deleted' => true,
             'id' => $artifactId,
         ]);
-    }
-
-    /**
-     * POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions
-     */
-    public function createVersion(ServerRequestInterface $request, string $id, string $artifactId): Response
-    {
-        $session = $this->requireWritableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $body = $this->requestBody($request);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
-        }
-
-        if (!array_key_exists('content', $body) || !is_string($body['content'])) {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'content is required');
-        }
-
-        $changeSummary = array_key_exists('change_summary', $body) ? $this->nullableString($body['change_summary']) : null;
-        $title = array_key_exists('title', $body) ? trim((string) $body['title']) : null;
-        if ($title !== null && $title === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'title cannot be empty');
-        }
-
-        $stage = array_key_exists('stage', $body) ? strtolower(trim((string) $body['stage'])) : null;
-        if ($stage !== null && !in_array($stage, self::ALLOWED_STAGES, true)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'stage must be draft, review, or final');
-        }
-
-        $this->store->update($artifactId, $body['content'], $changeSummary, $title, $stage, $id);
-
-        return $this->artifactDetailResponse($id, $artifactId);
-    }
-
-    /**
-     * POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore
-     */
-    public function restoreVersion(ServerRequestInterface $request, string $id, string $artifactId, string $versionId): Response
-    {
-        $session = $this->requireWritableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $version = $this->store->getVersionById($artifactId, $versionId);
-        if ($version === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact version not found');
-        }
-
-        $this->store->update(
-            $artifactId,
-            (string) $version['content'],
-            sprintf('Restored version %d', (int) ($version['version'] ?? 0)),
-            sessionId: $id,
-        );
-
-        return $this->artifactDetailResponse($id, $artifactId);
     }
 
     /**
@@ -501,47 +397,17 @@ final readonly class ArtifactHandler
     /**
      * @param array<string, mixed>|null $existingArtifact
      */
-    private function validateArtifactLinks(?string $projectId, ?string $sprintId, ?array $existingArtifact = null): ?Response
+    private function validateArtifactLinks(?string $projectId, ?array $existingArtifact = null): ?Response
     {
         if ($this->projectStore === null) {
             return null;
         }
 
-        $resolvedProjectId = $projectId;
-        if ($resolvedProjectId !== null && $this->projectStore->getProject($resolvedProjectId) === null) {
+        if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
         }
 
-        if ($sprintId !== null) {
-            $sprint = $this->projectStore->getSprint($sprintId);
-            if ($sprint === null) {
-                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
-            }
-
-            $sprintProjectId = (string) ($sprint['project_id'] ?? '');
-            if ($resolvedProjectId !== null && $resolvedProjectId !== '' && $sprintProjectId !== '' && $resolvedProjectId !== $sprintProjectId) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'sprint_id does not belong to project_id');
-            }
-
-            if ($resolvedProjectId === null && $existingArtifact !== null) {
-                $existingProjectId = is_string($existingArtifact['project_id'] ?? null) ? (string) $existingArtifact['project_id'] : null;
-                if ($existingProjectId !== null && $existingProjectId !== '' && $existingProjectId !== $sprintProjectId) {
-                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'sprint_id does not belong to the artifact project');
-                }
-            }
-        }
-
         return null;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**

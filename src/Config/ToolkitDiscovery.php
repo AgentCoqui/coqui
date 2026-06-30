@@ -8,6 +8,7 @@ use CarmeloSantana\PathHelper\PathHelper;
 
 use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\CredentialRequirement;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\ReplCommandProvider;
@@ -614,7 +615,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
     {
         $dir = dirname($this->registryPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         file_put_contents(

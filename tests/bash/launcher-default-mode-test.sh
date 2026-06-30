@@ -10,7 +10,7 @@ pass() { PASS=$((PASS + 1)); echo "  ✓  $1"; }
 fail() { FAIL=$((FAIL + 1)); ERRORS+=("$1"); echo "  ✗  $1"; }
 
 echo ""
-echo "  coqui-launcher — default mode end-to-end test"
+echo "  coqui — default mode end-to-end test"
 echo ""
 
 tmpdir=$(mktemp -d)
@@ -18,7 +18,6 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 mkdir -p "$tmpdir/bin" "$tmpdir/.workspace"
 cp bin/coqui "$tmpdir/bin/coqui"
-cp bin/coqui-launcher "$tmpdir/bin/coqui-launcher"
 
 cat > "$tmpdir/bin/coqui-console" <<'STUB'
 #!/usr/bin/env php
@@ -142,14 +141,14 @@ file_put_contents($logfile, sprintf("repl-run %d\n", getmypid()), FILE_APPEND);
 exit(0);
 STUB
 
-chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-launcher" "$tmpdir/bin/coqui-console"
+chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-console"
 
 if bash -euo pipefail -c '
     port=$((44000 + ($$ % 1000)))
     export COQUI_TEST_LOG="$1/launcher.log"
     export COQUI_WORKSPACE="$1/.workspace"
 
-    "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-launcher-default-test.out 2>&1
+    "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-default-test.out 2>&1
 
     grep -q "repl-run" "$COQUI_TEST_LOG"
     grep -q "api-start" "$COQUI_TEST_LOG"
@@ -262,6 +261,33 @@ if bash -euo pipefail -c '
 else
     fail "launcher still treated a bare TCP listener as a healthy API"
 fi
+
+# Isolated project dir so the negative "no project-root .workspace" assertion is
+# meaningful — the shared fixture above uses $tmpdir/.workspace as a real workspace.
+pidtmp=$(mktemp -d)
+mkdir -p "$pidtmp/bin"
+cp "$tmpdir/bin/coqui" "$pidtmp/bin/coqui"
+cp "$tmpdir/bin/coqui-console" "$pidtmp/bin/coqui-console"
+
+if bash -euo pipefail -c '
+    port=$((47000 + ($$ % 1000)))
+    export COQUI_TEST_LOG="$1/pidloc.log"
+    export COQUI_WORKSPACE="$1/resolved-ws"          # workspace outside the project dir
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" api --background --port "$port" >/tmp/coqui-pidloc-test.out 2>&1
+
+    test -f "$1/resolved-ws/pids/api.pid"            # pid under RESOLVED workspace
+    if [ -e "$1/.workspace" ]; then exit 1; fi       # project root must stay clean
+
+    "$1/bin/coqui" stop-api --port "$port" >/tmp/coqui-pidloc-stop.out 2>&1
+' _ "$pidtmp"; then
+    pass "launcher writes PID files under the resolved workspace, not the project root"
+else
+    fail "launcher wrote PID files outside the resolved workspace or created project-root .workspace"
+fi
+
+rm -rf "$pidtmp"
 
 echo ""
 echo "  Results: ${PASS} passed, ${FAIL} failed"

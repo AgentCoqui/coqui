@@ -121,32 +121,13 @@ final readonly class TaskHandler
             $projectId = null;
         }
 
-        $sprintId = isset($body['sprint_id']) ? trim((string) $body['sprint_id']) : null;
-        if ($sprintId === '') {
-            $sprintId = null;
-        }
-
-        if (($projectId !== null || $sprintId !== null) && $this->projectStore === null) {
+        if ($projectId !== null && $this->projectStore === null) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Project system not initialized');
         }
 
         if ($this->projectStore !== null) {
             if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
                 return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
-            }
-
-            if ($sprintId !== null) {
-                $sprint = $this->projectStore->getSprint($sprintId);
-                if ($sprint === null) {
-                    return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
-                }
-
-                $sprintProjectId = (string) $sprint['project_id'];
-                if ($projectId !== null && $projectId !== $sprintProjectId) {
-                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Sprint does not belong to the specified project');
-                }
-
-                $projectId ??= $sprintProjectId;
             }
         }
 
@@ -163,7 +144,6 @@ final readonly class TaskHandler
             title: $title,
             maxIterations: $maxIterations,
             projectId: $projectId,
-            sprintId: $sprintId,
         );
 
         // Try to start immediately (returns false if at max concurrency)
@@ -180,7 +160,6 @@ final readonly class TaskHandler
             'profile' => $profile,
             'title' => $title,
             'project_id' => $projectId,
-            'sprint_id' => $sprintId,
             'created_at' => $task['created_at'] ?? date('c'),
         ], 201);
     }

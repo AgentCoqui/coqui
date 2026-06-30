@@ -34,7 +34,7 @@ services:
 
       # Workspace — named volume persists session data, bot packages, and workspace state
       # COQUI_WORKSPACE env var tells BootManager to use this path instead of ~/.coqui/.workspace
-      - coqui_workspace:/app/workspace
+      - coqui_workspace:/app/.workspace
 
       # User config — mount if present (create openclaw.json first)
       # Uncomment below or use: docker compose run -v ./openclaw.json:/app/openclaw.json:ro coqui

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Manages a separate Composer project inside the workspace directory.
@@ -58,13 +59,13 @@ final class WorkspaceComposerManager
 
         $dir = dirname($this->composerJsonPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         // Create src/ directory for potential workspace code
         $srcDir = $dir . '/src';
         if (!is_dir($srcDir)) {
-            mkdir($srcDir, 0755, true);
+            mkdir($srcDir, CoquiDefaults::DIRECTORY_MODE, true);
             file_put_contents($srcDir . '/.gitkeep', '');
         }
 

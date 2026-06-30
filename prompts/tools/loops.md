@@ -17,7 +17,7 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 
 A loop definition specifies a sequence of roles (e.g., plan → coder → reviewer) and a termination condition. Each iteration runs all roles in sequence. After each iteration, the termination condition is evaluated — if not met, a new iteration begins with results from the previous cycle.
 
-Termination types: `evaluation_bound` (approval signals), `iteration_bound` (fixed count), `time_bound` (deadline), `goal_bound` (LLM evaluator), `tool_bound` (metric threshold).
+Termination types: `evaluation_bound` (an evaluator approves the work against criteria), `iteration_bound` (a fixed iteration count), `goal_bound` (an LLM judges whether the goal is achieved).
 
 ### Template Parameters
 
@@ -36,10 +36,6 @@ Definitions support `{{placeholder}}` parameters substituted at start time. Use 
 ### Best Practices
 
 1. **Write clear goals.** Be specific about what "done" looks like — the goal is passed to every role in every iteration.
-2. **Monitor active loops.** Use `loop_status` to check progress. Use `loop_pause` before making mid-loop adjustments.
+2. **Monitor active loops.** Use `loop_status` to check progress. Use `loop_control(action: "pause")` before making mid-loop adjustments.
 3. **Use appropriate definitions.** Choose the one that fits your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
 4. **Use `id: "all"` for batch operations.** `loop_control(action: "stop", id: "all")` cancels all active loops.
-
-### Artifact Contract Enforcement
-
-Loop stages can declare `requires_artifact_from` to enforce inter-stage artifact dependencies. Built-in definitions use this: coder requires plan output, reviewer requires coder output. Missing artifacts auto-fail the stage.

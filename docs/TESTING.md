@@ -135,10 +135,10 @@ For application profiling, keep the runtime unchanged and launch the existing en
 mkdir -p build/profiles/app
 XDEBUG_MODE=profile \
 XDEBUG_CONFIG="output_dir=$(pwd)/build/profiles/app profiler_output_name=cachegrind.out.%p" \
-./bin/coqui-launcher --repl-only
+./bin/coqui --repl-only
 ```
 
-You can swap `./bin/coqui-launcher --repl-only` for `./bin/coqui-launcher --api-only`, `./bin/coqui-launcher`, or `./bin/coqui --prompt "..."` depending on the slow path you are investigating.
+You can swap `./bin/coqui --repl-only` for `./bin/coqui --api-only`, `./bin/coqui`, or `./bin/coqui --prompt "..."` depending on the slow path you are investigating.
 
 ## Analyzing Profile Output
 

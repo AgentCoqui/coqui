@@ -31,7 +31,7 @@ final class OpenClawConfig implements ConfigInterface
             throw ConfigNotFoundException::unreadable($path);
         }
 
-        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode($json, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
 
         return new self($data);
     }
@@ -235,6 +235,43 @@ final class OpenClawConfig implements ConfigInterface
     public function getModelDefinition(string $model): ?ModelDefinition
     {
         return $this->modelDefinitions[$model] ?? null;
+    }
+
+    /**
+     * Apply a single setting to a model entry in place.
+     *
+     * Mutates this shared runtime instance so long-lived consumers
+     * (ProviderFactory, AgentRunner) pick up the change on the next
+     * provider construction without a restart. Pass null to remove
+     * the key. Returns false when the model entry does not exist.
+     */
+    public function applyModelSetting(string $provider, string $modelId, string $key, mixed $value): bool
+    {
+        $models = $this->data['models']['providers'][$provider]['models'] ?? null;
+        if (!is_array($models)) {
+            return false;
+        }
+
+        foreach ($models as $index => $modelData) {
+            if (!is_array($modelData) || ($modelData['id'] ?? null) !== $modelId) {
+                continue;
+            }
+
+            if ($value === null) {
+                unset($this->data['models']['providers'][$provider]['models'][$index][$key]);
+            } else {
+                $this->data['models']['providers'][$provider]['models'][$index][$key] = $value;
+            }
+
+            $this->modelDefinitions["{$provider}/{$modelId}"] = ModelDefinition::fromOpenClaw(
+                $provider,
+                $this->data['models']['providers'][$provider]['models'][$index],
+            );
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

@@ -12,7 +12,6 @@ final readonly class ChildAgentHandoff
     /**
      * @param array<string, mixed> $metadata
      * @param list<string> $artifactIds
-     * @param list<string> $todoIds
      */
     public function __construct(
         public string $task,
@@ -21,11 +20,9 @@ final readonly class ChildAgentHandoff
         public ?string $intent = null,
         public ?string $workflowPhase = null,
         public array $artifactIds = [],
-        public array $todoIds = [],
         public ?string $parentSessionId = null,
         public ?string $workScopeSessionId = null,
         public ?string $projectId = null,
-        public ?string $sprintId = null,
     ) {}
 
     public static function fromTask(string $task): self
@@ -36,7 +33,6 @@ final readonly class ChildAgentHandoff
     /**
      * @param array<string, mixed> $metadata
      * @param list<string> $artifactIds
-     * @param list<string> $todoIds
      */
     public static function fromInput(
         string $task,
@@ -45,11 +41,9 @@ final readonly class ChildAgentHandoff
         ?string $intent = null,
         ?string $workflowPhase = null,
         array $artifactIds = [],
-        array $todoIds = [],
         ?string $parentSessionId = null,
         ?string $workScopeSessionId = null,
         ?string $projectId = null,
-        ?string $sprintId = null,
     ): self
     {
         return new self(
@@ -59,11 +53,9 @@ final readonly class ChildAgentHandoff
             intent: $intent,
             workflowPhase: $workflowPhase,
             artifactIds: $artifactIds,
-            todoIds: $todoIds,
             parentSessionId: $parentSessionId,
             workScopeSessionId: $workScopeSessionId,
             projectId: $projectId,
-            sprintId: $sprintId,
         );
     }
 
@@ -98,11 +90,9 @@ final readonly class ChildAgentHandoff
             'intent' => $this->intent,
             'workflow_phase' => $this->workflowPhase,
             'artifact_ids' => $this->artifactIds,
-            'todo_ids' => $this->todoIds,
             'parent_session_id' => $this->parentSessionId,
             'work_scope_session_id' => $this->workScopeSessionId,
             'project_id' => $this->projectId,
-            'sprint_id' => $this->sprintId,
         ];
     }
 }

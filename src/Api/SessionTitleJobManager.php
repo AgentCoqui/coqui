@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 
 /**
@@ -41,7 +42,7 @@ final class SessionTitleJobManager
 
     public function tick(): void
     {
-        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastTickAt = Clock::nowUtc();
         $this->reapFinishedProcesses();
         $this->startPendingJobs();
     }

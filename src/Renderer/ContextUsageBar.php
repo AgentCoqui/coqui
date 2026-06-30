@@ -32,7 +32,7 @@ final class ContextUsageBar
      * counts using the same heuristic as
      * Conversation::estimateTokens() (1 token ≈ 4 chars).
      *
-     * @param array<int, array{group?: string, tokens?: int}> $promptSections
+     * @param array<int, array{group?: string, tokens?: int, ...}> $promptSections
      */
     public static function buildSnapshot(
         Conversation $conversation,

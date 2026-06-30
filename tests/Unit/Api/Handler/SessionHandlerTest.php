@@ -12,7 +12,6 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use React\Http\Message\ServerRequest;
@@ -902,7 +901,6 @@ test('session handler summary returns aggregate counts and latest turn data', fu
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        $todoStore = new TodoStore($fixture['storage']->getPdo());
         $artifactStore = new ArtifactStore($fixture['storage']->getPdo());
 
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
@@ -932,8 +930,6 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         $fixture['storage']->updateTaskStatus($taskId, 'completed', ['result' => 'done']);
 
         $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', stage: 'final', persistent: true);
-        $todoId = $todoStore->create($sessionId, 'Review session summary');
-        $todoStore->complete($todoId, 'agent');
 
         $response = $fixture['handler']->summary(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/summary'), $sessionId);
         $body = json_decode((string) $response->getBody(), true);
@@ -949,7 +945,6 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         expect($body['counts']['artifacts']['total'])->toBe(1);
         expect($body['counts']['artifacts']['persistent'])->toBe(1);
         expect($body['counts']['artifacts']['by_stage']['final'])->toBe(1);
-        expect($body['counts']['todos']['completed'])->toBe(1);
         expect($body['latest_turn']['id'])->toBe($turnId);
         expect($body['latest_turn']['tools_used'])->toBe(['read_file', 'apply_patch']);
         expect($body['latest_activity_at'])->not->toBeNull();

@@ -124,21 +124,21 @@ MD);
 })->throws(RoleParseException::class);
 
 test('parses toolkits field from frontmatter', function () {
-    $path = $this->tmpDir . '/evaluator.md';
+    $path = $this->tmpDir . '/scoped.md';
     file_put_contents($path, <<<'MD'
 ---
-name: evaluator
-display_name: Evaluator
-description: Grades past sessions
+name: scoped
+display_name: Scoped
+description: Uses a restricted toolkit set
 access_level: readonly
-toolkits: "-*, +SessionEvaluationToolkit, +CoquiSourceToolkit"
+toolkits: "-*, +MemoryToolkit, +CoquiSourceToolkit"
 ---
 Instructions here.
 MD);
 
     $props = $this->parser->readProperties($path);
 
-    expect($props->toolkits)->toBe('-*, +SessionEvaluationToolkit, +CoquiSourceToolkit');
+    expect($props->toolkits)->toBe('-*, +MemoryToolkit, +CoquiSourceToolkit');
 });
 
 test('falls back to allowed-tools when toolkits is absent', function () {
@@ -176,6 +176,41 @@ MD);
     expect($props->toolkits)->toBeNull();
 });
 
+test('parses category field from frontmatter', function () {
+    $path = $this->tmpDir . '/categorized.md';
+    file_put_contents($path, <<<'MD'
+---
+name: categorized
+display_name: Categorized
+description: Has an explicit category
+access_level: full
+category: build
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->category)->toBe('build');
+});
+
+test('defaults category to general when omitted', function () {
+    $path = $this->tmpDir . '/uncategorized.md';
+    file_put_contents($path, <<<'MD'
+---
+name: uncategorized
+display_name: Uncategorized
+description: No category specified
+access_level: readonly
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->category)->toBe('general');
+});
+
 test('parses orchestrator role file from config/roles', function () {
     $path = dirname(__DIR__, 3) . '/config/roles/orchestrator.md';
 
@@ -188,5 +223,5 @@ test('parses orchestrator role file from config/roles', function () {
     expect($props->name)->toBe('orchestrator');
     expect($props->accessLevel)->toBe('full');
     expect($props->isBuiltin)->toBeTrue();
-    expect($props->toolkits)->toBe('+*, -SessionEvaluationToolkit, -LearningToolkit');
+    expect($props->toolkits)->toBe('+*');
 });

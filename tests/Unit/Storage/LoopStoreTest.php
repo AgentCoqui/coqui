@@ -178,14 +178,13 @@ test('createIteration returns a 32-char hex id', function () {
 
 test('createIteration stores with correct fields', function () {
     $loopId = $this->store->createLoop('harness', 'Goal', []);
-    $id = $this->store->createIteration($loopId, 1, sprintId: 'sprint-abc');
+    $id = $this->store->createIteration($loopId, 1);
 
     $iteration = $this->store->getIteration($id);
 
     expect($iteration)->not->toBeNull();
     expect($iteration['loop_id'])->toBe($loopId);
     expect((int) $iteration['iteration_number'])->toBe(1);
-    expect($iteration['sprint_id'])->toBe('sprint-abc');
     expect($iteration['status'])->toBe('pending');
     expect($iteration['outcome_summary'])->toBeNull();
 });

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
 use PDO;
 
 /**
@@ -115,9 +117,9 @@ final class WebhookStore
         ?string $eventFilter = null,
         ?string $createdBy = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        $secret ??= bin2hex(random_bytes(32));
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
+        $secret ??= IdGenerator::hex(32);
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO webhook_subscriptions
@@ -190,7 +192,7 @@ final class WebhookStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if ($name !== null) {
@@ -286,8 +288,8 @@ final class WebhookStore
             return null;
         }
 
-        $newSecret = bin2hex(random_bytes(32));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $newSecret = IdGenerator::hex(32);
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE webhook_subscriptions SET secret = ?, updated_at = ? WHERE id = ?
@@ -302,7 +304,7 @@ final class WebhookStore
      */
     public function markTriggered(string $id): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE webhook_subscriptions
             SET last_triggered_at = ?, trigger_count = trigger_count + 1, updated_at = ?
@@ -352,8 +354,8 @@ final class WebhookStore
         ?string $taskId = null,
         ?string $sourceIp = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Truncate payload summary to 2KB
         if ($payloadSummary !== null && mb_strlen($payloadSummary) > 2048) {

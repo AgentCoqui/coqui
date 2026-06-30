@@ -52,24 +52,9 @@ test('create stores artifact with correct fields', function () {
     expect($artifact['content'])->toBe('class AuthService {}');
 });
 
-test('create saves initial version', function () {
-    $id = $this->store->create(
-        sessionId: $this->sessionId,
-        title: 'Test',
-        content: 'initial content',
-    );
-
-    $versions = $this->store->getVersions($id);
-
-    expect($versions)->toHaveCount(1);
-    expect((int) $versions[0]['version'])->toBe(1);
-    expect($versions[0]['content'])->toBe('initial content');
-    expect($versions[0]['change_summary'])->toBe('Initial version');
-});
-
 // --- Update ---
 
-test('update bumps version and stores snapshot', function () {
+test('update bumps the version counter and content', function () {
     $id = $this->store->create(
         sessionId: $this->sessionId,
         title: 'Config',
@@ -83,10 +68,6 @@ test('update bumps version and stores snapshot', function () {
     $artifact = $this->store->get($id);
     expect((int) $artifact['version'])->toBe(2);
     expect($artifact['content'])->toBe('v2 content');
-
-    $versions = $this->store->getVersions($id);
-    expect($versions)->toHaveCount(2);
-    expect($versions[0]['change_summary'])->toBe('Fixed typo');
 });
 
 test('update can change title and stage', function () {
@@ -181,35 +162,17 @@ test('bulkDelete removes multiple artifacts in a session', function () {
     expect($this->store->get($otherId))->not->toBeNull();
 });
 
-// --- Versions ---
+// --- Version counter ---
 
-test('getVersions returns all versions ordered desc', function () {
+test('version counter increments on each update', function () {
     $id = $this->store->create($this->sessionId, 'Versioned', 'v1');
     $this->store->update($id, 'v2', 'Second');
     $this->store->update($id, 'v3', 'Third');
 
-    $versions = $this->store->getVersions($id);
+    $artifact = $this->store->get($id);
 
-    expect($versions)->toHaveCount(3);
-    expect((int) $versions[0]['version'])->toBe(3);
-    expect((int) $versions[2]['version'])->toBe(1);
-});
-
-test('getVersion retrieves specific version', function () {
-    $id = $this->store->create($this->sessionId, 'Test', 'original');
-    $this->store->update($id, 'updated', 'Change');
-
-    $v1 = $this->store->getVersion($id, 1);
-    $v2 = $this->store->getVersion($id, 2);
-
-    expect($v1['content'])->toBe('original');
-    expect($v2['content'])->toBe('updated');
-});
-
-test('getVersion returns null for nonexistent version', function () {
-    $id = $this->store->create($this->sessionId, 'Test', 'content');
-
-    expect($this->store->getVersion($id, 99))->toBeNull();
+    expect((int) $artifact['version'])->toBe(3);
+    expect($artifact['content'])->toBe('v3');
 });
 
 // --- Stage ---
@@ -263,12 +226,12 @@ test('cleanupFinalized returns zero when no final artifacts exist', function () 
     expect($this->store->cleanupFinalized())->toBe(0);
 });
 
-test('cleanupFinalized cascade-deletes version history', function () {
+test('cleanupFinalized removes the finalized artifact row', function () {
     $id = $this->store->create($this->sessionId, 'Versioned', 'v1');
     $this->store->update($id, 'v2', 'Second');
     $this->store->updateStage($id, 'final');
 
     $this->store->cleanupFinalized();
 
-    expect($this->store->getVersions($id))->toHaveCount(0);
+    expect($this->store->get($id))->toBeNull();
 });

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Notification;
 
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\NotificationStore;
+use CoquiBot\Coqui\Support\IdGenerator;
 
 /**
  * API-only automation runner for actionable notifications.
@@ -48,7 +49,7 @@ final class NotificationAutomationRunner
             $this->handlers[$handler->kind()] = $handler;
         }
 
-        $this->runnerId = $runnerId ?? 'notification-automation:' . bin2hex(random_bytes(6));
+        $this->runnerId = $runnerId ?? 'notification-automation:' . IdGenerator::hex(6);
     }
 
     public function tick(): void

@@ -11,7 +11,7 @@ Coqui is a personal operating system — a lightweight, hackable agent runtime b
 At a high level:
 
 - `php-agents` provides the generic agent loop, providers, tools, toolkits, messages, and context-window primitives.
-- Coqui adds the product layer: REPL, API server, safety model, sessions, memory, artifacts, todos, loops, schedules, webhooks, project context, and toolkit discovery.
+- Coqui adds the product layer: REPL, API server, safety model, sessions, memory, artifacts, loops, schedules, webhooks, project context, and toolkit discovery.
 - The REPL is the primary interface. The HTTP API is narrower and is optimized for application integration plus read-heavy inspection.
 
 ## Read This First
@@ -29,8 +29,7 @@ Use these documents as the canonical references:
 - [docs/PROFILES.md](docs/PROFILES.md): personality profiles
 - [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md): background task model
 - [docs/LOOPS.md](docs/LOOPS.md): loop system
-- [docs/PROJECTS.md](docs/PROJECTS.md): project and sprint context
-- [docs/TODOS.md](docs/TODOS.md): todo and planning workflow
+- [docs/PROJECTS.md](docs/PROJECTS.md): lean project working scopes
 - [docs/ARTIFACTS.md](docs/ARTIFACTS.md): artifact lifecycle and usage
 - [docs/FEATURES.md](docs/FEATURES.md): broad feature overview
 - [docs/GITHUB-ACTIONS.md](docs/GITHUB-ACTIONS.md): CI and release workflows

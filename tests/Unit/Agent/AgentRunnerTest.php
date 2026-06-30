@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\AgentRunnerDependencies;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -13,7 +14,6 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
@@ -130,7 +130,6 @@ function makeAgentRunnerFixture(
     string $workspacePath,
     ToolkitDiscovery $discovery,
     CatastrophicBlacklist $blacklist,
-    ?TodoStore $todoStore = null,
     ?ArtifactStore $artifactStore = null,
     ?ProjectStore $projectStore = null,
     ?MemoryStore $memoryStore = null,
@@ -146,10 +145,11 @@ function makeAgentRunnerFixture(
         blacklist: $blacklist,
         credentialResolver: makeTestCredentialResolver($workspacePath),
         providerFactory: new ProviderFactory($config),
-        todoStore: $todoStore,
-        artifactStore: $artifactStore,
-        projectStore: $projectStore,
-        memoryStore: $memoryStore,
+        deps: new AgentRunnerDependencies(
+            memoryStore: $memoryStore,
+            artifactStore: $artifactStore,
+            projectStore: $projectStore,
+        ),
     );
 }
 
@@ -186,31 +186,17 @@ test('buildWorkflowContext returns null when no workflow state exists', function
     }
 });
 
-test('buildWorkflowContext includes todo artifact and sprint summaries', function () {
+test('buildWorkflowContext includes artifact summaries', function () {
     $fixture = createAgentRunnerFixture();
 
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $pdo = $fixture['storage']->getPdo();
-        $todoStore = new TodoStore($pdo);
         $artifactStore = new ArtifactStore($pdo);
         $projectStore = new ProjectStore($pdo);
 
         $projectId = $projectStore->createProject('Testing Project', 'testing-project');
         $fixture['storage']->setActiveProject($sessionId, $projectId);
-
-        $sprintId = $projectStore->createSprint(
-            projectId: $projectId,
-            title: 'Sprint One',
-            lastSessionId: $sessionId,
-        );
-        $projectStore->transitionSprint($sprintId, 'in_progress');
-
-        $inProgressTodoId = $todoStore->create($sessionId, 'Write regression tests', sprintId: $sprintId);
-        $todoStore->update($inProgressTodoId, status: 'in_progress');
-        $todoStore->create($sessionId, 'Review CI output', sprintId: $sprintId);
-        $completedTodoId = $todoStore->create($sessionId, 'Add coverage command', sprintId: $sprintId);
-        $todoStore->complete($completedTodoId);
 
         $artifactStore->create(
             sessionId: $sessionId,
@@ -226,7 +212,6 @@ test('buildWorkflowContext includes todo artifact and sprint summaries', functio
             workspacePath: $fixture['workspacePath'],
             discovery: $fixture['discovery'],
             blacklist: $fixture['blacklist'],
-            todoStore: $todoStore,
             artifactStore: $artifactStore,
             projectStore: $projectStore,
         );
@@ -234,13 +219,8 @@ test('buildWorkflowContext includes todo artifact and sprint summaries', functio
         $method = new ReflectionMethod($runner, 'buildWorkflowContext');
         $context = $method->invoke($runner, $sessionId);
 
-        expect($context)->toContain('Todos: 1/3 completed')
-            ->toContain('[in_progress] Write regression tests')
-            ->toContain('[pending] Review CI output')
-            ->toContain('Artifacts:')
-            ->toContain('[plan/review] Implementation Plan')
-            ->toContain('Active sprints:')
-            ->toContain("Sprint #1 'Sprint One'");
+        expect($context)->toContain('Artifacts:')
+            ->toContain('[plan/review] Implementation Plan');
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }
@@ -449,7 +429,9 @@ test('run keeps replayed history and also appends prior history in final system 
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($config),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());
@@ -560,7 +542,9 @@ test('run keeps replayed history when conversation history prompt mode is disabl
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($fixture['config']),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());
@@ -687,7 +671,9 @@ test('run renders actor-backed group speakers distinctly in conversation history
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($config),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());

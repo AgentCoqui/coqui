@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Single source of truth for openclaw.json configuration.
@@ -64,9 +65,11 @@ final class ConfigManager
             return $this->config;
         }
 
-        // Fallback: build minimal config from defaults
+        // Fallback: build minimal config from defaults.
+        // Intentionally not written to disk so the REPL wizard gate can fire
+        // on the next interactive boot and isn't bypassed by a concurrent
+        // headless/API process that boots before the user has configured anything.
         $this->config = $this->buildDefaultConfig();
-        $this->saveRaw($this->config);
         return $this->config;
     }
 
@@ -214,31 +217,11 @@ final class ConfigManager
         ]);
     }
 
-    /**
-     * Save an OpenClawConfig to disk without validation (internal use).
-     */
-    private function saveRaw(OpenClawConfig $config): void
-    {
-        $this->ensureDirectory();
-
-        // Reconstruct array from the config — use toArray() if available, else re-read
-        $data = [
-            'agents' => $config->get('agents') ?? [],
-            'models' => $config->get('models') ?? [],
-        ];
-
-        // Remove null/empty top-level keys
-        $data = array_filter($data, fn(mixed $v): bool => !empty($v));
-
-        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        file_put_contents($this->configPath, $json . "\n", LOCK_EX);
-    }
-
     private function ensureDirectory(): void
     {
         $dir = dirname($this->configPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 

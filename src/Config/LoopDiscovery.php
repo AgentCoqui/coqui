@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 
 /**
@@ -155,7 +156,7 @@ final class LoopDiscovery
     public function ensureLoopsDir(): void
     {
         if (!is_dir($this->loopsDir)) {
-            mkdir($this->loopsDir, 0755, true);
+            mkdir($this->loopsDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 
@@ -201,7 +202,7 @@ final class LoopDiscovery
                     continue;
                 }
 
-                $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+                $data = json_decode($json, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
                 if (!is_array($data) || !isset($data['name'])) {
                     continue;
                 }

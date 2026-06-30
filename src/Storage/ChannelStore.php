@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -224,19 +228,7 @@ final class ChannelStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $existingColumn) {
-            if (($existingColumn['name'] ?? null) === $column) {
-                return;
-            }
-        }
-
-        $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     /**
@@ -246,7 +238,7 @@ final class ChannelStore
     public function upsertConfiguredInstance(array $definition, ?array $capabilities = null): string
     {
         $existing = $this->getByName((string) $definition['name']);
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($existing !== null) {
             $stmt = $this->db->prepare(<<<'SQL'
@@ -274,7 +266,7 @@ final class ChannelStore
             return (string) $existing['id'];
         }
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO channel_instances
                 (id, name, driver, source, enabled, display_name, default_profile, bound_session_id,
@@ -440,7 +432,7 @@ final class ChannelStore
         array $metadata = [],
     ): string {
         $existing = $this->getConversationByRemote($channelInstanceId, $remoteConversationKey, $remoteThreadKey);
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($existing !== null) {
             $stmt = $this->db->prepare(<<<'SQL'
@@ -466,7 +458,7 @@ final class ChannelStore
             return (string) $existing['id'];
         }
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO channel_conversations
                 (id, channel_instance_id, remote_conversation_key, remote_thread_key, session_id, profile,
@@ -506,7 +498,7 @@ final class ChannelStore
         string $status = 'received',
         ?string $receivedAt = null,
     ): ?string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT OR IGNORE INTO channel_inbound_events
                 (id, channel_instance_id, conversation_id, provider_event_id, dedupe_key, event_type,
@@ -524,7 +516,7 @@ final class ChannelStore
             $this->encodeJson($payload),
             $this->encodeJson($normalized),
             $status,
-            $receivedAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            $receivedAt ?? Clock::nowUtc(),
         ]);
 
         return $stmt->rowCount() > 0 ? $id : null;
@@ -653,8 +645,8 @@ final class ChannelStore
      */
     public function createLink(string $channelInstanceId, string $remoteUserKey, string $profile, ?string $remoteScopeKey = null, string $trustLevel = 'linked', array $metadata = []): string
     {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO channel_identity_links
                 (id, channel_instance_id, remote_user_key, remote_scope_key, profile, trust_level, metadata_json, created_at, updated_at)
@@ -800,8 +792,8 @@ final class ChannelStore
             return (string) $existing['id'];
         }
 
-        $id = bin2hex(random_bytes(16));
-        $queuedAt = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $queuedAt = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO channel_deliveries
                 (id, channel_instance_id, conversation_id, session_id, reply_to_event_id, idempotency_key,
@@ -871,14 +863,14 @@ final class ChannelStore
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         SQL);
         $insert->execute([
-            bin2hex(random_bytes(16)),
+            IdGenerator::hex(),
             $deliveryId,
             $attemptNumber,
             $resultStatus,
             $retryAfterSeconds,
             $providerResponseCode,
             $providerResponseBody,
-            gmdate('Y-m-d\TH:i:s\Z'),
+            Clock::nowUtc(),
         ]);
 
         return $attemptNumber;
@@ -899,7 +891,7 @@ final class ChannelStore
         $stmt->execute([
             $attemptCount,
             $providerMessageId,
-            $sentAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            $sentAt ?? Clock::nowUtc(),
             $deliveryId,
         ]);
     }
@@ -917,7 +909,7 @@ final class ChannelStore
         $stmt->execute([
             $attemptCount,
             $error,
-            $failedAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            $failedAt ?? Clock::nowUtc(),
             $deliveryId,
         ]);
     }
@@ -983,7 +975,7 @@ final class ChannelStore
             (int) ($health['consecutive_failures'] ?? 0),
             $health['lease_owner'] ?? null,
             $health['last_error'] ?? null,
-            gmdate('Y-m-d\TH:i:s\Z'),
+            Clock::nowUtc(),
         ]);
     }
 
@@ -1074,7 +1066,7 @@ final class ChannelStore
         }
 
         try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($value, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return $default;
         }

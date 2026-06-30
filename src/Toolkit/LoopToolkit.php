@@ -129,11 +129,6 @@ final readonly class LoopToolkit implements ToolkitInterface
                     description: 'Reuse an existing project by slug. The loop will scope all work to this project instead of creating a new one. Mutually exclusive with project_id.',
                     required: false,
                 ),
-                new StringParameter(
-                    name: 'sprint_id',
-                    description: 'Attach the loop to an existing sprint within the project. If omitted, a new sprint is created per iteration.',
-                    required: false,
-                ),
             ],
             callback: function (array $input): ToolResult {
                 $defName = (string) ($input['definition'] ?? '');
@@ -189,10 +184,6 @@ final readonly class LoopToolkit implements ToolkitInterface
                         $projectSlug = isset($input['project_slug']) && $input['project_slug'] !== ''
                             ? (string) $input['project_slug']
                             : null;
-                        $sprintId = isset($input['sprint_id']) && $input['sprint_id'] !== ''
-                            ? (string) $input['sprint_id']
-                            : null;
-
                         if ($projectId !== null && $projectSlug !== null) {
                             return ToolResult::error('Specify either "project_id" or "project_slug", not both');
                         }
@@ -204,7 +195,6 @@ final readonly class LoopToolkit implements ToolkitInterface
                             parameters: $parameters,
                             projectId: $projectId,
                             projectSlug: $projectSlug,
-                            sprintId: $sprintId,
                             maxIterationsOverride: $maxIterations,
                         );
 

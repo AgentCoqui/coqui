@@ -35,6 +35,8 @@ use React\Http\Message\Response;
  */
 final readonly class ConfigHandler
 {
+    use DecodesRequestBody;
+
     private const string CONTEXT_RESTART_REASON = 'Agent context configuration changed. Restart the API server to apply the new behavior cleanly.';
 
     /** @var array<string, array{dotKey: string, type: string, label: string, description: string, resettable: bool, restart_required: bool, options?: list<string>, minimum?: int|float, maximum?: int|float, presentation?: string}> */
@@ -419,7 +421,7 @@ final readonly class ConfigHandler
      */
     public function createProfile(ServerRequestInterface $request): Response
     {
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -499,7 +501,7 @@ final readonly class ConfigHandler
      */
     public function updateProfile(ServerRequestInterface $request, string $name): Response
     {
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -912,16 +914,6 @@ final readonly class ConfigHandler
             'pid' => null,
             'started_at' => null,
         ];
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function normalizeProfileName(mixed $value): ?string

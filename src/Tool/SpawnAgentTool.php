@@ -17,7 +17,6 @@ use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\CodeReviewCycle;
-use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ProfilePreferences;
@@ -41,8 +40,6 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
-use CoquiBot\Coqui\Toolkit\TodoToolkit;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
@@ -94,18 +91,66 @@ final class SpawnAgentTool implements ToolInterface
 
     public function description(): string
     {
-        $roles = implode(', ', $this->selectableRolesForProfile());
+        $roles = $this->describeSelectableRoles();
 
         return <<<DESC
             Spawn a specialized child agent to handle a specific task.
-            
+
             Use this when a task requires expertise or capabilities better suited to a different model.
             For example, spawn a 'coder' agent to write complex code, or a 'reviewer' agent to analyze code quality.
-            
-            Available roles: {$roles}
-            
+
+            Available roles (grouped by category):
+            {$roles}
+
             The child agent will run independently and return its result.
             DESC;
+    }
+
+    /**
+     * Build a compact, category-grouped listing of selectable roles with their
+     * descriptions so the model can pick the right one without a separate lookup.
+     *
+     * Falls back to a bare comma list of names when role metadata is unavailable.
+     */
+    private function describeSelectableRoles(): string
+    {
+        $names = $this->selectableRolesForProfile();
+
+        if ($this->roleDiscovery === null) {
+            return implode(', ', $names);
+        }
+
+        /** @var array<string, list<string>> $byCategory */
+        $byCategory = [];
+        foreach ($names as $name) {
+            try {
+                $props = $this->roleDiscovery->getRole($name, $this->activeProfilePath);
+            } catch (\Throwable) {
+                $byCategory['general'][] = "- {$name}";
+                continue;
+            }
+
+            $description = trim($props->description);
+            $byCategory[$props->category][] = $description !== ''
+                ? "- {$name}: {$description}"
+                : "- {$name}";
+        }
+
+        if ($byCategory === []) {
+            return implode(', ', $names);
+        }
+
+        ksort($byCategory);
+
+        $lines = [];
+        foreach ($byCategory as $category => $entries) {
+            $lines[] = "{$category}:";
+            foreach ($entries as $entry) {
+                $lines[] = "  {$entry}";
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     public function parameters(): array
@@ -259,7 +304,7 @@ final class SpawnAgentTool implements ToolInterface
                     workDir: $this->workspacePath,
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
-                    timeout: 60,
+                    timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     unsafe: $this->unsafeMode,
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
@@ -279,7 +324,7 @@ final class SpawnAgentTool implements ToolInterface
                 new ShellToolkit(
                     workDir: $this->workspacePath,
                     allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
-                    timeout: 60,
+                    timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
@@ -317,46 +362,22 @@ final class SpawnAgentTool implements ToolInterface
         // Non-full access levels get read-only artifact access (no delete).
         if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('artifacts')) {
             $artifactStore = new ArtifactStore($this->storage->getPdo());
-            $todoStore = $this->isFeatureEnabled('todos') ? new TodoStore($this->storage->getPdo()) : null;
-
-            $planTodoGenerator = $todoStore !== null
-                ? new PlanTodoGenerator(
-                    roleResolver: $this->roleResolver,
-                    config: $this->config,
-                    todoStore: $todoStore,
-                    roleDiscovery: $this->roleDiscovery,
-                )
-                : null;
 
             $toolkits[] = new ArtifactToolkit(
                 $artifactStore,
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
-                planTodoGenerator: $planTodoGenerator,
-                todoStore: $todoStore,
             );
         }
 
-        // Todo toolkit — session-scoped task tracking shared with child agents.
-        if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('todos')) {
-            $todoStore ??= new TodoStore($this->storage->getPdo());
-            $toolkits[] = new TodoToolkit(
-                $todoStore,
-                $this->sessionId,
-                $role,
-                $accessLevel,
-                $artifactStore ?? null,
-            );
-        }
-
-        // Sprint toolkit — project/sprint management shared with child agents.
+        // Project toolkit — lightweight project (working-directory) management shared with child agents.
         if ($this->projectStore !== null && $this->storage !== null && $this->isFeatureEnabled('projects')) {
-            $todoStore ??= new TodoStore($this->storage->getPdo());
-            $toolkits[] = new \CoquiBot\Coqui\Toolkit\SprintToolkit(
+            $toolkits[] = new \CoquiBot\Coqui\Toolkit\ProjectToolkit(
                 $this->projectStore,
-                $todoStore,
                 $this->sessionId,
                 $this->workspacePath,
+                null,
+                $this->storage,
             );
         }
 

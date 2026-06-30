@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
-use Cron\CronExpression;
 
 /**
  * Validates openclaw.json configuration data.
@@ -39,7 +38,6 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateMcp($data)];
         $errors = [...$errors, ...$this->validateWorkspace($data)];
         $errors = [...$errors, ...$this->validateMemory($data)];
-        $errors = [...$errors, ...$this->validateQuality($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
         $errors = [...$errors, ...$this->validateChannels($data)];
         $errors = [...$errors, ...$this->validateEditHistory($data)];
@@ -701,70 +699,6 @@ final class ConfigValidator
 
         if (isset($memory['enabled']) && !is_bool($memory['enabled'])) {
             $errors[] = 'agents.defaults.memory.enabled must be a boolean';
-        }
-
-        return $errors;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     * @return string[]
-     */
-    private function validateQuality(array $data): array
-    {
-        $quality = $data['agents']['defaults']['quality'] ?? null;
-        if ($quality === null) {
-            return [];
-        }
-
-        if (!is_array($quality)) {
-            return ['agents.defaults.quality must be an object'];
-        }
-
-        $errors = [];
-
-        foreach (['enabled', 'bootstrapSchedules', 'autoTriggerLearner'] as $key) {
-            if (isset($quality[$key]) && !is_bool($quality[$key])) {
-                $errors[] = sprintf('agents.defaults.quality.%s must be a boolean', $key);
-            }
-        }
-
-        if (isset($quality['poorEvaluationThreshold'])) {
-            $threshold = $quality['poorEvaluationThreshold'];
-            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0 || $threshold > 1) {
-                $errors[] = 'agents.defaults.quality.poorEvaluationThreshold must be a number between 0.0 and 1.0';
-            }
-        }
-
-        if (isset($quality['learnerDedupLookbackHours'])) {
-            $hours = $quality['learnerDedupLookbackHours'];
-            if (!is_int($hours) || $hours < 1) {
-                $errors[] = 'agents.defaults.quality.learnerDedupLookbackHours must be a positive integer';
-            }
-        }
-
-        foreach (['evaluationSchedule', 'learningSchedule'] as $key) {
-            if (!isset($quality[$key])) {
-                continue;
-            }
-
-            $expression = $quality[$key];
-            if (!is_string($expression) || ($expression !== '@once' && !CronExpression::isValidExpression($expression))) {
-                $errors[] = sprintf('agents.defaults.quality.%s must be a valid cron expression or @once', $key);
-            }
-        }
-
-        if (isset($quality['timezone'])) {
-            $timezone = $quality['timezone'];
-            if (!is_string($timezone) || $timezone === '') {
-                $errors[] = 'agents.defaults.quality.timezone must be a non-empty string';
-            } else {
-                try {
-                    new \DateTimeZone($timezone);
-                } catch (\Throwable) {
-                    $errors[] = sprintf('agents.defaults.quality.timezone must be a valid timezone, got "%s"', $timezone);
-                }
-            }
         }
 
         return $errors;

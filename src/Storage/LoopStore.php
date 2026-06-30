@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -50,7 +53,6 @@ final class LoopStore
                 id TEXT PRIMARY KEY,
                 loop_id TEXT NOT NULL,
                 iteration_number INTEGER NOT NULL,
-                sprint_id TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 outcome_summary TEXT,
                 started_at TEXT,
@@ -85,18 +87,7 @@ final class LoopStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, static fn(array $col): bool => $col['name'] === $column);
-        if ($exists) {
-            return;
-        }
-
-        $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     // ──────────────────────────────────────────────
@@ -120,8 +111,8 @@ final class LoopStore
         ?string $terminationCriteria = null,
         ?array $metadata = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO loops (id, definition_name, session_id, project_id, goal, status, current_iteration, current_stage, max_iterations, deadline, termination_criteria, configuration, started_at, last_activity_at, metadata)
@@ -182,7 +173,7 @@ final class LoopStore
      */
     public function updateLoopStatus(string $id, string $status): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $completedAt = in_array($status, ['completed', 'failed', 'cancelled'], true) ? $now : null;
 
         $stmt = $this->db->prepare(<<<'SQL'
@@ -196,7 +187,7 @@ final class LoopStore
      */
     public function updateLoopProgress(string $id, int $iteration, int $stage): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE loops SET current_iteration = ?, current_stage = ?, last_activity_at = ? WHERE id = ?
@@ -223,7 +214,7 @@ final class LoopStore
         }
 
         $merged = array_replace_recursive($existing, $patch);
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare('UPDATE loops SET metadata = ?, last_activity_at = ? WHERE id = ?');
         $stmt->execute([
@@ -248,7 +239,7 @@ final class LoopStore
         }
 
         $sets = ['last_activity_at = ?'];
-        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+        $params = [Clock::nowUtc()];
 
         if (array_key_exists('goal', $patch)) {
             $sets[] = 'goal = ?';
@@ -282,15 +273,14 @@ final class LoopStore
     public function createIteration(
         string $loopId,
         int $iterationNumber,
-        ?string $sprintId = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO loop_iterations (id, loop_id, iteration_number, sprint_id, status)
-            VALUES (?, ?, ?, ?, 'pending')
+            INSERT INTO loop_iterations (id, loop_id, iteration_number, status)
+            VALUES (?, ?, ?, 'pending')
         SQL);
-        $stmt->execute([$id, $loopId, $iterationNumber, $sprintId]);
+        $stmt->execute([$id, $loopId, $iterationNumber]);
 
         return $id;
     }
@@ -325,7 +315,7 @@ final class LoopStore
      */
     public function updateIterationStatus(string $id, string $status, ?string $outcomeSummary = null): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($status === 'running') {
             $stmt = $this->db->prepare(<<<'SQL'
@@ -347,7 +337,7 @@ final class LoopStore
      */
     public function resetIterationForRetry(string $id): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE loop_iterations
@@ -362,7 +352,7 @@ final class LoopStore
      */
     public function reopenIteration(string $id): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE loop_iterations
@@ -384,7 +374,7 @@ final class LoopStore
         int $stageIndex,
         string $role,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO loop_stages (id, iteration_id, stage_index, role, status)
@@ -433,7 +423,7 @@ final class LoopStore
         ?string $resultSummary = null,
         ?array $metadata = null,
     ): void {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $metadataJson = $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null;
 
         if ($status === 'running') {

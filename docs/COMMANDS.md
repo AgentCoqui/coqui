@@ -40,6 +40,9 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/group replace <member1,member2,...> [--rounds=N]` | Replace the current group membership, optionally updating the round cap |
 | `/group rounds <n>` | Update the maximum per-turn coordination rounds for the current group session |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
+| `/thinking` | Show thinking capability and current reasoning effort for the active model |
+| `/thinking off\|low\|medium\|high` | Set reasoning effort for the active model (`off` disables thinking on thinking-capable Ollama models); persists to `openclaw.json` and applies on the next message |
+| `/thinking clear` | Remove the reasoning-effort override and restore the model default |
 
 Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
 
@@ -144,17 +147,7 @@ MCP config changes are re-read on future agent turns without a full Coqui restar
 | `/task <id>` | Show a background task's status and recent events |
 | `/task-cancel <id>` | Cancel a pending or running background task |
 
-### Planning & Todos
-
-| Command | Description |
-| --- | --- |
-| `/todos [status]` | Show session todos with progress stats. Filter by `pending`, `in_progress`, `completed`, or `cancelled` |
-| `/todos delete <id\|all>` | Delete one todo by ID prefix, or all todos in the current session |
-| `/todos complete <id\|all>` | Mark one todo, or all actionable todos, as completed |
-| `/todos cancel <id>` | Mark a todo as cancelled |
-| `/todos clear` | Remove completed and cancelled todos |
-
-### Projects & Sprints
+### Projects
 
 | Command | Description |
 | --- | --- |
@@ -164,7 +157,6 @@ MCP config changes are re-read on future agent turns without a full Coqui restar
 | `/projects archived` | List only archived projects |
 | `/projects <slug\|id>` | Switch the active project for the current session |
 | `/projects clear` | Clear the active project for the current session |
-| `/sprints [project_slug]` | List sprints for active projects, or one project when a slug is provided |
 
 ### Scheduling & Automation
 
@@ -211,8 +203,6 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/webhooks disable <name\|id>` | Advanced operator control: disable a webhook subscription |
 | `/webhooks delete <name\|id>` | Advanced operator control: delete a webhook subscription |
 | `/webhooks rotate <name\|id>` | Advanced operator control: rotate a webhook signing secret |
-| `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
-| `/quality` | Show quality automation schedules and learner follow-up state |
 | `/hints` | Toggle command hints in the input area |
 | `/multiline` | Toggle multiline compose mode (double-Enter submits, bracketed paste auto-detected) |
 | `/multiline on` | Enable multiline compose mode |
@@ -236,7 +226,7 @@ Use the toolkit-owned `/mods` command for discovery and install flows, and the `
 
 ## CLI Commands
 
-Coqui is invoked via `coqui`. By default, `coqui` starts the launcher-managed app: REPL in the foreground plus the API in the background. `coqui-launcher` is the explicit equivalent. Advanced console commands such as `doctor`, `benchmark`, `task:run`, and `turn:run` remain available when explicitly requested.
+Coqui is invoked via `coqui`. By default, `coqui` starts the launcher-managed app: REPL in the foreground plus the API in the background. Advanced console commands such as `doctor`, `benchmark`, `task:run`, and `turn:run` remain available when explicitly requested.
 
 ### `coqui`
 
@@ -367,18 +357,18 @@ coqui benchmark --json
 
 ## Launcher
 
-`coqui-launcher` is the explicit launcher name for the same public entrypoint surface exposed through `coqui`.
+`coqui` is the unified entrypoint and launcher. All service lifecycle operations go through it.
 
 ### Modes
 
 ```bash
-coqui-launcher                   # Start REPL (foreground) + API (background)
-coqui-launcher --repl-only       # Start REPL only, no API
-coqui-launcher --api-only        # Start API only (foreground)
-coqui-launcher --wizard          # Run setup wizard directly
-coqui-launcher stop              # Stop all background services
-coqui-launcher stop-api          # Stop the background API only
-coqui-launcher status            # Show which services are running
+coqui                   # Start REPL (foreground) + API (background)
+coqui --repl-only       # Start REPL only, no API
+coqui --api-only        # Start API only (foreground)
+coqui --wizard          # Run setup wizard directly
+coqui stop              # Stop all background services
+coqui stop-api          # Stop the background API only
+coqui status            # Show which services are running
 ```
 
 ### Launcher Flags

@@ -22,8 +22,7 @@ final readonly class LoopStageResult
      * @param string $role          Coqui role name for this stage
      * @param string $prompt        Fully assembled prompt with context
      * @param int|null $maxIterations  Per-stage iteration limit (null = role default)
-     * @param string|null $sprintId   Linked sprint ID for artifact/todo creation
-     * @param string|null $sessionId   Session ID for artifact/todo scoping
+     * @param string|null $sessionId   Session ID for artifact scoping
      * @param string|null $projectId   Loop project ID for artifact auto-scoping
      * @param LoopStageHandoffMetadata|null $handoffMetadata Typed stage coordination metadata for persistence and observability
      */
@@ -35,7 +34,6 @@ final readonly class LoopStageResult
         public string $role,
         public string $prompt,
         public ?int $maxIterations = null,
-        public ?string $sprintId = null,
         public ?string $sessionId = null,
         public ?string $projectId = null,
         public ?LoopStageHandoffMetadata $handoffMetadata = null,

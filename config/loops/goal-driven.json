@@ -26,8 +26,7 @@
             "name": "implement",
             "role": "coder",
             "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code directly to the filesystem using the project directory. If continuing from a previous iteration, focus on completing the remaining work identified in the plan. After implementation, run verification commands and summarize what was done and any remaining gaps.",
-            "order": 1,
-            "requires_artifact_from": 0
+            "order": 1
         }
     ],
     "termination_condition": {

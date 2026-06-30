@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use Symfony\Component\HttpClient\HttpClient;
 
 /**
@@ -159,7 +160,7 @@ final class VisionAnalyzer
     {
         try {
             $client = HttpClient::create([
-                'timeout' => 30,
+                'timeout' => CoquiDefaults::HTTP_TIMEOUT_SECONDS,
                 'max_redirects' => 5,
                 'headers' => [
                     'User-Agent' => 'CoquiBot/1.0 (Vision Analyzer)',

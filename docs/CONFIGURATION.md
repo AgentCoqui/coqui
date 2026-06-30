@@ -133,11 +133,6 @@ The simplest valid config only needs a primary model:
                 "budgetSafetyMarginPercent": 20,
                 "budgetExitThreshold": 0.85,
                 "budgetExitWrapUpIterations": 2
-            },
-            "evaluation": {
-                "lookbackHours": 24,
-                "inactivityHours": 3,
-                "minTurns": 2
             }
         }
     },
@@ -329,6 +324,8 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 **Default behavior** (when not set): uses `~/.coqui/.workspace` in your home directory. This prevents session sprawl across directories.
 
+**Single location for all runtime state**: every piece of runtime state lives inside the resolved workspace — sessions and databases (`data/`), skills (`skills/`), roles, loops, schedules, and the launcher's service PID files (`pids/`). The bash launcher (`bin/coqui`) resolves the PID directory using the same precedence as the rest of Coqui: `--workspace` / `COQUI_WORKSPACE` → `agents.defaults.workspace` in `openclaw.json` → `~/.coqui/.workspace`. Nothing is written to a `.workspace/` folder in the project root. (If the resolved `pids/` directory is not writable — for example a root-owned Docker mount — the launcher falls back to `/tmp/coqui-pids-<uid>`.)
+
 ### `profile`
 
 Optional default startup profile name. The value must match a directory under `workspace/profiles/{name}/` that contains a `soul.md` file.
@@ -348,6 +345,30 @@ Global limit on agent loop iterations per turn. Each iteration is one LLM call t
 Set to `0` for unlimited iterations (the agent runs until it calls the `done` tool or encounters an error). Background tasks are clamped separately via `backgroundTaskMaxIterations`.
 
 Per-role overrides are configured in role `.md` files via the `max_iterations` frontmatter field.
+
+### `emptyResponse`
+
+Policy for turns where the model returns no content and no tool calls. Some serving stacks (notably Ollama with qwen/gemma thinking models) route the entire completion into the reasoning channel and leave content empty; without a policy the agent would silently retry until `maxIterations`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "emptyResponse": {
+                "handling": "nudge_then_fallback",
+                "maxRetries": 2
+            }
+        }
+    }
+}
+```
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `handling` | string | `nudge_then_fallback` | `ignore` (legacy silent retry), `nudge` (corrective retry, then fail with `empty_response`), `nudge_then_fallback` (corrective retry, then surface accumulated reasoning as the answer), or `fallback` (immediately surface reasoning as the answer) |
+| `maxRetries` | int | `2` | Corrective retries before the policy gives up or falls back |
+
+For thinking-capable Ollama models you can also disable thinking entirely with the per-model `reasoningEffort` field (see [Model Catalog](#model-catalog)) or the `/thinking` REPL command.
 
 ### `backgroundTaskMaxIterations`
 
@@ -561,31 +582,9 @@ Regardless of mode, the per-iteration budget pruning strategy always runs as a s
 
 **Budget-based exit:**
 
-When `budgetExitThreshold` is set (default `0.85`), the agent monitors the latest provider-reported context usage for each iteration as a percentage of the effective context window. When usage crosses the threshold, php-agents emits a generic budget warning event and Coqui reacts by injecting a workflow-aware wrap-up instruction that preserves todos, artifacts, and sprint state. The agent then has `budgetExitWrapUpIterations` iterations to call `done()`. If it does not exit gracefully within that wrap-up window, the turn ends with a `budget_exhausted` finish reason.
+When `budgetExitThreshold` is set (default `0.85`), the agent monitors the latest provider-reported context usage for each iteration as a percentage of the effective context window. When usage crosses the threshold, php-agents emits a generic budget warning event and Coqui reacts by injecting a workflow-aware wrap-up instruction that preserves artifacts and project state. The agent then has `budgetExitWrapUpIterations` iterations to call `done()`. If it does not exit gracefully within that wrap-up window, the turn ends with a `budget_exhausted` finish reason.
 
 This budget-based exit complements `maxIterations`; it does not replace the iteration limit. A turn can still stop because the configured iteration cap was reached before or after any budget warning.
-
-### `evaluation`
-
-Configure the session evaluation system.
-
-| Key | Type | Default | Description |
-| --- | ---- | ------- | ----------- |
-| `lookbackHours` | int | `24` | How far back to search for sessions to evaluate |
-| `inactivityHours` | int | `3` | Minimum hours since last activity before a session is eligible |
-| `minTurns` | int | `2` | Minimum turns for a session to be worth evaluating |
-
-```json
-{
-    "evaluation": {
-        "lookbackHours": 24,
-        "inactivityHours": 3,
-        "minTurns": 2
-    }
-}
-```
-
-The evaluator model is configured via the roles mapping: `"roles": {"evaluator": "ollama/gemma3:4b"}`.
 
 ## Model Providers (`models.providers`)
 
@@ -614,8 +613,17 @@ When available, Coqui hydrates model metadata from the provider API during setup
 | Google Gemini | `gemini` | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` |
 | Mistral | `mistral` | `MISTRAL_API_KEY` | `https://api.mistral.ai/v1` |
 | MiniMax | `openai-completions` | `MINIMAX_API_KEY` | `https://api.minimax.chat/v1` |
+| Claude Code CLI | `claude-cli` | — (uses the binary's own login) | — (local binary) |
 
 Any OpenAI-compatible provider can be added using `openai-completions` as the API protocol.
+
+#### Claude Code CLI provider
+
+The `claude-cli` provider drives the locally installed `claude` binary instead of an HTTP API. Select it with model strings like `claude-cli/sonnet`, `claude-cli/opus`, or `claude-cli/haiku` (a full id such as `claude-cli/claude-opus-4-8` also works). It runs `claude` headless as a raw chat completion (`--tools "" --bare --no-session-persistence`), so Coqui's own toolkits and safety model stay in control and provider-reported token usage feeds normal budgeting.
+
+Authentication is delegated entirely to your `claude` install — Coqui does not manage an API key for this provider, so no env var or `apiKey` is required. **Authenticate the binary with an Anthropic API key** (`ANTHROPIC_API_KEY`, or a token from `claude setup-token` / `CLAUDE_CODE_OAUTH_TOKEN`). Coqui does **not** use a claude.ai Pro/Max subscription login on your behalf: Anthropic's terms forbid programmatic/third-party use of consumer subscription auth, and the Agent SDK docs state *"Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products … Please use the API key authentication methods instead."* Override the binary path with a `"binary"` field on the provider config if `claude` is not on `PATH`.
+
+Model discovery is **curated, not live** — the `claude` CLI exposes no model-list command, so only the stable aliases (`fable`/`opus`/`sonnet`/`haiku`) plus anything in this catalog are listed. A full model id still works in the model string (`claude-cli/claude-opus-4-8`).
 
 ### Model Catalog
 
@@ -658,6 +666,7 @@ Each model entry describes capabilities and parameters:
 | `fieldSources` | object | — | Optional per-field source map for resolved limits |
 | `alias` | string | — | Short alias for quick reference (e.g., `"opus"`) |
 | `numCtx` | int | — | Ollama-specific context override (useful for memory-constrained setups) |
+| `reasoningEffort` | string | — | Reasoning effort for thinking-capable models: `high`, `medium`, `low`, or `none` (disables thinking). Ollama only; also settable from the REPL with `/thinking` |
 | `cost` | object | — | Token pricing for cost tracking |
 
 ### `models.mode`

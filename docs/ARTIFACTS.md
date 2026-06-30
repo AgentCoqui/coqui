@@ -1,12 +1,10 @@
 # Artifacts
 
-Versioned, structured outputs that flow through a draft-review-final lifecycle.
+Structured outputs that flow through a draft-review-final lifecycle, backed by files on disk.
 
 ## Overview
 
-Artifacts are session-scoped documents — plans, code snippets, configs, data — that persist across agent turns within a session. They support versioning (every update snapshots the previous content), stage transitions that trigger downstream automation, and optional project/sprint linking for cross-session persistence.
-
-The most important artifact workflow: a **plan** artifact finalized with `artifact_stage("final")` auto-generates linked [todos](TODOS.md).
+Artifacts are session-scoped documents — plans, code snippets, configs, data — that persist across agent turns within a session. For filesystem-backed types (`plan`, `document`, `code`, `config`), the canonical content lives as a **file** under the project's `artifacts/` directory; the database holds a lightweight index (title, type, stage, path, hash) and the file is the source of truth, so content history comes from the user's own version control. DB-only types (`loop_output`, `data`, `other`) store their content inline in the database. Artifacts support stage transitions through a draft-review-final lifecycle and optional project linking for cross-session persistence.
 
 ## Creating Artifacts
 
@@ -15,8 +13,7 @@ artifact_create(
     title: "Authentication Implementation Plan",
     content: "## Overview\n...",
     type: "plan",
-    project_id: "abc123",
-    sprint_id: "sprint456"
+    project_id: "abc123"
 )
 ```
 
@@ -28,25 +25,18 @@ artifact_create(
 | `language` | no | — | Programming language (for code artifacts) |
 | `filepath` | no | — | Associated file path |
 | `project_id` | no | — | Link to a project |
-| `sprint_id` | no | — | Link to a sprint |
 
 Artifacts start at stage `draft` and version `1`.
 
-## Versioning
+## Updating
 
-Every call to `artifact_update` bumps the version number and snapshots the previous content in the `artifact_versions` table. You can retrieve any past version:
-
-```
-artifact_get(id: "art123", version: 2)
-```
-
-Or list all versions through the API: `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`.
-
-The `change_summary` parameter on `artifact_update` records what changed:
+Each call to `artifact_update` rewrites the artifact's content and bumps a monotonic `version` counter (shown in listings). For filesystem-backed artifacts the content is written to the canonical file — full per-version snapshots are **not** retained; recover prior states from your version control (e.g. `git`) for files on disk.
 
 ```
 artifact_update(id: "art123", content: "...", change_summary: "Added error handling section")
 ```
+
+The optional `change_summary` parameter documents what changed for the human in the loop.
 
 ## Stage Lifecycle
 
@@ -58,20 +48,9 @@ draft → review → final
 | --- | --- |
 | `draft` | Work in progress — content is being developed |
 | `review` | Submitted for evaluation — user or reviewer assesses |
-| `final` | Approved and locked — triggers downstream automation |
+| `final` | Approved and locked |
 
 Transition via `artifact_stage(id, stage)`. Stages can move in any direction (e.g., `final` back to `draft` for revisions).
-
-### Finalizing a Plan
-
-When `artifact_stage(id, stage: "final")` is called on a `type: "plan"` artifact, it triggers `PlanTodoGenerator`:
-
-1. The plan content is sent to the utility model (a cheap/fast LLM).
-2. The model extracts actionable implementation steps as structured JSON.
-3. Up to 25 todos are created via `TodoStore::bulkCreate()`, linked to the artifact and its sprint.
-4. The `artifact_stage` response includes `todos_generated` count.
-
-This is best-effort — the stage transition always succeeds even if todo generation fails. If zero todos are generated, the response includes a hint suggesting manual `todo_add`.
 
 ## Persistence
 
@@ -100,8 +79,8 @@ All agent types (regardless of access level) receive `ArtifactToolkit`. The `art
 | Tool | Read-Only | Description |
 | --- | --- | --- |
 | `artifact_create` | yes | Create a new artifact |
-| `artifact_update` | yes | Update content (bumps version) |
-| `artifact_get` | yes | Retrieve artifact or specific version |
+| `artifact_update` | yes | Update content (bumps the version counter) |
+| `artifact_get` | yes | Retrieve an artifact's current content and metadata |
 | `artifact_list` | yes | List session artifacts with filters |
 | `artifact_stage` | yes | Transition one or many artifacts (single id or bulk ids/filters) |
 | `artifact_delete` | no | Delete one or many artifacts (single id or bulk ids/filters) |
@@ -117,24 +96,22 @@ All routes under `/api/v1/sessions/{id}/artifacts`:
 | `GET` | `/artifacts/{artifactId}` | Get artifact |
 | `PATCH` | `/artifacts/{artifactId}` | Update content, title, or stage |
 | `DELETE` | `/artifacts/{artifactId}` | Delete artifact |
-| `GET` | `/artifacts/{artifactId}/versions` | Version history |
 
 ## Dynamic Guidelines
 
-`ArtifactToolkit` injects a summary of active artifacts into the system prompt on every iteration. When a `TodoStore` is available, plan artifacts show todo progress (e.g., `todos: 3/5`). This keeps the agent aware of existing artifacts without explicit lookups.
+`ArtifactToolkit` injects a summary of active artifacts into the system prompt on every iteration. This keeps the agent aware of existing artifacts without explicit lookups.
 
 ## Typical Workflow
 
 1. **Plan role** creates a plan artifact:
    ```
-   artifact_create(type: "plan", title: "Cache Layer Design", project_id: "...", sprint_id: "...")
+   artifact_create(type: "plan", title: "Cache Layer Design", project_id: "...")
    ```
 2. **User reviews**, plan agent iterates on content via `artifact_update`
 3. **Move to review**: `artifact_stage(id, "review")`
 4. **User approves**, plan agent finalizes: `artifact_stage(id, "final")`
-5. **Todos auto-generated** — linked to the artifact and sprint
-6. **Coder role** reads todos via `todo_list(artifact_id: "...")` and implements each step
-7. **Loop stages** (if using a harness loop) create `loop_output` artifacts after each stage
+5. **Coder role** reads the finalized plan artifact and implements each step
+6. **Loop stages** (if using a harness loop) create `loop_output` artifacts after each stage
 
 ## Bulk Management
 
@@ -154,6 +131,5 @@ artifact_delete(all: true)
 ## Related
 
 - [DATA_FLOW.md](DATA_FLOW.md) — How all components connect
-- [PROJECTS.md](PROJECTS.md) — Projects and sprints
-- [TODOS.md](TODOS.md) — Task tracking and auto-generation from plans
+- [PROJECTS.md](PROJECTS.md) — Projects as working scopes
 - [LOOPS.md](LOOPS.md) — Automated workflows that produce artifacts

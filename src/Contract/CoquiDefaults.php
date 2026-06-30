@@ -23,6 +23,36 @@ final class CoquiDefaults
     /** Default concurrent background tasks (config: api.tasks.maxConcurrent). */
     public const int MAX_CONCURRENT_TASKS = 32;
 
+    /** Default port the HTTP API server binds to (config: api.port, CLI --port). */
+    public const int API_DEFAULT_PORT = 3300;
+
+    /** Default HTTP request timeout in seconds for outbound calls (web fetch, vision). */
+    public const int HTTP_TIMEOUT_SECONDS = 30;
+
+    /** Maximum allowed HTTP request timeout in seconds (upper clamp for outbound calls). */
+    public const int HTTP_MAX_TIMEOUT_SECONDS = 300;
+
+    /** Default shell/command execution timeout in seconds (config: shell tool timeout). */
+    public const int SHELL_TIMEOUT_SECONDS = 60;
+
+    /** Timeout in seconds for the API health-check probe. */
+    public const int HEALTH_CHECK_TIMEOUT_SECONDS = 2;
+
+    /** Directory creation mode for workspace and data directories. */
+    public const int DIRECTORY_MODE = 0755;
+
+    /** Maximum nesting depth passed to json_decode/json_encode. */
+    public const int JSON_DECODE_DEPTH = 512;
+
+    /** Maximum accepted upload size in bytes for the API file-upload middleware (50 MiB). */
+    public const int MAX_UPLOAD_FILE_SIZE = 52_428_800;
+
+    /** SQLite page cache size in KiB for the core databases (negative = KiB, per SQLite). */
+    public const int SQLITE_CACHE_SIZE_KB = -8000;
+
+    /** SQLite page cache size in KiB for toolkit-scoped databases (smaller; many small DBs). */
+    public const int SQLITE_TOOLKIT_CACHE_SIZE_KB = -4000;
+
     /** Default policy for unknown identities arriving through channels (config: channels.defaults.unknownUserPolicy). */
     public const string CHANNEL_UNKNOWN_USER_POLICY = 'deny';
 
@@ -73,6 +103,12 @@ final class CoquiDefaults
 
     /** Number of iterations allowed after budget threshold for the agent to wrap up (config: agents.defaults.context.budgetExitWrapUpIterations). */
     public const int BUDGET_EXIT_WRAP_UP_ITERATIONS = 2;
+
+    /** Policy when a model turn yields no content and no tool calls — one of ignore|nudge|nudge_then_fallback|fallback (config: agents.defaults.emptyResponse.handling). */
+    public const string EMPTY_RESPONSE_HANDLING = 'nudge_then_fallback';
+
+    /** Corrective retries before the empty-response policy gives up or falls back to reasoning (config: agents.defaults.emptyResponse.maxRetries). */
+    public const int EMPTY_RESPONSE_MAX_RETRIES = 2;
 
     /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
     public const bool CODE_REVIEW_ENABLED = true;
@@ -178,8 +214,7 @@ final class CoquiDefaults
         'WebToolkit',
         'MemoryToolkit',
         'ArtifactToolkit',
-        'TodoToolkit',
-        'SprintToolkit',
+        'ProjectToolkit',
         'CoquiSourceToolkit',
         'ComposerToolkit',
         'PackagistToolkit',

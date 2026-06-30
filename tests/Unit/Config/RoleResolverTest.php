@@ -142,6 +142,7 @@ test('toArray returns resolved mappings', function () {
         'name' => 'orchestrator',
         'model' => 'ollama/qwen3:latest',
         'display_name' => 'Orchestrator',
+        'category' => 'system',
         'is_system' => true,
         'editable' => false,
     ]);
@@ -151,6 +152,91 @@ test('toArray returns resolved mappings', function () {
         'name' => 'coder',
         'model' => 'anthropic/claude-sonnet-4-20250514',
     ]);
+});
+
+test('toArray includes category for discovered roles', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
+    $projectRoot = $workspacePath . '/project';
+    mkdir($workspacePath . '/roles', 0755, true);
+    mkdir($projectRoot . '/config/roles', 0755, true);
+
+    file_put_contents($workspacePath . '/roles/builder.md', <<<'MD'
+---
+name: builder
+display_name: Builder
+description: Builds things
+access_level: full
+category: build
+---
+# Builder
+MD);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+        ]);
+
+        $resolver = new RoleResolver(
+            $config,
+            null,
+            new RoleDiscovery($workspacePath, $projectRoot),
+            new ProfileDiscovery($workspacePath),
+        );
+
+        expect($resolver->toArray()['builder'])->toMatchArray([
+            'name' => 'builder',
+            'category' => 'build',
+        ]);
+    } finally {
+        removeRoleResolverTestTree($workspacePath);
+    }
+});
+
+test('selectableRoles excludes template roles', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
+    $projectRoot = $workspacePath . '/project';
+    mkdir($workspacePath . '/roles', 0755, true);
+    mkdir($projectRoot . '/config/roles', 0755, true);
+
+    file_put_contents($workspacePath . '/roles/builder.md', <<<'MD'
+---
+name: builder
+display_name: Builder
+description: Builds things
+access_level: full
+---
+# Builder
+MD);
+    file_put_contents($workspacePath . '/roles/curator.md', <<<'MD'
+---
+name: curator
+display_name: Curator
+description: Hidden template role
+access_level: full
+is_template: true
+---
+# Curator
+MD);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+        ]);
+
+        $resolver = new RoleResolver(
+            $config,
+            null,
+            new RoleDiscovery($workspacePath, $projectRoot),
+            new ProfileDiscovery($workspacePath),
+        );
+
+        $selectable = $resolver->selectableRoles();
+
+        expect($selectable)->toContain('builder');
+        expect($selectable)->not->toContain('curator');
+    } finally {
+        removeRoleResolverTestTree($workspacePath);
+    }
 });
 
 test('resolves aliases through config', function () {

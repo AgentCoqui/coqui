@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Provider;
 
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use React\EventLoop\Loop;
 use React\Http\Browser;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -38,7 +39,7 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         array $defaultOptions = [],
         private readonly ?ProcessCancellationToken $cancellationToken = null,
     ) {
-        $this->browser = ($browser ?? new Browser())->withTimeout(300);
+        $this->browser = ($browser ?? new Browser())->withTimeout(CoquiDefaults::HTTP_MAX_TIMEOUT_SECONDS);
         $this->defaultOptions = $defaultOptions;
     }
 

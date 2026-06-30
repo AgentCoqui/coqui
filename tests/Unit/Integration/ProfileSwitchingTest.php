@@ -11,6 +11,7 @@ declare(strict_types=1);
  */
 
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -118,8 +119,10 @@ test('switching between profiles loads correct soul.md into system prompt', func
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
-            activeProfile: $slug,
-            activeProfilePath: $profilePath,
+            deps: new OrchestratorDependencies(
+                activeProfile: $slug,
+                activeProfilePath: $profilePath,
+            ),
         );
 
         $instructions = $agent->instructions();
@@ -148,8 +151,10 @@ test('profile switching does not leak soul content between profiles', function (
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
-            activeProfile: $slug,
-            activeProfilePath: $profilePath,
+            deps: new OrchestratorDependencies(
+                activeProfile: $slug,
+                activeProfilePath: $profilePath,
+            ),
         );
 
         $instructions = $agent->instructions();
@@ -202,10 +207,12 @@ test('profile with role prepends identity preamble to role instructions', functi
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
-            roleDiscovery: $roleDiscovery,
-            activeRole: 'coder',
-            activeProfile: $slug,
-            activeProfilePath: $profilePath,
+            deps: new OrchestratorDependencies(
+                roleDiscovery: $roleDiscovery,
+                activeRole: 'coder',
+                activeProfile: $slug,
+                activeProfilePath: $profilePath,
+            ),
         );
 
         $instructions = $agent->instructions();

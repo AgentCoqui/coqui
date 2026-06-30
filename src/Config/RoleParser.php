@@ -69,6 +69,11 @@ final class RoleParser
             $version = is_numeric($meta['version']) ? (int) $meta['version'] : 1;
         }
 
+        // Parse category (free-form grouping label; defaults to 'general')
+        $category = isset($meta['category']) && is_string($meta['category']) && $meta['category'] !== ''
+            ? $meta['category']
+            : 'general';
+
         // Parse is_builtin
         $isBuiltin = false;
         if (isset($meta['is_builtin'])) {
@@ -106,6 +111,7 @@ final class RoleParser
             path: $filePath,
             version: $version,
             accessLevel: $accessLevel,
+            category: $category,
             isBuiltin: $isBuiltin,
             isTemplate: $isTemplate,
             ignoreUpdates: $ignoreUpdates,

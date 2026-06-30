@@ -91,13 +91,12 @@ test('loop handler definitions include parameter metadata', function () {
     }
 });
 
-test('loop handler creates loop scoped to sprint project and applies parameters', function () {
+test('loop handler creates loop scoped to project and applies parameters', function () {
     $fixture = createLoopHandlerFixture();
 
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
-        $sprintId = $fixture['projectStore']->createSprint($projectId, 'Refactor API');
 
         $request = new ServerRequest(
             'POST',
@@ -107,7 +106,7 @@ test('loop handler creates loop scoped to sprint project and applies parameters'
                 'definition' => 'harness',
                 'goal' => 'Refactor the loop API',
                 'session_id' => $sessionId,
-                'sprint_id' => $sprintId,
+                'project_id' => $projectId,
                 'parameters' => [
                     'subject' => 'loop lifecycle API',
                 ],
@@ -122,7 +121,6 @@ test('loop handler creates loop scoped to sprint project and applies parameters'
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['loop']['project_id'])->toBe($projectId);
-        expect($body['iteration']['sprint_id'])->toBe($sprintId);
         expect($body['iteration']['status'])->toBe('running');
         expect($body['stages'])->toHaveCount(2);
         expect((int) $storedLoop['max_iterations'])->toBe(2);
@@ -381,7 +379,7 @@ test('loop handler exposes full history and aggregate metrics', function () {
             metadata: ['dispatch' => ['status' => 'pending']],
         );
 
-        $iterationOne = $fixture['loopStore']->createIteration($loopId, 1, 'sprint-alpha');
+        $iterationOne = $fixture['loopStore']->createIteration($loopId, 1);
         $stageOneA = $fixture['loopStore']->createStage($iterationOne, 0, 'plan');
         $stageOneB = $fixture['loopStore']->createStage($iterationOne, 1, 'reviewer');
         $fixture['loopStore']->updateIterationStatus($iterationOne, 'running');
@@ -391,7 +389,7 @@ test('loop handler exposes full history and aggregate metrics', function () {
         $fixture['loopStore']->updateStage($stageOneB, 'failed', taskId: 'task-2', resultSummary: 'Review failed');
         $fixture['loopStore']->updateIterationStatus($iterationOne, 'needs_rework', 'First pass needs work');
 
-        $iterationTwo = $fixture['loopStore']->createIteration($loopId, 2, 'sprint-beta');
+        $iterationTwo = $fixture['loopStore']->createIteration($loopId, 2);
         $stageTwoA = $fixture['loopStore']->createStage($iterationTwo, 0, 'plan');
         $stageTwoB = $fixture['loopStore']->createStage($iterationTwo, 1, 'reviewer');
         $fixture['loopStore']->updateIterationStatus($iterationTwo, 'running');

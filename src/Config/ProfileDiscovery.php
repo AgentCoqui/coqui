@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 /**
  * Discovers and resolves personality profiles from the workspace.
  *
@@ -41,7 +43,7 @@ final class ProfileDiscovery
     {
         $dir = $this->profilesDir();
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 

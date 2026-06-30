@@ -361,7 +361,6 @@ final class SessionHandler
                 providerFactory: $this->boot->providerFactory(),
                 roleResolver: $this->boot->roleResolver(),
                 memoryStore: $this->boot->memoryStore(),
-                todoStore: $this->boot->todoStore(),
                 artifactStore: $this->boot->artifactStore(),
             );
         }

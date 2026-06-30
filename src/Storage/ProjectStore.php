@@ -4,27 +4,20 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
- * SQLite-backed project and sprint persistence.
+ * SQLite-backed project persistence.
  *
  * Projects are session-independent containers that organize work across
- * multiple sessions. Sprints represent ordered work chunks within a project,
- * following a 4-state lifecycle: planned → in_progress → review → complete.
+ * multiple sessions. Each project is backed by a workspace directory; the
+ * active project scopes an agent's work to one place.
  */
 final class ProjectStore
 {
-    /** @var array<string, list<string>> Valid state transitions for sprints */
-    private const array SPRINT_TRANSITIONS = [
-        'planned' => ['in_progress'],
-        'in_progress' => ['review'],
-        'review' => ['complete', 'rejected'],
-        'rejected' => ['in_progress'],
-    ];
-
-    public const int MAX_REVIEW_ROUNDS_CAP = 5;
-
     private PDO $db;
 
     public function __construct(PDO $db)
@@ -48,55 +41,21 @@ final class ProjectStore
         SQL);
 
         $this->db->exec(<<<'SQL'
-            CREATE TABLE IF NOT EXISTS sprints (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                sprint_number INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'planned',
-                contract_artifact_id TEXT,
-                acceptance_criteria TEXT,
-                reviewer_notes TEXT,
-                review_round INTEGER NOT NULL DEFAULT 0,
-                max_review_rounds INTEGER NOT NULL DEFAULT 3,
-                last_session_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                completed_at TEXT,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
-        SQL);
-
-        $this->db->exec(<<<'SQL'
-            CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id)
-        SQL);
-
-        $this->db->exec(<<<'SQL'
-            CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(project_id, status)
-        SQL);
-
-        $this->db->exec(<<<'SQL'
             CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug)
         SQL);
 
         // Migration: add directory column for project workspace directories
         $this->migrateAddColumn('projects', 'directory', 'TEXT DEFAULT NULL');
+
+        // Migration: drop the legacy sprints table (removed with the sprint subsystem).
+        $this->db->exec('DROP INDEX IF EXISTS idx_sprints_project');
+        $this->db->exec('DROP INDEX IF EXISTS idx_sprints_status');
+        $this->db->exec('DROP TABLE IF EXISTS sprints');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     // =========================================================================
@@ -124,8 +83,8 @@ final class ProjectStore
             throw new \InvalidArgumentException(sprintf('Project slug "%s" already exists.', $slug));
         }
 
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Compute project directory name: {slug}-{first 8 chars of id}
         $directory = $slug . '-' . substr($id, 0, 8);
@@ -189,12 +148,9 @@ final class ProjectStore
         $whereClause = $where !== [] ? 'WHERE ' . implode(' AND ', $where) : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT p.*,
-                   (SELECT COUNT(*) FROM sprints WHERE project_id = p.id) AS sprint_count,
-                   (SELECT COUNT(*) FROM sprints WHERE project_id = p.id AND status = 'complete') AS sprints_completed
-            FROM projects p
+            SELECT * FROM projects
             {$whereClause}
-            ORDER BY p.updated_at DESC
+            ORDER BY updated_at DESC
             LIMIT ?
         SQL);
 
@@ -220,7 +176,7 @@ final class ProjectStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if ($title !== null) {
@@ -249,7 +205,7 @@ final class ProjectStore
     }
 
     /**
-     * Delete a project and all its sprints (via CASCADE).
+     * Delete a project.
      */
     public function deleteProject(string $id): bool
     {
@@ -260,7 +216,7 @@ final class ProjectStore
     }
 
     /**
-     * Delete all projects and cascading sprints.
+     * Delete all projects.
      *
      * @return int Number of projects deleted.
      */
@@ -273,323 +229,8 @@ final class ProjectStore
     }
 
     // =========================================================================
-    // Sprint CRUD
-    // =========================================================================
-
-    /**
-     * Create a new sprint within a project.
-     *
-     * @throws \InvalidArgumentException If project does not exist.
-     */
-    public function createSprint(
-        string $projectId,
-        string $title,
-        ?string $acceptanceCriteria = null,
-        ?string $contractArtifactId = null,
-        ?string $lastSessionId = null,
-        int $maxReviewRounds = 3,
-    ): string {
-        $project = $this->getProject($projectId);
-        if ($project === null) {
-            throw new \InvalidArgumentException(sprintf('Project "%s" not found.', $projectId));
-        }
-
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        $sprintNumber = $this->nextSprintNumber($projectId);
-        $maxReviewRounds = min($maxReviewRounds, self::MAX_REVIEW_ROUNDS_CAP);
-
-        $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO sprints (id, project_id, title, sprint_number, status, contract_artifact_id, acceptance_criteria, last_session_id, max_review_rounds, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?)
-        SQL);
-        $stmt->execute([
-            $id,
-            $projectId,
-            $title,
-            $sprintNumber,
-            $contractArtifactId,
-            $acceptanceCriteria,
-            $lastSessionId,
-            $maxReviewRounds,
-            $now,
-            $now,
-        ]);
-
-        return $id;
-    }
-
-    /**
-     * Get a sprint by ID.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function getSprint(string $id): ?array
-    {
-        $stmt = $this->db->prepare('SELECT * FROM sprints WHERE id = ?');
-        $stmt->execute([$id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row !== false ? $row : null;
-    }
-
-    /**
-     * List sprints for a project with optional status filter.
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function listSprints(string $projectId, ?string $status = null): array
-    {
-        $where = ['project_id = ?'];
-        $params = [$projectId];
-
-        if ($status !== null) {
-            $where[] = 'status = ?';
-            $params[] = $status;
-        }
-
-        $whereClause = implode(' AND ', $where);
-
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT * FROM sprints
-            WHERE {$whereClause}
-            ORDER BY sprint_number ASC
-        SQL);
-        $stmt->execute($params);
-
-        /** @var list<array<string, mixed>> */
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Update a sprint's modifiable fields.
-     */
-    public function updateSprint(
-        string $id,
-        ?string $title = null,
-        ?string $acceptanceCriteria = null,
-        ?string $contractArtifactId = null,
-        ?string $lastSessionId = null,
-        ?int $maxReviewRounds = null,
-    ): bool {
-        $sprint = $this->getSprint($id);
-        if ($sprint === null) {
-            return false;
-        }
-
-        $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        $params = [$now];
-
-        if ($title !== null) {
-            $sets[] = 'title = ?';
-            $params[] = $title;
-        }
-
-        if ($acceptanceCriteria !== null) {
-            $sets[] = 'acceptance_criteria = ?';
-            $params[] = $acceptanceCriteria;
-        }
-
-        if ($contractArtifactId !== null) {
-            $sets[] = 'contract_artifact_id = ?';
-            $params[] = $contractArtifactId;
-        }
-
-        if ($lastSessionId !== null) {
-            $sets[] = 'last_session_id = ?';
-            $params[] = $lastSessionId;
-        }
-
-        if ($maxReviewRounds !== null) {
-            if ($maxReviewRounds < 1) {
-                throw new \InvalidArgumentException('max_review_rounds must be greater than 0');
-            }
-
-            $sets[] = 'max_review_rounds = ?';
-            $params[] = min($maxReviewRounds, self::MAX_REVIEW_ROUNDS_CAP);
-        }
-
-        $params[] = $id;
-        $sql = 'UPDATE sprints SET ' . implode(', ', $sets) . ' WHERE id = ?';
-        $this->db->prepare($sql)->execute($params);
-
-        return true;
-    }
-
-    /**
-     * Transition a sprint to a new lifecycle state.
-     *
-     * Valid transitions:
-     *   planned → in_progress
-     *   in_progress → review
-     *   review → complete | rejected
-     *   rejected → in_progress
-     *
-     * @throws \InvalidArgumentException On invalid transition or max review rounds exceeded.
-     */
-    public function transitionSprint(string $id, string $newStatus, ?string $notes = null): bool
-    {
-        $sprint = $this->getSprint($id);
-        if ($sprint === null) {
-            return false;
-        }
-
-        $currentStatus = (string) $sprint['status'];
-        $allowed = self::SPRINT_TRANSITIONS[$currentStatus] ?? [];
-
-        if (!in_array($newStatus, $allowed, true)) {
-            throw new \InvalidArgumentException(sprintf(
-                'Invalid sprint transition: %s → %s. Allowed: %s',
-                $currentStatus,
-                $newStatus,
-                $allowed !== [] ? implode(', ', $allowed) : 'none (terminal state)',
-            ));
-        }
-
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        $sets = ['status = ?', 'updated_at = ?'];
-        $params = [$newStatus, $now];
-
-        if ($newStatus === 'rejected') {
-            $reviewRound = (int) $sprint['review_round'] + 1;
-            $maxRounds = (int) $sprint['max_review_rounds'];
-
-            if ($reviewRound > $maxRounds) {
-                throw new \InvalidArgumentException(sprintf(
-                    'Sprint has exceeded max review rounds (%d/%d). Requires user intervention.',
-                    $reviewRound,
-                    $maxRounds,
-                ));
-            }
-
-            $sets[] = 'review_round = ?';
-            $params[] = $reviewRound;
-
-            if ($notes !== null) {
-                $sets[] = 'reviewer_notes = ?';
-                $params[] = $notes;
-            }
-        }
-
-        if ($newStatus === 'complete') {
-            $sets[] = 'completed_at = ?';
-            $params[] = $now;
-        }
-
-        $params[] = $id;
-        $sql = 'UPDATE sprints SET ' . implode(', ', $sets) . ' WHERE id = ?';
-        $this->db->prepare($sql)->execute($params);
-
-        return true;
-    }
-
-    /**
-     * Get the first active sprint (in_progress or review) for a project.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function getActiveSprintForProject(string $projectId): ?array
-    {
-        $stmt = $this->db->prepare(<<<'SQL'
-            SELECT * FROM sprints
-            WHERE project_id = ? AND status IN ('in_progress', 'review')
-            ORDER BY sprint_number ASC
-            LIMIT 1
-        SQL);
-        $stmt->execute([$projectId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row !== false ? $row : null;
-    }
-
-    /**
-     * Get sprints with a specific last_session_id that are in active states.
-     *
-     * @return list<array<string, mixed>>
-     */
-    public function getActiveSprintsForSession(string $sessionId): array
-    {
-        $stmt = $this->db->prepare(<<<'SQL'
-            SELECT s.*, p.title AS project_title, p.slug AS project_slug
-            FROM sprints s
-            JOIN projects p ON p.id = s.project_id
-            WHERE s.last_session_id = ? AND s.status IN ('in_progress', 'review', 'rejected')
-            ORDER BY s.sprint_number ASC
-        SQL);
-        $stmt->execute([$sessionId]);
-
-        /** @var list<array<string, mixed>> */
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Get sprint progress by aggregating linked todo stats.
-     *
-     * @param string|null $sessionId When provided, scopes stats to this session.
-     * @return array{total: int, completed: int, in_progress: int, pending: int, percent: int}
-     */
-    public function getSprintProgress(string $sprintId, TodoStore $todoStore, ?string $sessionId = null): array
-    {
-        $stats = $todoStore->getSprintStats($sprintId, $sessionId);
-
-        $total = $stats['total'];
-        $percent = $total > 0 ? (int) round(($stats['completed'] / $total) * 100) : 0;
-
-        return [
-            'total' => $total,
-            'completed' => $stats['completed'],
-            'in_progress' => $stats['in_progress'],
-            'pending' => $stats['pending'],
-            'percent' => $percent,
-        ];
-    }
-
-    /**
-     * Delete a sprint.
-     */
-    public function deleteSprint(string $id): bool
-    {
-        $stmt = $this->db->prepare('DELETE FROM sprints WHERE id = ?');
-        $stmt->execute([$id]);
-
-        return $stmt->rowCount() > 0;
-    }
-
-    /**
-     * Delete all sprints, optionally limited to a project.
-     *
-     * @return int Number of sprints deleted.
-     */
-    public function deleteAllSprints(?string $projectId = null): int
-    {
-        if ($projectId !== null) {
-            $stmt = $this->db->prepare('DELETE FROM sprints WHERE project_id = ?');
-            $stmt->execute([$projectId]);
-
-            return $stmt->rowCount();
-        }
-
-        $stmt = $this->db->prepare('DELETE FROM sprints');
-        $stmt->execute();
-
-        return $stmt->rowCount();
-    }
-
-    // =========================================================================
     // Helpers
     // =========================================================================
-
-    private function nextSprintNumber(string $projectId): int
-    {
-        $stmt = $this->db->prepare(
-            'SELECT MAX(sprint_number) FROM sprints WHERE project_id = ?',
-        );
-        $stmt->execute([$projectId]);
-        $max = $stmt->fetchColumn();
-
-        return $max !== false && $max !== null ? ((int) $max) + 1 : 1;
-    }
 
     private function isValidSlug(string $slug): bool
     {
@@ -641,42 +282,22 @@ final class ProjectStore
     /**
      * Get aggregated project context for system prompt injection.
      *
-     * Returns project metadata, sprint roster with progress, and directory path.
-     * Todos and artifacts are handled by their own toolkits — this focuses on
-     * project-level context the agent needs for orientation.
+     * Returns project metadata and the workspace directory path. Artifacts
+     * are handled by their own toolkit — this focuses on project-level
+     * context the agent needs for orientation.
      *
-     * @return array{project: array<string, mixed>, sprints: list<array<string, mixed>>, directory: string}
+     * @return array{project: array<string, mixed>, directory: string}
      */
-    public function getProjectContext(
-        string $projectId,
-        ?TodoStore $todoStore = null,
-        ?string $sessionId = null,
-    ): array {
+    public function getProjectContext(string $projectId): array
+    {
         $project = $this->getProject($projectId);
         if ($project === null) {
             throw new \InvalidArgumentException(sprintf('Project "%s" not found.', $projectId));
         }
 
-        // Sprint roster with progress
-        $sprints = $this->listSprints($projectId);
-        $sprintData = [];
-        foreach ($sprints as $sprint) {
-            $progress = null;
-            if ($todoStore !== null) {
-                $progress = $this->getSprintProgress($sprint['id'], $todoStore, $sessionId);
-            }
-            $sprintData[] = [
-                ...$sprint,
-                'progress' => $progress,
-            ];
-        }
-
-        $directory = $this->getProjectDirectory($projectId);
-
         return [
             'project' => $project,
-            'sprints' => $sprintData,
-            'directory' => $directory,
+            'directory' => $this->getProjectDirectory($projectId),
         ];
     }
 }

@@ -32,15 +32,13 @@
             "name": "synthesize",
             "role": "coder",
             "prompt": "Synthesize the research findings from the previous stage into a structured, polished {{output_format}} that satisfies the loop goal. Write the deliverable directly to the project directory as a file (e.g. markdown document). Ensure all claims are backed by the research findings. Summarize what was produced and where it was written.",
-            "order": 1,
-            "requires_artifact_from": 0
+            "order": 1
         },
         {
             "name": "evaluate",
             "role": "reviewer",
             "prompt": "Evaluate the {{output_format}} produced for the loop goal for completeness, accuracy, and clarity. Verify the actual deliverable file in the project directory using shell tools (ls, cat, grep, find). Verify that all claims match the research findings. Check for missing areas, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
-            "order": 2,
-            "requires_artifact_from": 1
+            "order": 2
         }
     ],
     "termination_condition": {

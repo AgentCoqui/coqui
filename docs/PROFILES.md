@@ -19,6 +19,8 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Coqui enforces a single active interactive session per profile. If duplicate active sessions are found for a profile during startup or `/profile` switching, Coqui keeps the newest one and archives/closes the older duplicates.
 - Starting `/new` while a profile is active warns that the current profiled conversation will be summarized, have memories extracted, and then be archived/closed before the fresh profiled session begins.
 
+> **Leaner prompts:** The default (no-profile) soul and base prompts are deliberately lean — identity, values, and workflow, without tone/voice or emotional-calibration guidance. A profile's `soul.md` *replaces* that default, so a verbose profile soul reintroduces persona text. For the leanest possible prompt, keep the profile `soul.md` short, omit `backstory.md`, or stub `soul`/`backstory` via `preferences.json` `prompt_sections` (see below).
+
 ## File Structure
 
 ```text
@@ -117,7 +119,7 @@ Additional ready-to-copy examples live in `examples/preferences/`, including a s
   "prompts": {
     "features": {
       "artifacts": false,
-      "todos": true
+      "projects": true
     },
     "prompt_sections": {
       "tools": "stub",
@@ -140,7 +142,7 @@ Additional ready-to-copy examples live in `examples/preferences/`, including a s
 
 Supported `prompts` fields:
 
-- **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, `todos`, and `background_tasks`. These gates now affect real runtime capability exposure, not just prompt text. For example, disabling `projects` removes sprint/project tooling and active project prompt context.
+- **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, and `background_tasks`. These gates now affect real runtime capability exposure, not just prompt text. For example, disabling `projects` removes project tooling and active project prompt context.
 - **prompt_sections**: Optional per-section policy. Recognized sections are `soul`, `backstory`, `base`, `memory`, `preferences`, `tools`, `security`, `done`, `deferred_toolkits`, and `project_context`. Values may be `true`, `false`, or `"stub"`, except `security`, which is pinned and must remain `true`. `project` and `deferred` are accepted as aliases for `project_context` and `deferred_toolkits`. When `tools` is set to `"stub"`, Coqui also condenses non-core runtime tool and toolkit schemas so prompt text and actual tool exposure stay aligned.
 - **roles**: Optional `allow` and `deny` arrays for profile-specific role restrictions. Role names are normalized to lowercase, overlapping entries are reported as invalid, and the restrictions are enforced in REPL role switching, API session/task creation, background task execution, and child-agent delegation.
 - **labels**: Optional display labels for generated prompt content. `labels.backstory` changes the generated `backstory.md` heading from `## Backstory` to a profile-specific heading such as `## Lore`.

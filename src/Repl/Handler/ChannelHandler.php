@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -470,7 +471,7 @@ final readonly class ChannelHandler
     private function decodeJsonArgument(string $value): array|null
     {
         try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($value, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }
