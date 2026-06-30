@@ -19,6 +19,8 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Coqui enforces a single active interactive session per profile. If duplicate active sessions are found for a profile during startup or `/profile` switching, Coqui keeps the newest one and archives/closes the older duplicates.
 - Starting `/new` while a profile is active warns that the current profiled conversation will be summarized, have memories extracted, and then be archived/closed before the fresh profiled session begins.
 
+> **Leaner prompts:** The default (no-profile) soul and base prompts are deliberately lean — identity, values, and workflow, without tone/voice or emotional-calibration guidance. A profile's `soul.md` *replaces* that default, so a verbose profile soul reintroduces persona text. For the leanest possible prompt, keep the profile `soul.md` short, omit `backstory.md`, or stub `soul`/`backstory` via `preferences.json` `prompt_sections` (see below).
+
 ## File Structure
 
 ```text
