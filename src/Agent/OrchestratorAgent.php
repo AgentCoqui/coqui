@@ -47,6 +47,7 @@ use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Config\ToolProfileResolver;
 use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
@@ -148,6 +149,7 @@ final class OrchestratorAgent extends AbstractAgent
     private readonly ?string $activeProfile;
     private readonly ?string $activeProfilePath;
     private readonly ?ProfilePreferences $profilePreferences;
+    private readonly ToolProfileResolver $toolProfileResolver;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -263,6 +265,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Build role toolkit resolver from the active role's frontmatter
         $this->roleToolkitResolver = $this->buildRoleToolkitResolver($this->activeRole, $this->roleDiscovery);
+
+        // Resolve the active tool profile — decides which built-in ("system")
+        // toolkits stay eager vs. get deferred behind tool_search (lean default).
+        $this->toolProfileResolver = new ToolProfileResolver($config);
 
         // Resolve the shared ProviderFactory — prefer injected, fall back to config+httpClient
         $sharedFactory = $this->providerFactory ?? new ProviderFactory($config, $this->httpClient);
@@ -415,7 +421,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Web toolkit — HTTP requests with SSRF protection
         if ($effectiveAccessLevel === 'full') {
-            $this->addToolkit(new WebToolkit(
+            $this->addSystemToolkit('WebToolkit', 'Web search and fetch', new WebToolkit(
                 storage: $this->storage,
                 parentSessionId: $this->sessionId,
                 workspacePath: $this->workspacePath,
@@ -424,7 +430,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit(
+            $this->addSystemToolkit('MemoryToolkit', 'Persistent memory management (store, search, edit)', new MemoryToolkit(
                 $this->memoryStore,
                 $this->workspacePath,
                 $this->activeProfile,
@@ -441,7 +447,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('artifacts')) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
 
-            $this->addToolkit(new ArtifactToolkit(
+            $this->addSystemToolkit('ArtifactToolkit', 'Create and manage artifacts', new ArtifactToolkit(
                 $artifactStore,
                 $toolkitSessionId,
                 defaultProjectId: $this->defaultProjectId,
@@ -452,7 +458,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Project toolkit — lightweight project (working-directory) management across sessions
         if ($this->projectStore !== null && $this->isProfileFeatureEnabled('projects')) {
-            $this->addToolkit(new ProjectToolkit(
+            $this->addSystemToolkit('ProjectToolkit', 'Project working-scope management', new ProjectToolkit(
                 $this->projectStore,
                 $toolkitSessionId,
                 $this->workspacePath,
@@ -464,22 +470,22 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
-        $this->addToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+        $this->addSystemToolkit('CoquiSourceToolkit', "Read Coqui's own source", new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
         // Composer & Packagist toolkits — workspace package management
         if ($effectiveAccessLevel === 'full') {
-            $this->addToolkit(new ComposerToolkit(
+            $this->addSystemToolkit('ComposerToolkit', 'Composer package operations', new ComposerToolkit(
                 workspacePath: $this->workspacePath,
                 listener: $discovery,
             ));
-            $this->addToolkit(new PackagistToolkit());
+            $this->addSystemToolkit('PackagistToolkit', 'Search Packagist', new PackagistToolkit());
         }
 
         // Schedule toolkit — cron-style task scheduling (top-level agents only)
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
                 $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
+                $this->addSystemToolkit('ScheduleToolkit', 'Cron-style scheduled tasks', new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
             }
         }
 
@@ -503,7 +509,7 @@ final class OrchestratorAgent extends AbstractAgent
                         sessionStorage: $this->storage,
                     )
                     : null;
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
+                $this->addSystemToolkit('LoopToolkit', 'Autonomous loop management', new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
             }
         } else {
             $this->excludeToolkitPromptSlug('loops');
@@ -836,6 +842,34 @@ final class OrchestratorAgent extends AbstractAgent
         $this->ownToolkits[] = $toolkit;
 
         return $this;
+    }
+
+    /**
+     * Register a built-in ("system") toolkit, deferring it under the active
+     * tool profile unless it is in the core set or the user pinned it Eager.
+     *
+     * Deferred toolkits are wrapped as StubToolkit (zero prompt footprint) and
+     * recorded so their tool-prompt slugs are excluded and the capability index
+     * can advertise them. Eager registration is unchanged from a direct
+     * addToolkit() call.
+     */
+    private function addSystemToolkit(string $basename, string $description, ToolkitInterface $toolkit): void
+    {
+        $core = in_array($basename, $this->toolProfileResolver->coreToolkits(), true);
+        $pinnedEager = $this->loadingRegistry?->getMode($basename) === ToolkitLoadingMode::Eager;
+
+        if ($core || $pinnedEager) {
+            $this->addToolkit($toolkit);
+            return;
+        }
+
+        $this->addToolkit(new StubToolkit($toolkit));
+        $this->deferredToolkitInfo[] = [
+            'name' => $basename,
+            'description' => $description,
+            'package' => '',
+        ];
+        $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
     }
 
     public function setNotificationPromptSection(?string $notificationPromptSection): void
