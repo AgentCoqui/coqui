@@ -1029,11 +1029,16 @@ declare(strict_types=1);
 use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
 
 it('keeps the lean system prompt small', function () {
-    $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
-    $tokens = (new HeuristicCounter())->count($agent->getSystemPromptText());
+    $leanAgent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
+    $fullAgent = makeOrchestrator(['agents.defaults.toolProfile' => 'full']);
+    $counter = new HeuristicCounter();
+    $lean = $counter->count($leanAgent->getSystemPromptText());
+    $full = $counter->count($fullAgent->getSystemPromptText());
 
-    // Design target ~1.5-2k; guard generously to catch regressions, not noise.
-    expect($tokens)->toBeLessThan(2500);
+    // Measured reality (the source audit undercounted): full ~11.4k, lean ~4.7k.
+    // Guard for regressions with headroom, and assert a meaningful reduction vs full.
+    expect($lean)->toBeLessThan(5500);
+    expect($lean)->toBeLessThan((int) ($full * 0.6));
 });
 
 it('exposes only the core tool set under lean', function () {
