@@ -69,12 +69,7 @@ use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
-use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler as McpOAuthHandler;
-use CoquiBot\Toolkits\Mcp\Config\McpConfig;
-use CoquiBot\Toolkits\Mcp\McpManagementService;
-use CoquiBot\Toolkits\Mcp\McpServerManager;
-use CoquiBot\Toolkits\Mcp\Support\McpServerPolicy;
-use CoquiBot\Toolkits\Mcp\Support\ServerLoadingModeStore as McpServerLoadingModeStore;
+use CoquiBot\Coqui\Mcp\McpRuntime;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -374,22 +369,12 @@ final class ApiCommand extends Command
         );
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
-        $mcpConfig = new McpConfig($boot->workspacePath());
-        $mcpServerManager = new McpServerManager($mcpConfig);
-        $mcpConfig->load();
-        if ($mcpConfig->listEnabledServers() !== []) {
-            $mcpServerManager->connectAll();
-        }
-        $mcpServerHandler = new McpServerHandler(new McpManagementService(
-            $mcpConfig,
-            $mcpServerManager,
-            new McpOAuthHandler($boot->workspacePath()),
-            new McpServerLoadingModeStore($boot->workspacePath()),
-            McpServerPolicy::fromConfigValues(
-                $boot->config()->get('agents.defaults.mcp.allowedStdioCommands'),
-                $boot->config()->get('agents.defaults.mcp.deniedStdioCommands'),
-            ),
-        ));
+        $mcpRuntime = McpRuntime::fromWorkspace(
+            $boot->workspacePath(),
+            fn (string $key): mixed => $boot->config()->get($key),
+        );
+        $mcpRuntime->connectEnabled();
+        $mcpServerHandler = new McpServerHandler($mcpRuntime->managementService());
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);

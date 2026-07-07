@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\Handler\McpServerHandler;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler;
-use CoquiBot\Toolkits\Mcp\Config\McpConfig;
-use CoquiBot\Toolkits\Mcp\McpManagementService;
-use CoquiBot\Toolkits\Mcp\McpServerManager;
-use CoquiBot\Toolkits\Mcp\Support\McpServerPolicy;
-use CoquiBot\Toolkits\Mcp\Support\ServerLoadingModeStore;
+use CoquiBot\Coqui\Mcp\Config\McpConfig;
+use CoquiBot\Coqui\Mcp\McpManagementService;
+use CoquiBot\Coqui\Mcp\McpServerManager;
+use CoquiBot\Coqui\Mcp\Support\McpServerPolicy;
+use CoquiBot\Coqui\Mcp\Support\ServerLoadingModeStore;
 use React\Http\Message\ServerRequest;
 
 function createMcpHandlerWorkspace(): string
@@ -49,7 +48,7 @@ function createMcpHandlerFixture(?McpServerPolicy $policy = null): array
     $service = new McpManagementService(
         $config,
         new McpServerManager($config),
-        new OAuthHandler($workspace),
+        null,
         new ServerLoadingModeStore($workspace),
         $policy,
     );
