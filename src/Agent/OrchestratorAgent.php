@@ -50,6 +50,7 @@ use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
+use CoquiBot\Coqui\Mcp\McpRuntime;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
@@ -132,6 +133,7 @@ final class OrchestratorAgent extends AbstractAgent
     private readonly ?MountManager $mountManager;
     private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
     private readonly ?ModManagerToolkit $modsToolkit;
+    private readonly ?McpRuntime $mcpRuntime;
     private readonly ?string $activeRole;
     private readonly ?ProjectStore $projectStore;
     private readonly ?DefaultsLoader $defaultsLoader;
@@ -224,6 +226,7 @@ final class OrchestratorAgent extends AbstractAgent
         $this->mountManager = $deps->mountManager;
         $this->visibilityRegistry = $deps->visibilityRegistry;
         $this->modsToolkit = $deps->modsToolkit;
+        $this->mcpRuntime = $deps->mcpRuntime;
         $this->activeRole = $deps->activeRole;
         $this->projectStore = $deps->projectStore;
         $this->defaultsLoader = $deps->defaultsLoader;
@@ -526,12 +529,26 @@ final class OrchestratorAgent extends AbstractAgent
             ];
         }
 
+        // Built-in MCP exposure: per-server tools from user config, budget-gated
+        // (deferred by default) exactly like other candidate toolkits. The `mcp`
+        // management tool + /mcp REPL come from the optional toolkit, not here.
+        if ($this->mcpRuntime !== null) {
+            foreach ($this->mcpRuntime->serverToolkits() as $serverToolkit) {
+                $candidateToolkits[] = [
+                    'toolkit' => $serverToolkit,
+                    'package' => '',
+                    'description' => $this->extractToolkitDescription($serverToolkit),
+                ];
+            }
+        }
+
         // Auto-discovered toolkits from installed packages with visibility applied
         if ($discovery !== null) {
             foreach ($discovery->instantiateRegisteredGrouped(context: [
                 'config' => $this->config,
                 'activeProfile' => $this->activeProfile,
                 'sessionId' => $this->sessionId,
+                'mcp_runtime' => $this->mcpRuntime,
             ]) as $entry) {
                 $packageName = $entry['package'];
                 $toolkit = $entry['toolkit'];

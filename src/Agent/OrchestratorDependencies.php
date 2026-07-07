@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Mcp\McpRuntime;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -77,6 +78,7 @@ final readonly class OrchestratorDependencies
         public ?MountManager $mountManager = null,
         public ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         public ?ModManagerToolkit $modsToolkit = null,
+        public ?McpRuntime $mcpRuntime = null,
         public ?string $activeRole = null,
         public ?ProjectStore $projectStore = null,
         public ?DefaultsLoader $defaultsLoader = null,
