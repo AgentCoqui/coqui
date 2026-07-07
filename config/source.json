@@ -1468,6 +1468,18 @@
             ]
         },
         {
+            "path": "src/Config/ToolProfileResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ToolProfileResolver",
+            "layer": "config",
+            "description": "Resolves the always-eager core tool set for the active tool profile. The lean profile (default) keeps only a bootstrap core eager (FileSystemToolkit, ShellToolkit, and standalone tools like tool_search, config, credentials, coqui_toolkits, coqui_skills, php_execute) and defers everything else behind tool_search. The full profile reproduces the legacy everything-eager behavior. An explicit agents.defaults.coreToolkits list overrides the profile's toolkit preset for advanced self-hosters.",
+            "methods": [
+                "profile(): string — reads agents.defaults.toolProfile, normalized to 'lean' or 'full' (default 'lean')",
+                "isFull(): bool — true when the resolved profile is 'full'",
+                "coreToolkits(): list<string> — toolkit basenames that stay eager (coreToolkits config override > profile preset: SYSTEM_TOOLKITS for full, LEAN_CORE_TOOLKITS for lean)",
+                "coreTools(): list<string> — standalone tool names that stay eager (ALL_STANDALONE_TOOLS for full, LEAN_CORE_TOOLS for lean)"
+            ]
+        },
+        {
             "path": "src/Toolkit/CoquiSourceToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\CoquiSourceToolkit",
             "layer": "toolkit",
