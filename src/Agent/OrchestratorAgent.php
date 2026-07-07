@@ -1457,12 +1457,6 @@ final class OrchestratorAgent extends AbstractAgent
         $tools = $alwaysEnabled;
 
         foreach ($visibilityManaged as $name => $tool) {
-            // Profile deferral: non-core standalone tools stay in the registry
-            // (for tool_search) but are omitted from the LLM-visible list.
-            if (isset($this->deferredStandaloneTools[$name])) {
-                continue;
-            }
-
             // Role-based filtering for standalone tools
             if (!$this->roleToolkitResolver->isToolAllowed($name)) {
                 continue;
@@ -1475,7 +1469,17 @@ final class OrchestratorAgent extends AbstractAgent
                 continue;
             }
 
-            $tools[] = ($vis === ToolkitVisibility::Stub || $this->shouldProfileStubTools()) ? new StubTool($tool) : $tool;
+            // Profile deferral: non-core standalone tools are advertised as minimal
+            // stubs (like deferred toolkit tools) rather than omitted. This keeps them
+            // callable — the agent's executable tool index is built from tools(), so a
+            // fully-omitted tool discovered via tool_search would be uncallable — while
+            // still shrinking their schema footprint. Their full guidance/prompt is
+            // excluded separately; tool_search recovers full parameters on demand.
+            $deferred = isset($this->deferredStandaloneTools[$name]);
+
+            $tools[] = ($deferred || $vis === ToolkitVisibility::Stub || $this->shouldProfileStubTools())
+                ? new StubTool($tool)
+                : $tool;
         }
 
         return $tools;

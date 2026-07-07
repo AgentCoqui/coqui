@@ -4,39 +4,51 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/LeanHarness.php';
 
-it('omits non-core standalone tools from the LLM tool list under lean', function () {
-    $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
+use CoquiBot\Coqui\Tool\StubTool;
 
-    $names = array_map(fn($t) => $t->name(), $agent->tools());
+/** @return array<string, \CarmeloSantana\PHPAgents\Contract\ToolInterface> name => tool */
+function toolsByName($agent): array
+{
+    $byName = [];
+    foreach ($agent->tools() as $t) {
+        $byName[$t->name()] = $t;
+    }
+    return $byName;
+}
 
-    // core stays visible
-    expect($names)->toContain('tool_search')->toContain('config')->toContain('php_execute');
-    // deferred standalone tools are gone from the visible list
-    expect($names)->not->toContain('spawn_agent');
-    expect($names)->not->toContain('vision_analyze');
-    expect($names)->not->toContain('extract_memories');
+it('advertises non-core standalone tools as minimal stubs under lean', function () {
+    $byName = toolsByName(makeOrchestrator(['agents.defaults.toolProfile' => 'lean']));
+
+    // Core standalone tools are present in FULL (not stubbed).
+    expect($byName)->toHaveKey('tool_search')->toHaveKey('config')->toHaveKey('php_execute');
+    expect($byName['php_execute'])->not->toBeInstanceOf(StubTool::class);
+
+    // Deferred standalone tools are still present but as minimal stubs — so they
+    // remain in the agent's executable tool index (callable after tool_search
+    // discovery) while their schema footprint shrinks. A fully-omitted tool would
+    // be uncallable.
+    foreach (['spawn_agent', 'vision_analyze', 'extract_memories'] as $deferred) {
+        expect($byName)->toHaveKey($deferred);
+        expect($byName[$deferred])->toBeInstanceOf(StubTool::class);
+        expect($byName[$deferred]->parameters())->toBe([]); // stub carries no params
+    }
 });
 
 it('still finds a deferred standalone tool via tool_search', function () {
-    $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
+    $byName = toolsByName(makeOrchestrator(['agents.defaults.toolProfile' => 'lean']));
 
-    // Locate the tool_search tool in the visible list and invoke it directly —
-    // real-behavior proof the deferred tool is in the BM25 registry.
-    $search = null;
-    foreach ($agent->tools() as $t) {
-        if ($t->name() === 'tool_search') { $search = $t; break; }
-    }
-    expect($search)->not->toBeNull();
-
-    $result = $search->execute(['query' => 'spawn child agent']); // ToolResult
+    // Invoke tool_search directly — real-behavior proof the deferred tool is in
+    // the BM25 registry with its full description.
+    expect($byName)->toHaveKey('tool_search');
+    $result = $byName['tool_search']->execute(['query' => 'spawn child agent']); // ToolResult
     expect($result->content)->toContain('spawn_agent');
 });
 
-it('keeps all standalone tools visible under the full profile', function () {
-    $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'full']);
-    $names = array_map(fn($t) => $t->name(), $agent->tools());
+it('keeps all standalone tools full (non-stub) under the full profile', function () {
+    $byName = toolsByName(makeOrchestrator(['agents.defaults.toolProfile' => 'full']));
 
-    expect($names)->toContain('spawn_agent')->toContain('vision_analyze');
+    expect($byName)->toHaveKey('spawn_agent')->toHaveKey('vision_analyze');
+    expect($byName['spawn_agent'])->not->toBeInstanceOf(StubTool::class);
 });
 
 it('drops the prompt guidance of deferred standalone tools under lean', function () {
