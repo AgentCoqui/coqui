@@ -84,20 +84,17 @@ Create `tests/Unit/Config/ToolProfileResolverTest.php`:
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\ToolProfileResolver;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
-use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 
-/** Minimal in-memory config double honoring dotted keys + default. */
-function leanConfig(array $values): ConfigInterface
+/**
+ * Build a real config from an agents.defaults fragment. Use OpenClawConfig
+ * (not a hand-rolled ConfigInterface double — the interface has 7 methods)
+ * so dot-notation resolution is exercised for real.
+ */
+function leanConfig(array $agentsDefaults): OpenClawConfig
 {
-    return new class($values) implements ConfigInterface {
-        /** @param array<string,mixed> $values */
-        public function __construct(private array $values) {}
-        public function get(string $key, mixed $default = null): mixed
-        {
-            return $this->values[$key] ?? $default;
-        }
-    };
+    return OpenClawConfig::fromArray(['agents' => ['defaults' => $agentsDefaults]]);
 }
 
 it('defaults to the lean profile and lean core sets', function () {
@@ -110,7 +107,7 @@ it('defaults to the lean profile and lean core sets', function () {
 });
 
 it('resolves the full profile to every system toolkit and no tool deferral', function () {
-    $r = new ToolProfileResolver(leanConfig(['agents.defaults.toolProfile' => 'full']));
+    $r = new ToolProfileResolver(leanConfig(['toolProfile' => 'full']));
 
     expect($r->isFull())->toBeTrue();
     expect($r->coreToolkits())->toBe(CoquiDefaults::SYSTEM_TOOLKITS);
@@ -120,13 +117,13 @@ it('resolves the full profile to every system toolkit and no tool deferral', fun
 });
 
 it('treats an unknown profile as lean', function () {
-    $r = new ToolProfileResolver(leanConfig(['agents.defaults.toolProfile' => 'bogus']));
+    $r = new ToolProfileResolver(leanConfig(['toolProfile' => 'bogus']));
     expect($r->profile())->toBe('lean');
 });
 
 it('lets an explicit coreToolkits list override the profile preset', function () {
     $r = new ToolProfileResolver(leanConfig([
-        'agents.defaults.coreToolkits' => ['FileSystemToolkit', 'MemoryToolkit'],
+        'coreToolkits' => ['FileSystemToolkit', 'MemoryToolkit'],
     ]));
     expect($r->coreToolkits())->toBe(['FileSystemToolkit', 'MemoryToolkit']);
 });
