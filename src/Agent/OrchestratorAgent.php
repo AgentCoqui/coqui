@@ -1153,7 +1153,7 @@ final class OrchestratorAgent extends AbstractAgent
             'preferences' => '## Preferences' . "\n\n" . 'Profile-specific communication preferences are intentionally condensed for this profile.',
             'memory' => '## BACKGROUND KNOWLEDGE (Core Memories)' . "\n\n" . 'Core memories are available but intentionally condensed for this profile.',
             'project_context' => '## ACTIVE PROJECT' . "\n\n" . 'Project context is available but intentionally condensed for this profile.',
-            'deferred_toolkits' => '## DEFERRED TOOLKITS' . "\n\n" . 'Additional toolkits may be available through discovery tools, but their guidance is intentionally condensed for this profile.',
+            'deferred_toolkits' => '## DEFERRED CAPABILITIES' . "\n\n" . 'Additional toolkits and tools may be available through discovery tools, but their guidance is intentionally condensed for this profile.',
             default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this profile.',
         };
     }
@@ -1331,10 +1331,36 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
-     * Inject a # DEFERRED TOOLKITS section when toolkits have been deferred.
+     * Merge deferred toolkit categories and deferred standalone tool names
+     * into a single de-duplicated label list for the capability index.
      *
-     * Tells the LLM that additional toolkits are available via tool_search,
-     * following Anthropic's recommendation to describe available tool categories.
+     * Shared by the rendered system prompt (injectDeferredToolkitHint) and
+     * the prompt-section breakdown/telemetry surface (buildDeferredToolkitPromptSection)
+     * so both stay in sync.
+     *
+     * @return list<string>
+     */
+    private function deferredCapabilityLabels(): array
+    {
+        $toolkitLabels = array_map(
+            static fn(array $info): string => self::toolkitCapabilityLabel($info['name']),
+            $this->deferredToolkitInfo,
+        );
+        $standaloneLabels = array_map(
+            static fn(array $info): string => $info['name'],
+            $this->deferredStandaloneToolInfo,
+        );
+
+        return array_values(array_unique([...$toolkitLabels, ...$standaloneLabels]));
+    }
+
+    /**
+     * Inject a ## DEFERRED CAPABILITIES section when toolkits or standalone
+     * tools have been deferred.
+     *
+     * Tells the LLM that additional toolkits and tools are available via
+     * tool_search, following Anthropic's recommendation to describe available
+     * tool categories.
      */
     private function injectDeferredToolkitHint(string $rendered): string
     {
@@ -1346,24 +1372,21 @@ final class OrchestratorAgent extends AbstractAgent
             return $rendered . "\n\n" . $this->buildProfilePromptSectionStub('deferred_toolkits');
         }
 
-        if (empty($this->deferredToolkitInfo)) {
+        $all = $this->deferredCapabilityLabels();
+
+        if ($all === []) {
             return $rendered;
         }
 
         $lines = [
-            '## DEFERRED TOOLKITS',
+            '## DEFERRED CAPABILITIES',
             '',
-            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+            'These are available but not loaded. Load with `tool_search("<keyword>")` before use:',
+            '',
+            implode(', ', $all) . '.',
+            '',
+            'Use `coqui_toolkits` for a full inventory.',
         ];
-
-        foreach ($this->deferredToolkitInfo as $info) {
-            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
-            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
-            $lines[] = "- {$label}{$desc}";
-        }
-
-        $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return $rendered . "\n\n" . implode("\n", $lines);
     }
@@ -1957,24 +1980,21 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
-        if ($this->deferredToolkitInfo === []) {
+        $all = $this->deferredCapabilityLabels();
+
+        if ($all === []) {
             return null;
         }
 
         $lines = [
-            '## DEFERRED TOOLKITS',
+            '## DEFERRED CAPABILITIES',
             '',
-            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+            'These are available but not loaded. Load with `tool_search("<keyword>")` before use:',
+            '',
+            implode(', ', $all) . '.',
+            '',
+            'Use `coqui_toolkits` for a full inventory.',
         ];
-
-        foreach ($this->deferredToolkitInfo as $info) {
-            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
-            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
-            $lines[] = "- {$label}{$desc}";
-        }
-
-        $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return new PromptSection(
             id: 'context.deferred-toolkits',
@@ -2447,6 +2467,26 @@ final class OrchestratorAgent extends AbstractAgent
         $parts = explode('\\', $resolved::class);
 
         return end($parts);
+    }
+
+    /**
+     * Compact, lowercase category label for a deferred toolkit basename.
+     *
+     * Reuses the existing prompt-slug map (e.g. `LoopToolkit` -> `loops`) where
+     * one exists so the capability index matches the vocabulary already used
+     * elsewhere for these categories; otherwise falls back to the basename
+     * with the `Toolkit` suffix stripped and lowercased (e.g. `MemoryToolkit`
+     * -> `memory`).
+     */
+    private static function toolkitCapabilityLabel(string $basename): string
+    {
+        if (isset(self::TOOLKIT_PROMPT_SLUG_MAP[$basename])) {
+            return self::TOOLKIT_PROMPT_SLUG_MAP[$basename];
+        }
+
+        $stripped = str_ends_with($basename, 'Toolkit') ? substr($basename, 0, -strlen('Toolkit')) : $basename;
+
+        return strtolower($stripped);
     }
 
     /**
