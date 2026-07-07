@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4155ec16877af67fd4aedb4a46fb91b9",
+    "content-hash": "377b8ac99137dfa43ccda56c82a1d601",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
@@ -199,66 +199,6 @@
                 "source": "https://github.com/carmelosantana/php-pathhelper/tree/v0.1.0"
             },
             "time": "2026-04-28T20:28:37+00:00"
-        },
-        {
-            "name": "coquibot/coqui-toolkit-mcp-client",
-            "version": "v0.1.6",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
-                "reference": "ecf6e1b0e1cabec49697124da2ce1f15f0581cc5"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/ecf6e1b0e1cabec49697124da2ce1f15f0581cc5",
-                "reference": "ecf6e1b0e1cabec49697124da2ce1f15f0581cc5",
-                "shasum": ""
-            },
-            "require": {
-                "carmelosantana/php-agents": ">=0.14",
-                "carmelosantana/php-pathhelper": "^0.1",
-                "php": "^8.4"
-            },
-            "require-dev": {
-                "pestphp/pest": "^4.0",
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "extra": {
-                "php-agents": {
-                    "toolkits": [
-                        "CoquiBot\\Toolkits\\Mcp\\McpToolkit"
-                    ],
-                    "description": "MCP (Model Context Protocol) — consume any MCP server as agent tools via stdio transport"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Mcp\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Carmelo Santana"
-                }
-            ],
-            "description": "MCP (Model Context Protocol) toolkit for Coqui — consume MCP servers as agent tools",
-            "keywords": [
-                "coqui",
-                "mcp",
-                "model-context-protocol",
-                "php-agents",
-                "toolkit"
-            ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.6"
-            },
-            "time": "2026-06-16T20:09:08+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-mod-manager",

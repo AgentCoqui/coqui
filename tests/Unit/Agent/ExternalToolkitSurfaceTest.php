@@ -12,7 +12,6 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
-use CoquiBot\Toolkits\Mcp\McpToolkit;
 
 beforeEach(function () {
     $this->workspace = sys_get_temp_dir() . '/coqui-external-toolkit-surface-' . bin2hex(random_bytes(8));
@@ -72,7 +71,6 @@ function createExternalToolkitSurfaceAgent(string $chatModel, string $workspaceP
         workspacePath: $workspacePath,
     );
     $discovery->register('carmelosantana/coqui-toolkit-images', [ImagesToolkit::class]);
-    $discovery->register('coquibot/coqui-toolkit-mcp-client', [McpToolkit::class]);
 
     $loadingRegistry = new ToolkitLoadingRegistry($workspacePath);
     $loadingRegistry->setMode('ImagesToolkit', ToolkitLoadingMode::Eager);
@@ -131,7 +129,7 @@ function createPreviewFixture(string $workspacePath): string
     return $path;
 }
 
-test('coqui loads external image and mcp tool surfaces across supported chat providers', function (string $chatModel) {
+test('coqui loads external image tool surfaces across supported chat providers', function (string $chatModel) {
     $agent = createExternalToolkitSurfaceAgent($chatModel, $this->workspace, $this->projectRoot);
 
     $toolNames = array_map(static fn($tool) => $tool->name(), [
@@ -140,7 +138,6 @@ test('coqui loads external image and mcp tool surfaces across supported chat pro
         toolFromAgent($agent, 'image_preview'),
         toolFromAgent($agent, 'image_library'),
         toolFromAgent($agent, 'image_config'),
-        toolFromAgent($agent, 'mcp'),
     ]);
 
     expect($agent->getAppliedLoadingModes()['ImagesToolkit'] ?? null)->toBe(ToolkitLoadingMode::Eager);
@@ -149,7 +146,6 @@ test('coqui loads external image and mcp tool surfaces across supported chat pro
     expect($toolNames)->toContain('image_preview');
     expect($toolNames)->toContain('image_library');
     expect($toolNames)->toContain('image_config');
-    expect($toolNames)->toContain('mcp');
 })->with(externalToolkitProviderMatrix());
 
 test('coqui preserves structured image preview output across supported chat providers', function (string $chatModel) {
@@ -170,17 +166,4 @@ test('coqui preserves structured image preview output across supported chat prov
     expect($payload['path'])->toBe(realpath($fixturePath));
     expect($payload['preview_format'])->toBe('ansi_blocks');
     expect($payload['preview'])->toContain("\033[38;2;");
-})->with(externalToolkitProviderMatrix());
-
-test('coqui exposes mcp management as a text-first tool across supported chat providers', function (string $chatModel) {
-    $agent = createExternalToolkitSurfaceAgent($chatModel, $this->workspace, $this->projectRoot);
-
-    $result = toolFromAgent($agent, 'mcp')->execute([
-        'action' => 'list',
-    ]);
-
-    expect($result->status->value)->toBe('success');
-    expect($result->mimeType)->toBeNull();
-    expect($result->displayHint)->toBeNull();
-    expect($result->content)->toContain('No MCP servers configured.');
 })->with(externalToolkitProviderMatrix());
