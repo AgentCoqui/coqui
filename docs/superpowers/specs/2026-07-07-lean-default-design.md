@@ -146,9 +146,12 @@ Roles already replace the orchestrator body/tools wholesale. The lean default is
 - **Passive-value retention:** with memories present, the recall block still injects under `lean`; with a project active, project context still injects; auto-summarization still triggers on budget pressure — all with the corresponding *tools* deferred.
 - **Capability index:** lists exactly the deferred categories; promoting a toolkit to eager removes it from the index.
 - **Config precedence:** per-toolkit override > `coreToolkits` > `toolProfile` > default, verified with a small matrix.
-- **Ollama smoke:** a fresh `lean` session against a small local model can call a deferred tool end-to-end (discover via `tool_search`, then invoke) — the discovery path actually works for a non-frontier model.
+- **Discover-then-call (synthetic, always runs):** with a **mocked/fake provider** scripted to return a `tool_search` call followed by a call to a deferred tool, assert the full path works — the deferred tool is found and invoked without ever being in the initial schema. This is the CI-safe, deterministic proof that aggressive deferral is usable; it has **no dependency on a live model or endpoint**.
+- **Real-endpoint integration (optional, skipped by default):** the same discover-then-call flow against an actual small local Ollama model, gated behind an env var (e.g. `COQUI_OLLAMA_IT=1`) and **skipped when no endpoint is configured**. Verifies a genuine non-frontier model spontaneously uses the capability index + `tool_search`. Run manually once an endpoint is provisioned (see note below).
 
 Run: `composer test`, `./vendor/bin/phpstan analyse` (level 8), targeted Pest files for prompt assembly and toolkit loading.
+
+**Endpoint availability note:** no Ollama endpoint is available during implementation. All required tests are synthetic (mocked provider) and must pass in CI without a model. The real-endpoint integration test is the only check that needs a live model; it is optional/skippable and is the pre-merge manual gate. Provisioning options: (a) the maintainer provisions an Ollama endpoint, or (b) a tiny CPU-only model (e.g. a sub-1B model) is installed locally for a one-off manual pass. This gate must be run before the lean default is enabled for real users, but does not block landing the synthetic-tested implementation behind the `toolProfile` switch.
 
 ---
 
