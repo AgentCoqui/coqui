@@ -5,6 +5,8 @@ declare(strict_types=1);
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Agent\OrchestratorDependencies;
+use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -101,6 +103,11 @@ function makeOrchestrator(
 
     $provider = (new ProviderFactory($config))->create($chatModel);
 
+    // ConfigManager backs the agent-facing `config` tool — one of the always-core
+    // standalone tools under the lean profile. Without it, ConfigTool is never
+    // constructed and 'config' can never appear in tools(), independent of profile.
+    $configManager = new ConfigManager($workspacePath, $projectRoot, new DefaultsLoader());
+
     return new OrchestratorAgent(
         provider: $provider,
         roleResolver: new RoleResolver($config),
@@ -116,6 +123,7 @@ function makeOrchestrator(
             roleDiscovery: $roleDiscovery,
             memoryStore: $memoryStore,
             memorySummarizer: $memorySummarizer,
+            configManager: $configManager,
         ),
     );
 }

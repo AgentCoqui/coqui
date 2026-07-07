@@ -173,6 +173,12 @@ final class OrchestratorAgent extends AbstractAgent
     /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
     private array $excludedToolPromptSlugs = [];
 
+    /** @var array<string,true> Standalone tool names deferred under the active profile. */
+    private array $deferredStandaloneTools = [];
+
+    /** @var list<array{name:string,description:string}> Deferred standalone tools for the capability index. */
+    private array $deferredStandaloneToolInfo = [];
+
     /** @var array<string, ToolkitLoadingMode> Applied loading modes for REPL display (toolkit basename => mode) */
     private array $appliedLoadingModes = [];
 
@@ -784,6 +790,29 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($this->extractMemoriesTool);
         }
 
+        // Determine which standalone tools defer under the active profile.
+        // They remain in $this->toolRegistry (registered above) for tool_search;
+        // tools() simply omits them from the LLM-visible list.
+        $coreTools = $this->toolProfileResolver->coreTools();
+        $this->deferredStandaloneTools = [];
+        $this->deferredStandaloneToolInfo = [];
+        $standaloneDescriptions = [
+            'spawn_agent' => 'Spawn isolated child agents',
+            'package_info' => 'Inspect installed SDK packages',
+            'vision_analyze' => 'Analyze images',
+            'summarize_conversation' => 'Compress conversation history',
+            'extract_memories' => 'Extract long-term memories',
+            'restart_coqui' => 'Restart the agent process',
+        ];
+        foreach (CoquiDefaults::ALL_STANDALONE_TOOLS as $name) {
+            if (!in_array($name, $coreTools, true)) {
+                $this->deferredStandaloneTools[$name] = true;
+                if (isset($standaloneDescriptions[$name])) {
+                    $this->deferredStandaloneToolInfo[] = ['name' => $name, 'description' => $standaloneDescriptions[$name]];
+                }
+            }
+        }
+
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
         // Gives the agent on-demand access to the full tool library via BM25 search.
         $this->toolSearchTool = new ToolSearchTool($this->toolRegistry);
@@ -1390,6 +1419,12 @@ final class OrchestratorAgent extends AbstractAgent
         $tools = $alwaysEnabled;
 
         foreach ($visibilityManaged as $name => $tool) {
+            // Profile deferral: non-core standalone tools stay in the registry
+            // (for tool_search) but are omitted from the LLM-visible list.
+            if (isset($this->deferredStandaloneTools[$name])) {
+                continue;
+            }
+
             // Role-based filtering for standalone tools
             if (!$this->roleToolkitResolver->isToolAllowed($name)) {
                 continue;
@@ -2464,6 +2499,16 @@ final class OrchestratorAgent extends AbstractAgent
     public function getDeferredToolkitInfo(): array
     {
         return $this->deferredToolkitInfo;
+    }
+
+    /**
+     * Get the list of deferred standalone-tool info for the capability index.
+     *
+     * @return list<array{name:string,description:string}>
+     */
+    public function getDeferredStandaloneToolInfo(): array
+    {
+        return $this->deferredStandaloneToolInfo;
     }
 
     /**
