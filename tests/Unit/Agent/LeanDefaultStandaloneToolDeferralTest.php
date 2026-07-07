@@ -38,3 +38,14 @@ it('keeps all standalone tools visible under the full profile', function () {
 
     expect($names)->toContain('spawn_agent')->toContain('vision_analyze');
 });
+
+it('drops the prompt guidance of deferred standalone tools under lean', function () {
+    // Deferring a standalone tool must also drop its dedicated prompts/tools/*.md,
+    // not just hide the tool. Assert on body text unique to each prompt.
+    $lean = makeOrchestrator(['agents.defaults.toolProfile' => 'lean'])->getSystemPromptText();
+    $full = makeOrchestrator(['agents.defaults.toolProfile' => 'full'])->getSystemPromptText();
+
+    // spawn_agent -> delegation.md ("Specialist Agents"); restart_coqui -> restart.md.
+    expect($lean)->not->toContain('Specialist Agents');
+    expect($full)->toContain('Specialist Agents');
+});

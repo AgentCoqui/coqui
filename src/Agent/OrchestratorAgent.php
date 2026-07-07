@@ -808,11 +808,22 @@ final class OrchestratorAgent extends AbstractAgent
             'extract_memories' => 'Extract long-term memories',
             'restart_coqui' => 'Restart the agent process',
         ];
+        // Standalone tools whose guidance lives in a dedicated prompts/tools/*.md.
+        // Deferring the tool must also drop its prompt (otherwise the guidance
+        // leaks into context while the tool itself is hidden). Tools absent here
+        // either have no dedicated prompt or share one already excluded elsewhere.
+        $standalonePromptSlugs = [
+            'spawn_agent' => 'delegation',
+            'restart_coqui' => 'restart',
+        ];
         foreach (CoquiDefaults::ALL_STANDALONE_TOOLS as $name) {
             if (!in_array($name, $coreTools, true)) {
                 $this->deferredStandaloneTools[$name] = true;
                 if (isset($standaloneDescriptions[$name])) {
                     $this->deferredStandaloneToolInfo[] = ['name' => $name, 'description' => $standaloneDescriptions[$name]];
+                }
+                if (isset($standalonePromptSlugs[$name])) {
+                    $this->excludeToolkitPromptSlug($standalonePromptSlugs[$name]);
                 }
             }
         }
