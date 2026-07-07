@@ -31,9 +31,10 @@ it('excludes deferred toolkit prompt slugs from the system prompt under lean', f
     $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
     $prompt = $agent->getSystemPromptText();
 
-    // The ~930-token memory guidance and loops guidance are gone.
-    expect($prompt)->not->toContain('# MEMORY');
-    expect($prompt)->not->toContain('# LOOPS');
+    // The ~930-token memory guidance and loops guidance are gone. Assert on body
+    // text unique to each tool prompt (immune to heading-shift + substring matches).
+    expect($prompt)->not->toContain('Importance Scoring'); // prompts/tools/memory.md only
+    expect($prompt)->not->toContain('How Loops Work');      // prompts/tools/loops.md only
 });
 
 it('retains passive memory recall even though memory tools are deferred', function () {
@@ -48,6 +49,6 @@ it('retains passive memory recall even though memory tools are deferred', functi
 
     // Recall block is injected independently of the (deferred) memory toolkit.
     expect($prompt)->toContain('tabs over spaces');
-    // But the memory management guidance/tools are not eagerly loaded.
-    expect($prompt)->not->toContain('# MEMORY');
+    // But the memory management guidance (memory.md) is not eagerly loaded.
+    expect($prompt)->not->toContain('Importance Scoring');
 });

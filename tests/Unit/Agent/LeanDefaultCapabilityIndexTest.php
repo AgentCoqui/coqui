@@ -31,6 +31,9 @@ it('drops a toolkit from the index once it is pinned eager', function () {
     ], pinEager: ['MemoryToolkit']); // harness sets toolkit-loading.json override
 
     $prompt = $agent->getSystemPromptText();
-    // Memory is now eager: its guidance returns and it is not in the deferred index.
-    expect($prompt)->toContain('# MEMORY');
+    // Memory is now eager: its tool guidance (prompts/tools/memory.md, uniquely
+    // identified by "Importance Scoring") returns, and MemoryToolkit is no longer
+    // recorded as deferred.
+    expect($prompt)->toContain('Importance Scoring');
+    expect(array_column($agent->getDeferredToolkitInfo(), 'name'))->not->toContain('MemoryToolkit');
 });

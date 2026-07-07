@@ -162,8 +162,12 @@ final class OrchestratorAgent extends AbstractAgent
      * When a toolkit is deferred, its prompt slug is excluded from system prompt injection.
      */
     private const array TOOLKIT_PROMPT_SLUG_MAP = [
+        'MemoryToolkit' => 'memory',
         'ArtifactToolkit' => 'artifacts',
         'ProjectToolkit' => 'projects',
+        'CoquiSourceToolkit' => 'coqui-source',
+        'ComposerToolkit' => 'packages',
+        'PackagistToolkit' => 'packages',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
