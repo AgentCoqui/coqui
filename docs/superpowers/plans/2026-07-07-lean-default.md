@@ -1041,26 +1041,41 @@ it('keeps the lean system prompt small', function () {
     expect($lean)->toBeLessThan((int) ($full * 0.6));
 });
 
-it('exposes only the core tool set under lean', function () {
-    $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
-    $names = array_map(fn($t) => $t->name(), $agent->tools());
+it('carries far fewer full-schema standalone tools under lean than full', function () {
+    // Deferred standalone tools are advertised as minimal StubTools (callable,
+    // tiny), not omitted — so assert on the count of FULL-schema tools, which
+    // shrinks to just the core set under lean.
+    $fullSchemaCount = fn($agent) => count(array_filter(
+        $agent->tools(),
+        fn($t) => !($t instanceof StubTool),
+    ));
 
-    expect($names)->not->toContain('spawn_agent');
-    expect($names)->not->toContain('vision_analyze');
-    expect($names)->toContain('tool_search');
-    expect($names)->toContain('php_execute');
+    $lean = makeOrchestrator(['agents.defaults.toolProfile' => 'lean']);
+    $full = makeOrchestrator(['agents.defaults.toolProfile' => 'full']);
+
+    expect($fullSchemaCount($lean))->toBeLessThan($fullSchemaCount($full));
+
+    // Core standalone tools stay full under lean; non-core are stubs.
+    $leanByName = [];
+    foreach ($lean->tools() as $t) { $leanByName[$t->name()] = $t; }
+    expect($leanByName['php_execute'])->not->toBeInstanceOf(StubTool::class);
+    expect($leanByName['spawn_agent'])->toBeInstanceOf(StubTool::class);
 });
 
-it('full profile restores the pre-change eager surface', function () {
+it('full profile restores the pre-change eager surface (all full-schema)', function () {
     $agent = makeOrchestrator(['agents.defaults.toolProfile' => 'full']);
-    $names = array_map(fn($t) => $t->name(), $agent->tools());
+    $byName = [];
+    foreach ($agent->tools() as $t) { $byName[$t->name()] = $t; }
 
-    // Sanity: the previously-eager standalone tools are all present again.
+    // Previously-eager standalone tools are all present again, in full (non-stub).
     foreach (['spawn_agent', 'vision_analyze', 'summarize_conversation', 'extract_memories'] as $n) {
-        expect($names)->toContain($n);
+        expect($byName)->toHaveKey($n);
+        expect($byName[$n])->not->toBeInstanceOf(StubTool::class);
     }
 });
 ```
+
+The test file must `use CoquiBot\Coqui\Tool\StubTool;`.
 
 - [ ] **Step 2: Run + verify pass**
 
