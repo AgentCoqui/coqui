@@ -8742,6 +8742,7 @@
     },
     "defaults": {
         "model": "ollama/qwen3.5:9b",
+        "toolProfile": "lean",
         "imageModel": "ollama/jmorgan/z-image-turbo:fp8",
         "imageFallbacks": [
             "openai/gpt-image-1.5",

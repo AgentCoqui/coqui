@@ -224,20 +224,59 @@ final class CoquiDefaults
     ];
 
     /**
-     * Standalone tool names that are always loaded (never deferred).
+     * Default tool profile — the shipped lean-by-default core set.
+     *
+     * Config: agents.defaults.toolProfile ('lean' | 'full').
+     */
+    public const string TOOL_PROFILE_DEFAULT = 'lean';
+    public const string TOOL_PROFILE_LEAN = 'lean';
+    public const string TOOL_PROFILE_FULL = 'full';
+
+    /**
+     * Toolkit basenames that stay eager under the lean profile.
+     * Everything in SYSTEM_TOOLKITS not listed here is deferred.
      *
      * @var list<string>
      */
-    public const array SYSTEM_TOOLS = [
+    public const array LEAN_CORE_TOOLKITS = [
+        'FileSystemToolkit',
+        'ShellToolkit',
+    ];
+
+    /**
+     * Standalone tool names that stay eager under the lean profile.
+     * Everything else surfaced by OrchestratorAgent::tools() is deferred
+     * (still registered in the tool_search index).
+     *
+     * @var list<string>
+     */
+    public const array LEAN_CORE_TOOLS = [
         'tool_search',
         'credentials',
-        'spawn_agent',
-        'vision_analyze',
-        'restart_coqui',
-        'summarize_conversation',
-        'extract_memories',
         'config',
         'coqui_toolkits',
         'coqui_skills',
+        'php_execute',
+    ];
+
+    /**
+     * Every standalone tool OrchestratorAgent::tools() can surface, used to
+     * compute the deferred set (all names not in the active core-tools list).
+     *
+     * @var list<string>
+     */
+    public const array ALL_STANDALONE_TOOLS = [
+        'tool_search',
+        'credentials',
+        'config',
+        'coqui_toolkits',
+        'coqui_skills',
+        'php_execute',
+        'package_info',
+        'spawn_agent',
+        'vision_analyze',
+        'summarize_conversation',
+        'extract_memories',
+        'restart_coqui',
     ];
 }
