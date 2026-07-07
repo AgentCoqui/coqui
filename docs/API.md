@@ -4322,7 +4322,9 @@ Set the visibility of a package or an individual tool.
 
 ### MCP Servers
 
-MCP server management is now available over HTTP and uses the same shared MCP runtime service as the `mcp` tool and `/mcp` REPL command. These endpoints are intended for operator flows such as adding or updating servers, linking credentials, inspecting discovered tools, and verifying connectivity.
+The MCP client engine and this API surface ship in Coqui core by default (`CoquiBot\Coqui\Mcp\*`) — every endpoint below works fully without any additional package installed, with one exception: `POST /api/v1/mcp/servers/{name}/auth` (browser-based OAuth) requires the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package. When that package is not installed, calling the `/auth` endpoint returns an error explaining that OAuth requires the management toolkit.
+
+MCP server management is available over HTTP and uses the same shared MCP runtime service as the optional `mcp` tool and `/mcp` REPL command (when the management toolkit is installed). These endpoints are intended for operator flows such as adding or updating servers, linking credentials, inspecting discovered tools, and verifying connectivity.
 
 The API keeps MCP auditing live-only for now: each server snapshot includes the latest connection attempt, latest connectivity test result, durations, timestamps, the current `loadingMode`, and last discovered tool count, but does not persist a historical delivery-style audit ledger.
 
@@ -4433,7 +4435,7 @@ For secret-link-only flows, send `placeholder` instead of `value`.
 
 #### `POST /api/v1/mcp/servers/{name}/auth`
 
-Run browser-based OAuth for one server and store the resulting access token as an env link.
+Run browser-based OAuth for one server and store the resulting access token as an env link. **Requires the optional `coquibot/coqui-toolkit-mcp-client` package.** Core ships no OAuth implementation; when the toolkit is not installed, this endpoint returns an error stating that OAuth requires the management toolkit.
 
 **Request Body**
 
@@ -4794,6 +4796,8 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 
 The API overlaps with the REPL, but it does **not** mirror every slash command. The current HTTP surface focuses on session execution plus read-heavy inspection.
 
+The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-mcp-client` package (see [docs/COMMANDS.md](COMMANDS.md)), but every API equivalent listed below is core and works whether or not that package is installed.
+
 | REPL Command | API Equivalent | Notes |
 |---|---|---|
 | `/new` | `POST /api/v1/sessions` | Creates a new session |
@@ -4954,7 +4958,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/mcp/servers/{name}/tools` | Yes | List discovered tools for one MCP server |
 | `GET` | `/api/v1/mcp/tools/search` | Yes | Search discovered MCP tools |
 | `POST` | `/api/v1/mcp/servers/{name}/env` | Yes | Link env config to an MCP server |
-| `POST` | `/api/v1/mcp/servers/{name}/auth` | Yes | Run browser-based OAuth for an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/auth` | Yes | Run browser-based OAuth for an MCP server (requires optional `coquibot/coqui-toolkit-mcp-client`) |
 | `GET` | `/api/v1/channels` | Yes | List channels with runtime state |
 | `POST` | `/api/v1/channels` | Yes | Create a channel instance |
 | `GET` | `/api/v1/channels/drivers` | Yes | List registered channel drivers |
