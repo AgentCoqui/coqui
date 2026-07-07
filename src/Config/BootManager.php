@@ -582,7 +582,9 @@ final class BootManager
         $this->loopStore = new LoopStore($pdo);
         $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
-        $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
+
+        $toolProfileResolver = new ToolProfileResolver($this->config);
+        $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath, $toolProfileResolver->coreToolkits());
 
         if (!$skipMaintenance) {
             $this->artifactStore->cleanupFinalized();
