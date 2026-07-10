@@ -23,8 +23,13 @@ test('SqlExtractor renders CREATE TABLE + INSERT as a markdown table', function 
     $result = (new SqlExtractor())->extract($path);
 
     expect($result->success)->toBeTrue();
-    expect($result->content)->toContain('Alice');
-    expect($result->content)->toContain('Bob');
+    // Lock the markdown-table rendering specifically (not a fenced-sql fallback):
+    // header row + separator distinguish a real table from raw statement text.
+    expect($result->content)->toContain('| id | name |');
+    expect($result->content)->toContain('| --- | --- |');
+    expect($result->content)->toContain('| 1 | Alice |');
+    expect($result->content)->toContain('| 2 | Bob |');
+    expect($result->content)->not->toContain('```sql');
 });
 
 test('SqlExtractor preserves unsupported statements as fenced sql', function () {
