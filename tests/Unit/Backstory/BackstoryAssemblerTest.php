@@ -114,7 +114,6 @@ test('generate handles markdown files as passthrough', function () {
 });
 
 test('generate handles extended text-like formats and code blocks', function () {
-    file_put_contents($this->backstoryDir . '/profile.html', '<h2>Identity</h2><p>Curious and <strong>steady</strong>.</p>');
     file_put_contents($this->backstoryDir . '/history.xml', '<timeline><year>2024</year><event>Launch</event></timeline>');
     file_put_contents($this->backstoryDir . '/voice.mdx', '# Voice\n\n<Quote>Measured.</Quote>');
     file_put_contents($this->backstoryDir . '/notes.rtf', '{\rtf1\ansi Profile note\par Second line}');
@@ -123,12 +122,10 @@ test('generate handles extended text-like formats and code blocks', function () 
     $assembler = new BackstoryAssembler();
     $result = $assembler->generate($this->profilePath);
 
-    expect($result->totalFiles)->toBe(5);
+    expect($result->totalFiles)->toBe(4);
     expect($result->failedFiles)->toBe(0);
 
     $output = file_get_contents($this->profilePath . '/backstory.md');
-    expect($output)->toContain('## Identity');
-    expect($output)->toContain('Curious and **steady**.');
     expect($output)->toContain('- timeline');
     expect($output)->toContain('- year: 2024');
     expect($output)->toContain('<Quote>Measured.</Quote>');
@@ -501,15 +498,25 @@ test('generate handles copied real-profile fixture corpus', function () {
         copy($fixtureDir . '/' . $fixtureFile, $this->backstoryDir . '/' . $fixtureFile);
     }
 
+    // Support for .html/.pdf/.docx depends on whether the optional
+    // coqui-toolkit-backstory-formats mod is installed (it self-registers those
+    // extractors). Derive the expected supported set from the real factory so this
+    // test holds whether or not the mod is present rather than hardcoding it.
+    $factory = new \CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory();
+    $supportedFixtureFiles = array_values(array_filter(
+        $fixtureFiles,
+        static fn(string $file): bool => $factory->isSupported((string) pathinfo($file, PATHINFO_EXTENSION)),
+    ));
+
     $assembler = new BackstoryAssembler();
     $result = $assembler->generate($this->profilePath);
 
     expect($result->totalFiles)->toBe(count($fixtureFiles));
     expect($result->failedFiles)->toBe(0);
-    expect($result->unsupportedFiles)->toBe(0);
+    expect($result->unsupportedFiles)->toBe(count($fixtureFiles) - count($supportedFixtureFiles));
 
     $output = file_get_contents($this->profilePath . '/backstory.md');
-    foreach ($fixtureFiles as $fixtureFile) {
+    foreach ($supportedFixtureFiles as $fixtureFile) {
         expect($output)->toContain('### File: /' . $fixtureFile);
     }
 });

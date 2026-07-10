@@ -47,6 +47,7 @@ use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Config\ToolProfileResolver;
 use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
@@ -148,6 +149,7 @@ final class OrchestratorAgent extends AbstractAgent
     private readonly ?string $activeProfile;
     private readonly ?string $activeProfilePath;
     private readonly ?ProfilePreferences $profilePreferences;
+    private readonly ToolProfileResolver $toolProfileResolver;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -160,8 +162,12 @@ final class OrchestratorAgent extends AbstractAgent
      * When a toolkit is deferred, its prompt slug is excluded from system prompt injection.
      */
     private const array TOOLKIT_PROMPT_SLUG_MAP = [
+        'MemoryToolkit' => 'memory',
         'ArtifactToolkit' => 'artifacts',
         'ProjectToolkit' => 'projects',
+        'CoquiSourceToolkit' => 'coqui-source',
+        'ComposerToolkit' => 'packages',
+        'PackagistToolkit' => 'packages',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
@@ -170,6 +176,12 @@ final class OrchestratorAgent extends AbstractAgent
 
     /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
     private array $excludedToolPromptSlugs = [];
+
+    /** @var array<string,true> Standalone tool names deferred under the active profile. */
+    private array $deferredStandaloneTools = [];
+
+    /** @var list<array{name:string,description:string}> Deferred standalone tools for the capability index. */
+    private array $deferredStandaloneToolInfo = [];
 
     /** @var array<string, ToolkitLoadingMode> Applied loading modes for REPL display (toolkit basename => mode) */
     private array $appliedLoadingModes = [];
@@ -263,6 +275,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Build role toolkit resolver from the active role's frontmatter
         $this->roleToolkitResolver = $this->buildRoleToolkitResolver($this->activeRole, $this->roleDiscovery);
+
+        // Resolve the active tool profile — decides which built-in ("system")
+        // toolkits stay eager vs. get deferred behind tool_search (lean default).
+        $this->toolProfileResolver = new ToolProfileResolver($config);
 
         // Resolve the shared ProviderFactory — prefer injected, fall back to config+httpClient
         $sharedFactory = $this->providerFactory ?? new ProviderFactory($config, $this->httpClient);
@@ -415,7 +431,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Web toolkit — HTTP requests with SSRF protection
         if ($effectiveAccessLevel === 'full') {
-            $this->addToolkit(new WebToolkit(
+            $this->addSystemToolkit('WebToolkit', 'Web search and fetch', new WebToolkit(
                 storage: $this->storage,
                 parentSessionId: $this->sessionId,
                 workspacePath: $this->workspacePath,
@@ -424,7 +440,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit(
+            $this->addSystemToolkit('MemoryToolkit', 'Persistent memory management (store, search, edit)', new MemoryToolkit(
                 $this->memoryStore,
                 $this->workspacePath,
                 $this->activeProfile,
@@ -441,7 +457,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('artifacts')) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
 
-            $this->addToolkit(new ArtifactToolkit(
+            $this->addSystemToolkit('ArtifactToolkit', 'Create and manage artifacts', new ArtifactToolkit(
                 $artifactStore,
                 $toolkitSessionId,
                 defaultProjectId: $this->defaultProjectId,
@@ -452,7 +468,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Project toolkit — lightweight project (working-directory) management across sessions
         if ($this->projectStore !== null && $this->isProfileFeatureEnabled('projects')) {
-            $this->addToolkit(new ProjectToolkit(
+            $this->addSystemToolkit('ProjectToolkit', 'Project working-scope management', new ProjectToolkit(
                 $this->projectStore,
                 $toolkitSessionId,
                 $this->workspacePath,
@@ -464,22 +480,22 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
-        $this->addToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+        $this->addSystemToolkit('CoquiSourceToolkit', "Read Coqui's own source", new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
         // Composer & Packagist toolkits — workspace package management
         if ($effectiveAccessLevel === 'full') {
-            $this->addToolkit(new ComposerToolkit(
+            $this->addSystemToolkit('ComposerToolkit', 'Composer package operations', new ComposerToolkit(
                 workspacePath: $this->workspacePath,
                 listener: $discovery,
             ));
-            $this->addToolkit(new PackagistToolkit());
+            $this->addSystemToolkit('PackagistToolkit', 'Search Packagist', new PackagistToolkit());
         }
 
         // Schedule toolkit — cron-style task scheduling (top-level agents only)
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
                 $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
+                $this->addSystemToolkit('ScheduleToolkit', 'Cron-style scheduled tasks', new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
             }
         }
 
@@ -503,7 +519,7 @@ final class OrchestratorAgent extends AbstractAgent
                         sessionStorage: $this->storage,
                     )
                     : null;
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
+                $this->addSystemToolkit('LoopToolkit', 'Autonomous loop management', new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
             }
         } else {
             $this->excludeToolkitPromptSlug('loops');
@@ -778,6 +794,40 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($this->extractMemoriesTool);
         }
 
+        // Determine which standalone tools defer under the active profile.
+        // They remain in $this->toolRegistry (registered above) for tool_search;
+        // tools() simply omits them from the LLM-visible list.
+        $coreTools = $this->toolProfileResolver->coreTools();
+        $this->deferredStandaloneTools = [];
+        $this->deferredStandaloneToolInfo = [];
+        $standaloneDescriptions = [
+            'spawn_agent' => 'Spawn isolated child agents',
+            'package_info' => 'Inspect installed SDK packages',
+            'vision_analyze' => 'Analyze images',
+            'summarize_conversation' => 'Compress conversation history',
+            'extract_memories' => 'Extract long-term memories',
+            'restart_coqui' => 'Restart the agent process',
+        ];
+        // Standalone tools whose guidance lives in a dedicated prompts/tools/*.md.
+        // Deferring the tool must also drop its prompt (otherwise the guidance
+        // leaks into context while the tool itself is hidden). Tools absent here
+        // either have no dedicated prompt or share one already excluded elsewhere.
+        $standalonePromptSlugs = [
+            'spawn_agent' => 'delegation',
+            'restart_coqui' => 'restart',
+        ];
+        foreach (CoquiDefaults::ALL_STANDALONE_TOOLS as $name) {
+            if (!in_array($name, $coreTools, true)) {
+                $this->deferredStandaloneTools[$name] = true;
+                if (isset($standaloneDescriptions[$name])) {
+                    $this->deferredStandaloneToolInfo[] = ['name' => $name, 'description' => $standaloneDescriptions[$name]];
+                }
+                if (isset($standalonePromptSlugs[$name])) {
+                    $this->excludeToolkitPromptSlug($standalonePromptSlugs[$name]);
+                }
+            }
+        }
+
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
         // Gives the agent on-demand access to the full tool library via BM25 search.
         $this->toolSearchTool = new ToolSearchTool($this->toolRegistry);
@@ -836,6 +886,34 @@ final class OrchestratorAgent extends AbstractAgent
         $this->ownToolkits[] = $toolkit;
 
         return $this;
+    }
+
+    /**
+     * Register a built-in ("system") toolkit, deferring it under the active
+     * tool profile unless it is in the core set or the user pinned it Eager.
+     *
+     * Deferred toolkits are wrapped as StubToolkit (zero prompt footprint) and
+     * recorded so their tool-prompt slugs are excluded and the capability index
+     * can advertise them. Eager registration is unchanged from a direct
+     * addToolkit() call.
+     */
+    private function addSystemToolkit(string $basename, string $description, ToolkitInterface $toolkit): void
+    {
+        $core = in_array($basename, $this->toolProfileResolver->coreToolkits(), true);
+        $pinnedEager = $this->loadingRegistry?->getMode($basename) === ToolkitLoadingMode::Eager;
+
+        if ($core || $pinnedEager) {
+            $this->addToolkit($toolkit);
+            return;
+        }
+
+        $this->addToolkit(new StubToolkit($toolkit));
+        $this->deferredToolkitInfo[] = [
+            'name' => $basename,
+            'description' => $description,
+            'package' => '',
+        ];
+        $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
     }
 
     public function setNotificationPromptSection(?string $notificationPromptSection): void
@@ -1090,7 +1168,7 @@ final class OrchestratorAgent extends AbstractAgent
             'preferences' => '## Preferences' . "\n\n" . 'Profile-specific communication preferences are intentionally condensed for this profile.',
             'memory' => '## BACKGROUND KNOWLEDGE (Core Memories)' . "\n\n" . 'Core memories are available but intentionally condensed for this profile.',
             'project_context' => '## ACTIVE PROJECT' . "\n\n" . 'Project context is available but intentionally condensed for this profile.',
-            'deferred_toolkits' => '## DEFERRED TOOLKITS' . "\n\n" . 'Additional toolkits may be available through discovery tools, but their guidance is intentionally condensed for this profile.',
+            'deferred_toolkits' => '## DEFERRED CAPABILITIES' . "\n\n" . 'Additional toolkits and tools may be available through discovery tools, but their guidance is intentionally condensed for this profile.',
             default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this profile.',
         };
     }
@@ -1268,10 +1346,36 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
-     * Inject a # DEFERRED TOOLKITS section when toolkits have been deferred.
+     * Merge deferred toolkit categories and deferred standalone tool names
+     * into a single de-duplicated label list for the capability index.
      *
-     * Tells the LLM that additional toolkits are available via tool_search,
-     * following Anthropic's recommendation to describe available tool categories.
+     * Shared by the rendered system prompt (injectDeferredToolkitHint) and
+     * the prompt-section breakdown/telemetry surface (buildDeferredToolkitPromptSection)
+     * so both stay in sync.
+     *
+     * @return list<string>
+     */
+    private function deferredCapabilityLabels(): array
+    {
+        $toolkitLabels = array_map(
+            static fn(array $info): string => self::toolkitCapabilityLabel($info['name']),
+            $this->deferredToolkitInfo,
+        );
+        $standaloneLabels = array_map(
+            static fn(array $info): string => $info['name'],
+            $this->deferredStandaloneToolInfo,
+        );
+
+        return array_values(array_unique([...$toolkitLabels, ...$standaloneLabels]));
+    }
+
+    /**
+     * Inject a ## DEFERRED CAPABILITIES section when toolkits or standalone
+     * tools have been deferred.
+     *
+     * Tells the LLM that additional toolkits and tools are available via
+     * tool_search, following Anthropic's recommendation to describe available
+     * tool categories.
      */
     private function injectDeferredToolkitHint(string $rendered): string
     {
@@ -1283,24 +1387,21 @@ final class OrchestratorAgent extends AbstractAgent
             return $rendered . "\n\n" . $this->buildProfilePromptSectionStub('deferred_toolkits');
         }
 
-        if (empty($this->deferredToolkitInfo)) {
+        $all = $this->deferredCapabilityLabels();
+
+        if ($all === []) {
             return $rendered;
         }
 
         $lines = [
-            '## DEFERRED TOOLKITS',
+            '## DEFERRED CAPABILITIES',
             '',
-            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+            'These are available but not loaded. Load with `tool_search("<keyword>")` before use:',
+            '',
+            implode(', ', $all) . '.',
+            '',
+            'Use `coqui_toolkits` for a full inventory.',
         ];
-
-        foreach ($this->deferredToolkitInfo as $info) {
-            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
-            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
-            $lines[] = "- {$label}{$desc}";
-        }
-
-        $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return $rendered . "\n\n" . implode("\n", $lines);
     }
@@ -1368,7 +1469,17 @@ final class OrchestratorAgent extends AbstractAgent
                 continue;
             }
 
-            $tools[] = ($vis === ToolkitVisibility::Stub || $this->shouldProfileStubTools()) ? new StubTool($tool) : $tool;
+            // Profile deferral: non-core standalone tools are advertised as minimal
+            // stubs (like deferred toolkit tools) rather than omitted. This keeps them
+            // callable — the agent's executable tool index is built from tools(), so a
+            // fully-omitted tool discovered via tool_search would be uncallable — while
+            // still shrinking their schema footprint. Their full guidance/prompt is
+            // excluded separately; tool_search recovers full parameters on demand.
+            $deferred = isset($this->deferredStandaloneTools[$name]);
+
+            $tools[] = ($deferred || $vis === ToolkitVisibility::Stub || $this->shouldProfileStubTools())
+                ? new StubTool($tool)
+                : $tool;
         }
 
         return $tools;
@@ -1888,24 +1999,21 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
-        if ($this->deferredToolkitInfo === []) {
+        $all = $this->deferredCapabilityLabels();
+
+        if ($all === []) {
             return null;
         }
 
         $lines = [
-            '## DEFERRED TOOLKITS',
+            '## DEFERRED CAPABILITIES',
             '',
-            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+            'These are available but not loaded. Load with `tool_search("<keyword>")` before use:',
+            '',
+            implode(', ', $all) . '.',
+            '',
+            'Use `coqui_toolkits` for a full inventory.',
         ];
-
-        foreach ($this->deferredToolkitInfo as $info) {
-            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
-            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
-            $lines[] = "- {$label}{$desc}";
-        }
-
-        $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return new PromptSection(
             id: 'context.deferred-toolkits',
@@ -2381,6 +2489,26 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
+     * Compact, lowercase category label for a deferred toolkit basename.
+     *
+     * Reuses the existing prompt-slug map (e.g. `LoopToolkit` -> `loops`) where
+     * one exists so the capability index matches the vocabulary already used
+     * elsewhere for these categories; otherwise falls back to the basename
+     * with the `Toolkit` suffix stripped and lowercased (e.g. `MemoryToolkit`
+     * -> `memory`).
+     */
+    private static function toolkitCapabilityLabel(string $basename): string
+    {
+        if (isset(self::TOOLKIT_PROMPT_SLUG_MAP[$basename])) {
+            return self::TOOLKIT_PROMPT_SLUG_MAP[$basename];
+        }
+
+        $stripped = str_ends_with($basename, 'Toolkit') ? substr($basename, 0, -strlen('Toolkit')) : $basename;
+
+        return strtolower($stripped);
+    }
+
+    /**
      * @return list<ToolkitInterface>
      */
     private function expandDiscoveredToolkitCandidates(ToolkitInterface $toolkit): array
@@ -2430,6 +2558,16 @@ final class OrchestratorAgent extends AbstractAgent
     public function getDeferredToolkitInfo(): array
     {
         return $this->deferredToolkitInfo;
+    }
+
+    /**
+     * Get the list of deferred standalone-tool info for the capability index.
+     *
+     * @return list<array{name:string,description:string}>
+     */
+    public function getDeferredStandaloneToolInfo(): array
+    {
+        return $this->deferredStandaloneToolInfo;
     }
 
     /**

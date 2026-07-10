@@ -163,10 +163,23 @@ test('constructs with null mountManager using null-safe allowedPaths', function 
 });
 
 test('tools returns expected standalone tools', function () {
+    // Full profile: standalone tools like spawn_agent/package_info are non-core
+    // under lean (the shipped default) and would otherwise be deferred from
+    // tools() — see LeanDefaultStandaloneToolDeferralTest.php.
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['coder' => 'ollama/qwen3:latest'],
+                'toolProfile' => 'full',
+            ],
+        ],
+    ]);
+
     $agent = new OrchestratorAgent(
         provider: $this->provider,
         roleResolver: $this->roleResolver,
-        config: $this->config,
+        config: $config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
     );
@@ -194,10 +207,22 @@ test('tools excludes restart_coqui when no onRestart callback', function () {
 });
 
 test('tools includes restart_coqui when onRestart callback provided', function () {
+    // Full profile: restart_coqui is non-core under lean and would otherwise be
+    // deferred from tools() regardless of the onRestart callback.
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['coder' => 'ollama/qwen3:latest'],
+                'toolProfile' => 'full',
+            ],
+        ],
+    ]);
+
     $agent = new OrchestratorAgent(
         provider: $this->provider,
         roleResolver: $this->roleResolver,
-        config: $this->config,
+        config: $config,
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
@@ -626,11 +651,24 @@ test('profile policy can disable project toolkits and stub non-core standalone t
     $projectStore = new ProjectStore($storage->getPdo());
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
 
+    // Full profile: spawn_agent is non-core under lean and would otherwise be
+    // deferred from tools() independent of the ProfilePreferences stubbing
+    // this test actually exercises.
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['coder' => 'ollama/qwen3:latest'],
+                'toolProfile' => 'full',
+            ],
+        ],
+    ]);
+
     try {
         $agent = new OrchestratorAgent(
             provider: $this->provider,
             roleResolver: $this->roleResolver,
-            config: $this->config,
+            config: $config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
             deps: new OrchestratorDependencies(
