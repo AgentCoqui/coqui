@@ -183,6 +183,9 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/loops pause <id\|all>` | Advanced automation control: pause running loop(s) |
 | `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
 | `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
+
+> The REPL `/loops` view is text-only: a status/progress table and per-loop `/loops status <id>` snapshots. Rich, live loop monitoring lives on the HTTP API (see [docs/API.md](API.md)); the REPL no longer opens a full-screen loop dashboard.
+
 | `/channels` | List configured channels with runtime health and heartbeat state |
 | `/channels drivers` | Show registered channel drivers and declared capabilities |
 | `/channels status <name\|id>` | Show one channel's configuration and runtime state |
