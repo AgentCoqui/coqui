@@ -1433,6 +1433,18 @@
             ]
         },
         {
+            "path": "src/Contract/McpOAuthInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\McpOAuthInterface",
+            "layer": "contract",
+            "description": "Pluggable OAuth provider contract for MCP servers. Core ships no OAuth implementation and no tokens without one; the optional coquibot/coqui-toolkit-mcp-client package provides an implementation (browser-based OAuth 2.1 with PKCE) and registers it into the shared McpRuntime via registerOAuth(). When no implementation is registered, McpManagementService::authorizeServer() throws pointing at the optional package.",
+            "methods": [
+                "authorize(string $serverName, array $authConfig): array{access_token: string, refresh_token?: string, expires_at?: int}",
+                "getAccessToken(string $serverName, array $authConfig): ?string",
+                "hasTokens(string $serverName): bool",
+                "clearTokens(string $serverName): void"
+            ]
+        },
+        {
             "path": "src/Storage/ToolUsageTracker.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
             "layer": "storage",
@@ -2080,9 +2092,231 @@
             "path": "src/Api/Handler/McpServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\McpServerHandler",
             "layer": "command",
-            "description": "MCP server management API surface. Registers CRUD, connectivity, env-link, OAuth, search, and discovered-tool inspection endpoints under /api/v1/mcp using the shared MCP runtime service from the MCP toolkit package.",
+            "description": "MCP server management API surface. Registers CRUD, connectivity, env-link, OAuth, search, and discovered-tool inspection endpoints under /api/v1/mcp using the core MCP runtime's shared McpManagementService (src/Mcp/McpManagementService.php). Every endpoint works standalone except /auth, which delegates to an McpOAuthInterface implementation that only the optional coquibot/coqui-toolkit-mcp-client package registers; without it, authorizeServer() throws with a message that OAuth requires the management toolkit.",
             "methods": [
                 "register(Router): void — attach all /api/v1/mcp routes"
+            ]
+        },
+        {
+            "path": "src/Mcp/McpRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\McpRuntime",
+            "layer": "agent",
+            "description": "Per-context MCP runtime: builds the engine (McpConfig, McpServerManager) and the shared McpManagementService once, and shares them across the agent's per-server tool exposure, the HTTP API, and the optional management toolkit. Instantiated from the workspace path via fromWorkspace(), which also builds an McpServerPolicy from agents.defaults.mcp.allowedStdioCommands/deniedStdioCommands config. Exposes registerOAuth(McpOAuthInterface) so the optional coquibot/coqui-toolkit-mcp-client package can plug in browser-based OAuth without core depending on it; when no OAuth implementation is registered, OAuth-gated actions fail cleanly. serverToolkits() returns one McpServerToolkit per enabled server for OrchestratorAgent to register as a candidate toolkit (deferred by default, like any other toolkit).",
+            "methods": [
+                "fromWorkspace(string $workspacePath, ?callable $configGet = null): self — build the runtime for a workspace, wiring stdio command policy from config",
+                "config(): McpConfig",
+                "manager(): McpServerManager",
+                "registerOAuth(McpOAuthInterface $oauth): void — plug in an OAuth implementation (provided by the optional management toolkit)",
+                "managementService(): McpManagementService — build the shared service used by the API, agent tools, and REPL",
+                "connectEnabled(): void — eagerly connect all enabled servers",
+                "serverToolkits(): list<McpServerToolkit> — one candidate toolkit per enabled server, for budget-gated agent loading"
+            ]
+        },
+        {
+            "path": "src/Mcp/McpManagementService.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\McpManagementService",
+            "layer": "agent",
+            "description": "Shared MCP server management business logic reused by the core HTTP API (McpServerHandler), and by the optional coquibot/coqui-toolkit-mcp-client package's mcp agent tool and /mcp REPL command. Owns CRUD for server definitions, connect/disconnect/refresh/test lifecycle, per-server loading-mode changes (promote/demote/auto) backed by ServerLoadingModeStore, tool discovery/search, env/secret linking, and OAuth authorization. OAuth is optional: authorizeServer() throws a RuntimeException with a message pointing at coquibot/coqui-toolkit-mcp-client when no McpOAuthInterface has been registered via McpRuntime::registerOAuth(). Tracks live audit fields (last connection/test attempt, duration, error) per server in memory for snapshot responses.",
+            "methods": [
+                "tools(): list<ToolInterface> — proxied tools across all connected servers",
+                "toolObjectsForServer(string $name): list<ToolInterface>",
+                "listServers(): array — all server snapshots",
+                "getServerSnapshot(string $name): array",
+                "addServer(string $name, string $command, array $args, ?string $description): array",
+                "updateServer(...): array — rename/update command, args, description",
+                "removeServer(string $name): array",
+                "enableServer(string $name): array / disableServer(string $name): array",
+                "promoteServer(string $name): array / demoteServer(string $name): array / autoServer(string $name): array — loading-mode controls",
+                "connectServer(string $name): array / disconnectServer(string $name): array / refreshServer(string $name): array",
+                "testServer(string $name): array — connectivity + tool discovery check",
+                "getServerTools(string $name): array / searchTools(string $query, ?string $server): array",
+                "setServerSecret(...): array / setServerEnvPlaceholder(...): array — env link management",
+                "authorizeServer(string $server, string $authUrl, string $tokenUrl, string $clientId, array $scopes): array — requires a registered McpOAuthInterface; throws otherwise",
+                "parseArgs(string $raw): list<string>"
+            ]
+        },
+        {
+            "path": "src/Mcp/McpServerManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\McpServerManager",
+            "layer": "agent",
+            "description": "Manages multiple MCP server connections and their tools. Each configured server gets its own McpClient over a StdioTransport; tools from all enabled servers are discovered at connect time, converted from MCP JSON Schema via SchemaConverter, and namespaced as mcp_{servername}_{toolname} to avoid collisions. Handles lazy connection, tool namespacing/routing, server lifecycle (connect/disconnect/refresh), and per-server status/error reporting.",
+            "methods": [
+                "connectAll(): void — connect all enabled servers, collecting per-server errors",
+                "connectServer(string $name): void / disconnectServer(string $name): void / disconnectAll(): void",
+                "getTools(): list<ToolInterface> — namespaced Tool objects across all connected servers",
+                "getToolsForServer(string $serverName): list<ToolInterface>",
+                "callTool(string $namespacedName, array $arguments): array — routes a proxied tool call to its server",
+                "getServerStatus(string $name): array / getAllStatus(): array",
+                "getServerInstructions(): array — per-server LLM guidance from MCP initialize responses",
+                "refreshServer(string $name): void — disconnect, reconnect, rediscover tools",
+                "errors(): array — connection failures keyed by server name"
+            ]
+        },
+        {
+            "path": "src/Mcp/McpClient.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\McpClient",
+            "layer": "agent",
+            "description": "MCP client implementing the Model Context Protocol lifecycle (spec version 2025-06-18 wire format, negotiated as 2025-11-25) over a single TransportInterface. Performs the initialize handshake, lists tools with cursor-based pagination and caching, and invokes tools/call. One instance per connected server, owned by McpServerManager.",
+            "methods": [
+                "connect(string $command, array $args, array $env): void — start transport and perform initialize handshake",
+                "listTools(): array — cursor-paginated tool discovery, cached until invalidated",
+                "callTool(string $name, array $arguments): array — invoke tools/call, throws McpToolCallException on isError",
+                "disconnect(): void / isConnected(): bool / invalidateToolCache(): void",
+                "serverName(): ?string / serverVersion(): ?string / serverInstructions(): ?string / serverCapabilities(): array"
+            ]
+        },
+        {
+            "path": "src/Mcp/McpServerToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\McpServerToolkit",
+            "layer": "toolkit",
+            "description": "Server-scoped candidate toolkit for one connected MCP server, implementing ToolkitInterface and ToolkitLoadingKeyProvider. OrchestratorAgent instantiates one per enabled server (via McpRuntime::serverToolkits()) and registers it exactly like any other candidate toolkit, so per-server MCP tools are deferred by default and participate in Coqui's normal toolkit budget gate. Delegates tools() to McpManagementService::toolObjectsForServer().",
+            "methods": [
+                "loadingKeyForServer(string $serverName): string — static helper producing the toolkit-loading.json key (e.g. McpServer:github)",
+                "toolkitLoadingKey(): string",
+                "tools(): list<ToolInterface> — proxied tools for this server only"
+            ]
+        },
+        {
+            "path": "src/Mcp/Config/McpConfig.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Config\\McpConfig",
+            "layer": "config",
+            "description": "CRUD for the .workspace/mcp.json configuration file, using the Claude Desktop-style mcpServers format (command, args, env, disabled, description). Secrets are never stored directly — env values use ${VAR_NAME} placeholders resolved at connect time by EnvResolver.",
+            "methods": [
+                "load(bool $force = false): void / save(): void",
+                "addServer(string $name, array $config): void / removeServer(string $name): bool / renameServer(string $currentName, string $nextName): bool",
+                "getServer(string $name): ?array / listServers(): array / listEnabledServers(): array",
+                "enableServer(string $name): bool / disableServer(string $name): bool / isDisabled(string $name): bool",
+                "getCommand(string $name): ?string / getArgs(string $name): array / getEnv(string $name): array / getDescription(string $name): ?string",
+                "setServerEnv(string $serverName, string $key, string $placeholder): void"
+            ]
+        },
+        {
+            "path": "src/Mcp/Config/EnvResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Config\\EnvResolver",
+            "layer": "config",
+            "description": "Resolves ${VAR_NAME} placeholders in MCP server environment variable maps against getenv(), for building the subprocess environment used to launch a stdio MCP server. Placeholders reference credentials stored in .env via Coqui's CredentialResolver (putenv() hot-reload makes them immediately available).",
+            "methods": [
+                "resolve(array $env): array — resolve all placeholders, returning resolved values",
+                "findMissing(array $env): array — placeholders that reference unset environment variables"
+            ]
+        },
+        {
+            "path": "src/Mcp/Support/ServerLoadingModeStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Support\\ServerLoadingModeStore",
+            "layer": "support",
+            "description": "Persists per-server MCP loading-mode overrides (eager or deferred) in the workspace's shared toolkit-loading.json, so MCP per-server tool loading participates in Coqui's existing toolkit deferment model alongside every other toolkit.",
+            "methods": [
+                "PERSISTABLE_MODES — eager, deferred (auto clears the override rather than persisting it)"
+            ]
+        },
+        {
+            "path": "src/Mcp/Support/ArgumentTokenizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Support\\ArgumentTokenizer",
+            "layer": "support",
+            "description": "Splits a shell-like argument string into a list of tokens while preserving quoted groups, for parsing command-line-style args input from the mcp tool, /mcp REPL command, and API request bodies.",
+            "methods": [
+                "split(string $raw): list<string>"
+            ]
+        },
+        {
+            "path": "src/Mcp/Support/McpServerPolicy.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Support\\McpServerPolicy",
+            "layer": "support",
+            "description": "Validates stdio MCP server definitions against an optional exact-match allow/deny policy built from agents.defaults.mcp.allowedStdioCommands and agents.defaults.mcp.deniedStdioCommands in openclaw.json. Denied tuples always win over the allowlist. Enforced consistently by McpManagementService across the HTTP API, the agent-facing mcp tool, and the /mcp REPL command.",
+            "methods": [
+                "fromConfigValues(mixed $allowed, mixed $denied): self"
+            ]
+        },
+        {
+            "path": "src/Mcp/Exception/McpConnectionException.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Exception\\McpConnectionException",
+            "layer": "exception",
+            "description": "Connection to an MCP server failed — process didn't start, crashed, timed out, or is not connected. Named constructors produce specific messages for each failure mode.",
+            "methods": [
+                "processStartFailed(string $command, string $reason): self",
+                "initializeFailed(string $server, string $reason): self",
+                "disconnected(string $server, string $reason = ''): self",
+                "timeout(string $server, int $seconds, string $stderr = ''): self"
+            ]
+        },
+        {
+            "path": "src/Mcp/Exception/McpProtocolException.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Exception\\McpProtocolException",
+            "layer": "exception",
+            "description": "MCP protocol-level error — invalid JSON-RPC, unexpected response shape, or a protocol version mismatch during the initialize handshake.",
+            "methods": [
+                "unexpectedResponse(string $expected, string $actual): self",
+                "versionMismatch(string $requested, string $received): self"
+            ]
+        },
+        {
+            "path": "src/Mcp/Exception/McpToolCallException.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Exception\\McpToolCallException",
+            "layer": "exception",
+            "description": "An MCP tool call returned isError: true, or a namespaced tool name could not be routed to a connected server. fromErrorContent() extracts human-readable text from the MCP error content array.",
+            "methods": [
+                "fromErrorContent(string $toolName, array $content): self",
+                "notFound(string $namespacedName, string $reason): self"
+            ]
+        },
+        {
+            "path": "src/Mcp/JsonRpc/Message.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\JsonRpc\\Message",
+            "layer": "support",
+            "description": "Immutable JSON-RPC 2.0 message builder and parser for MCP communication — request, notification, response, and error message shapes. Requests carry an auto-incrementing integer ID; notifications have none.",
+            "methods": [
+                "request(int $id, string $method, array $params): self",
+                "notification(string $method, array $params = []): self"
+            ]
+        },
+        {
+            "path": "src/Mcp/JsonRpc/JsonRpcError.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\JsonRpc\\JsonRpcError",
+            "layer": "support",
+            "description": "Immutable JSON-RPC 2.0 error value object: code, message, and optional data.",
+            "methods": []
+        },
+        {
+            "path": "src/Mcp/JsonRpc/IdGenerator.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\JsonRpc\\IdGenerator",
+            "layer": "support",
+            "description": "Auto-incrementing integer ID generator for JSON-RPC requests, one instance per McpClient.",
+            "methods": [
+                "next(): int"
+            ]
+        },
+        {
+            "path": "src/Mcp/Schema/SchemaConverter.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Schema\\SchemaConverter",
+            "layer": "support",
+            "description": "Converts an MCP tool's inputSchema (JSON Schema) into Coqui Parameter objects, recursively handling nested objects and arrays. Unknown or complex schema shapes (anyOf, oneOf, etc.) fall back to StringParameter with a note about JSON-encoding complex values.",
+            "methods": [
+                "convert(array $inputSchema): array<string, Parameter>"
+            ]
+        },
+        {
+            "path": "src/Mcp/Transport/TransportInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Transport\\TransportInterface",
+            "layer": "contract",
+            "description": "Transport abstraction for MCP JSON-RPC communication, decoupling McpClient's protocol semantics from the underlying I/O mechanism (stdio today; HTTP/SSE could implement the same contract later).",
+            "methods": [
+                "start(string $command, array $args, array $env): void",
+                "send(Message $request): Message",
+                "sendNotification(Message $notification): void",
+                "close(): void",
+                "isConnected(): bool"
+            ]
+        },
+        {
+            "path": "src/Mcp/Transport/StdioTransport.php",
+            "fqcn": "CoquiBot\\Coqui\\Mcp\\Transport\\StdioTransport",
+            "layer": "support",
+            "description": "Stdio transport for MCP servers. Spawns the MCP server as a subprocess via proc_open() and communicates over stdin/stdout using newline-delimited JSON-RPC (Content-Length framed messages accepted as a fallback on read). Stderr is captured for diagnostics. Unlike fire-and-forget transports, keeps the subprocess alive across multiple requests since the MCP server is long-running.",
+            "methods": [
+                "start(string $command, array $args, array $env): void",
+                "send(Message $request): Message / sendNotification(Message $notification): void",
+                "close(): void / isConnected(): bool",
+                "lastStderr(): string — captured stderr for diagnosing connection failures"
             ]
         },
         {

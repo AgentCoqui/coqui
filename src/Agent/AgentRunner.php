@@ -37,6 +37,7 @@ use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
+use CoquiBot\Coqui\Mcp\McpRuntime;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -999,6 +1000,7 @@ final class AgentRunner
                 mountManager: $this->mountManager,
                 visibilityRegistry: $this->visibilityRegistry,
                 modsToolkit: $this->modsToolkit,
+                mcpRuntime: $this->mcpRuntime(),
                 activeRole: $role !== 'orchestrator' ? $role : null,
                 projectStore: $this->projectStore,
                 defaultsLoader: $this->defaultsLoader,
@@ -1025,6 +1027,16 @@ final class AgentRunner
         }
 
         return $agent;
+    }
+
+    private ?McpRuntime $mcpRuntimeCache = null;
+
+    private function mcpRuntime(): McpRuntime
+    {
+        return $this->mcpRuntimeCache ??= McpRuntime::fromWorkspace(
+            $this->workspacePath,
+            fn (string $key): mixed => $this->config->get($key),
+        );
     }
 
     private function shouldUseConversationHistoryInSystemPrompt(): bool
@@ -1415,6 +1427,7 @@ final class AgentRunner
                 mountManager: $this->mountManager,
                 visibilityRegistry: $this->visibilityRegistry,
                 modsToolkit: $this->modsToolkit,
+                mcpRuntime: $this->mcpRuntime(),
                 activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
                 projectStore: $this->projectStore,
                 defaultsLoader: $this->defaultsLoader,

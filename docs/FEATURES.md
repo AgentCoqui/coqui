@@ -117,6 +117,17 @@ For use cases that require preserving large identity scaffolds or long-running d
 - Browse available packages at [agentcoqui.com](https://agentcoqui.com)
 - See [TOOLKITS.md](TOOLKITS.md) for creating your own.
 
+## <a id="mcp-support"></a> 🔌 MCP Support
+
+**What it does:** Connects Coqui to external Model Context Protocol (MCP) servers so their tools become native agent capabilities. The client engine, stdio transport, per-server tool exposure, and full HTTP API for managing servers ship in Coqui core by default — MCP works out of the box, and internal toolkits/functions can use it natively via `CoquiBot\Coqui\Mcp\McpRuntime`.
+
+**How it helps:** Adopt any MCP server (GitHub, filesystem, databases, and more) without waiting on a Coqui-specific integration. Per-server tools are exposed as ordinary candidate toolkits and participate in Coqui's normal budget-gated loading — deferred by default, promotable to eager per server — so connecting a large MCP server doesn't blow the context budget.
+
+**How to use it:**
+- Manage servers over the HTTP API (`/api/v1/mcp/*`, see [API.md](API.md)) or by editing `.workspace/mcp.json` directly — no additional package required.
+- Install the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package for the interactive management UX: the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth for servers that need it. Without the toolkit, every management action works except OAuth.
+- See [TOOLKITS.md](TOOLKITS.md#mcp-toolkits) for the full core/optional split and [CONFIGURATION.md](CONFIGURATION.md) for `mcp.json` and stdio command policy details.
+
 ## <a id="credential-management"></a> 🔐 Credential Management
 
 **What it does:** Declarative credential management with hot-reload. Toolkits declare required credentials in `composer.json`, and `CredentialGuardTool` blocks execution when keys are missing — providing exact instructions for what to set.

@@ -468,6 +468,14 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
 }
 ```
 
+### MCP configuration
+
+The MCP (Model Context Protocol) client engine, per-server tool exposure, and HTTP API ship in Coqui core by default (`CoquiBot\Coqui\Mcp\*`) — no additional package is required to connect MCP servers and use their tools. Server definitions live in `.workspace/mcp.json` (Claude Desktop-style `mcpServers` format), and per-server loading-mode overrides (eager/deferred) live in `.workspace/toolkit-loading.json` alongside other toolkit loading state. OAuth tokens for authenticated servers are stored under `.workspace/.mcp-tokens/`.
+
+Per-server MCP tools are added as candidate toolkits and participate in Coqui's normal budget-gated loading model — **deferred by default**, promotable to eager per server.
+
+Interactive management (the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth) is provided by the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package. Without it, MCP servers can still be managed fully over the HTTP API (see [docs/API.md](API.md)), with the exception of the OAuth endpoint, which requires the toolkit.
+
 ### `mcp.allowedStdioCommands`
 
 An optional exact-match allowlist for stdio MCP server launch tuples. Each entry is an array in the form `[command, arg1, arg2, ...]`. When this key is present and non-empty, Coqui only permits MCP servers whose configured command and args exactly match one of the allowed tuples.

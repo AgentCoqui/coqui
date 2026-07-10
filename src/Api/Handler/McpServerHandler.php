@@ -6,7 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Toolkits\Mcp\McpManagementService;
+use CoquiBot\Coqui\Mcp\McpManagementService;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 

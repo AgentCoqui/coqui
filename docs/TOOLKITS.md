@@ -16,6 +16,7 @@ This guide covers everything you need to create, test, and distribute your own t
 - [Managing Dependencies](#managing-dependencies)
 - [Credential Management](#credential-management)
 - [Auto-Discovery](#auto-discovery)
+- [MCP Toolkits](#mcp-toolkits)
 - [Testing](#testing)
 - [Best Practices](#best-practices)
 - [API Reference](#api-reference)
@@ -604,6 +605,20 @@ This registry is rebuilt on every boot from the actual installed packages.
 - **After `composer remove`:** `unregister($packageName)` removes the entry
 - **Restart:** use `restart_coqui` to trigger a full re-boot with fresh discovery
 
+## MCP Toolkits
+
+MCP (Model Context Protocol) support illustrates the split between what Coqui core ships and what an optional toolkit adds on top.
+
+**Core ships the MCP engine by default** — no toolkit required. `src/Mcp/*` (namespace `CoquiBot\Coqui\Mcp\*`) provides the client, stdio transport, JSON-RPC handling, `.workspace/mcp.json` config management, and the shared `McpManagementService` used across every surface. Per-server MCP tools are exposed to the agent as ordinary candidate toolkits (`McpServerToolkit`), so they participate in Coqui's normal budget-gated loading model — **deferred by default**, just like any other toolkit. The full HTTP API under `/api/v1/mcp` (add, remove, update, connect, test, status, tools, search) is also core and works standalone. Internal toolkits and functions can depend on the MCP runtime directly via `CoquiBot\Coqui\Mcp\McpRuntime`.
+
+**The `coquibot/coqui-toolkit-mcp-client` package is optional** and adds only the interactive management surface on top of core's engine:
+
+- The `mcp` agent tool (list/add/update/remove/enable/disable/promote/demote/auto/connect/disconnect/refresh/status/tools/search/test/auth)
+- The `/mcp` REPL command and its help text
+- Browser-based OAuth (implements `CoquiBot\Coqui\Contract\McpOAuthInterface` and registers itself with core's `McpRuntime`)
+
+Without the toolkit installed, MCP servers can still be fully managed through the HTTP API or by editing `.workspace/mcp.json` directly — every management action core exposes works standalone, except OAuth, which requires the toolkit's implementation of `McpOAuthInterface`. This is a useful reference pattern for any toolkit author who wants to build an optional UX layer (tool + REPL command) on top of a capability that a host application already ships natively.
+
 ## Testing
 
 Use [Pest 3.x](https://pestphp.com/) for testing toolkits.
@@ -884,6 +899,20 @@ Key patterns demonstrated:
 - Error handling with HTTP status codes
 
 See the [Brave Search README](https://github.com/coquibot/coqui-toolkit-brave-search) for full details.
+
+### MCP Management Toolkit
+
+An optional toolkit that layers a management UX (agent tool + REPL command + OAuth) on top of a capability the host application (Coqui core) already ships natively — see [MCP Toolkits](#mcp-toolkits) above for the full split.
+
+**Package:** `coquibot/coqui-toolkit-mcp-client`
+
+Key patterns demonstrated:
+- Consuming a shared runtime object passed through discovery context (`mcp_runtime`) instead of owning the engine itself
+- Registering an implementation of a core-defined contract (`McpOAuthInterface`) back into the host's runtime
+- Clean no-op behavior when the expected runtime/context is absent (older or misconfigured core)
+- Self-registering REPL command (see [docs/TOOLKIT-EXTENSIBILITY.md](TOOLKIT-EXTENSIBILITY.md))
+
+See the [MCP Toolkit README](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) for full details.
 
 ### Weather Toolkit
 
