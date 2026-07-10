@@ -26,13 +26,10 @@ final class ExtractorFactory
             new JsonExtractor(),
             new YamlExtractor(),
             new CsvExtractor(),
-            new HtmlExtractor(),
             new XmlExtractor(),
             new RtfExtractor(),
             new SqlExtractor(),
             new CodeBlockExtractor(),
-            new PdfExtractor(),
-            new DocxExtractor(),
         ];
 
         if (XlsxExtractor::isRuntimeSupported()) {
