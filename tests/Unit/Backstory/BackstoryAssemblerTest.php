@@ -498,12 +498,14 @@ test('generate handles copied real-profile fixture corpus', function () {
         copy($fixtureDir . '/' . $fixtureFile, $this->backstoryDir . '/' . $fixtureFile);
     }
 
-    // .html/.pdf/.docx are mod-provided (coqui-toolkit-backstory-formats) and
-    // are unsupported by default in core.
-    $unsupportedExtensions = ['html', 'pdf', 'docx'];
+    // Support for .html/.pdf/.docx depends on whether the optional
+    // coqui-toolkit-backstory-formats mod is installed (it self-registers those
+    // extractors). Derive the expected supported set from the real factory so this
+    // test holds whether or not the mod is present rather than hardcoding it.
+    $factory = new \CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory();
     $supportedFixtureFiles = array_values(array_filter(
         $fixtureFiles,
-        static fn(string $file): bool => !in_array(strtolower((string) pathinfo($file, PATHINFO_EXTENSION)), $unsupportedExtensions, true),
+        static fn(string $file): bool => $factory->isSupported((string) pathinfo($file, PATHINFO_EXTENSION)),
     ));
 
     $assembler = new BackstoryAssembler();
