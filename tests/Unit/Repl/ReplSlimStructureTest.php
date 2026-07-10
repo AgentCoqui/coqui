@@ -16,4 +16,12 @@ describe('REPL slim — fullscreen bridge removed', function (): void {
         expect(class_exists(\CoquiBot\Coqui\Contract\ToolkitScreenAction::class))->toBeFalse();
         expect(class_exists(\CoquiBot\Coqui\Contract\ToolkitKeyEvent::class))->toBeFalse();
     });
+
+    test('the fullscreen Tui framework no longer exists', function (): void {
+        expect(class_exists(\CoquiBot\Coqui\Tui\ScreenRunner::class))->toBeFalse();
+        expect(class_exists(\CoquiBot\Coqui\Tui\ScreenShell::class))->toBeFalse();
+        expect(class_exists(\CoquiBot\Coqui\Tui\LoopDashboardScreen::class))->toBeFalse();
+        expect(class_exists(\CoquiBot\Coqui\Tui\LoopDetailScreen::class))->toBeFalse();
+        expect(is_dir(dirname(__DIR__, 3) . '/src/Tui'))->toBeFalse();
+    });
 });
