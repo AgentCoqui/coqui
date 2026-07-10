@@ -736,15 +736,6 @@
             ]
         },
         {
-            "path": "src/Backstory/Extractor/HtmlExtractor.php",
-            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\HtmlExtractor",
-            "layer": "feature",
-            "description": "Sanitizes HTML input by removing unsafe nodes and attributes, then converts the remaining content to markdown using league/html-to-markdown.",
-            "methods": [
-                "extract(string): ExtractorResult — sanitize and convert html/htm files to markdown"
-            ]
-        },
-        {
             "path": "src/Backstory/Extractor/XmlExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XmlExtractor",
             "layer": "feature",
@@ -804,10 +795,20 @@
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional odt/ods/odp/xlsx/xlsm/pptx/pptm, html/htm, xml, rtf, common code-file extensions, pdf, and docx/docm.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional odt/ods/odp/xlsx/xlsm/pptx/pptm, xml, rtf, and common code-file extensions. Dependency-heavy formats (html/htm, pdf, docx/docm) are provided by the optional coqui-toolkit-backstory-formats mod, discovered via BackstoryExtractorDiscovery.",
             "methods": [
+                "__construct(?array): void — build the core extension map; null discovers mod-provided extractors, an explicit array bypasses discovery",
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/BackstoryExtractorDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\BackstoryExtractorDiscovery",
+            "layer": "feature",
+            "description": "Discovers backstory extractors contributed by installed Composer packages via extra.php-agents.backstoryExtractors, mirroring toolkit discovery. Lets dependency-heavy extractors (Word/PDF/HTML) live in optional mod packages instead of core.",
+            "methods": [
+                "discover(): list<ExtractorInterface> — instantiate no-arg extractor classes declared by installed packages"
             ]
         },
         {
@@ -1477,6 +1478,18 @@
                 "resetMode(string $classBasename): void — removes persisted override, returns to Auto",
                 "isSystem(string $classBasename): bool — checks CoquiDefaults::SYSTEM_TOOLKITS",
                 "all(): array<string, string> — persisted overrides for display"
+            ]
+        },
+        {
+            "path": "src/Config/ToolProfileResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ToolProfileResolver",
+            "layer": "config",
+            "description": "Resolves the always-eager core tool set for the active tool profile. The lean profile (default) keeps only a bootstrap core eager (FileSystemToolkit, ShellToolkit, and standalone tools like tool_search, config, credentials, coqui_toolkits, coqui_skills, php_execute) and defers everything else behind tool_search. The full profile reproduces the legacy everything-eager behavior. An explicit agents.defaults.coreToolkits list overrides the profile's toolkit preset for advanced self-hosters.",
+            "methods": [
+                "profile(): string — reads agents.defaults.toolProfile, normalized to 'lean' or 'full' (default 'lean')",
+                "isFull(): bool — true when the resolved profile is 'full'",
+                "coreToolkits(): list<string> — toolkit basenames that stay eager (coreToolkits config override > profile preset: SYSTEM_TOOLKITS for full, LEAN_CORE_TOOLKITS for lean)",
+                "coreTools(): list<string> — standalone tool names that stay eager (ALL_STANDALONE_TOOLS for full, LEAN_CORE_TOOLS for lean)"
             ]
         },
         {

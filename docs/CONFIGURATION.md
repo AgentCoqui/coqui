@@ -338,6 +338,24 @@ Optional default startup profile name. The value must match a directory under `w
 
 When set, Coqui tries to reattach the current `.coqui-session` if it already belongs to that profile. Otherwise it resumes the most recent session for that profile or creates a new one.
 
+### Tool profile (`agents.defaults.toolProfile`)
+
+Controls how many tools load into a fresh session's context.
+
+- `lean` (default) — only a bootstrap core loads eagerly (filesystem, shell,
+  `tool_search`, `config`, `credentials`, `coqui_toolkits`, `coqui_skills`,
+  `php_execute`). Everything else — memory tools, loops, schedules, artifacts,
+  projects, web, vision, sub-agents, and more — is deferred and discovered on
+  demand via `tool_search`. This keeps the prompt small enough for local Ollama
+  models. Passive memory recall and active-project context still apply.
+- `full` — restores the legacy behavior where every built-in toolkit and
+  standalone tool loads eagerly.
+
+Advanced: `agents.defaults.coreToolkits` accepts an explicit list of toolkit
+class basenames to keep eager, overriding the profile preset. Per-toolkit
+overrides via `/toolkits` (or `.workspace/toolkit-loading.json`) still apply on
+top — e.g. pin `MemoryToolkit` eager without switching to `full`.
+
 ### `maxIterations`
 
 Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `256`.

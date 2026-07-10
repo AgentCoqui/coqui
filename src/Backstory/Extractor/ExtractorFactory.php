@@ -12,7 +12,13 @@ final class ExtractorFactory
     /** @var array<string, ExtractorInterface> Extension → extractor */
     private array $map = [];
 
-    public function __construct()
+    /**
+     * @param list<ExtractorInterface>|null $additionalExtractors Extra extractors
+     *        to register after the core set. When null, mod-provided extractors
+     *        are discovered from installed packages. Pass an explicit array
+     *        (including []) to bypass discovery — used by tests for determinism.
+     */
+    public function __construct(?array $additionalExtractors = null)
     {
         $extractors = [
             new TextExtractor(),
@@ -20,13 +26,10 @@ final class ExtractorFactory
             new JsonExtractor(),
             new YamlExtractor(),
             new CsvExtractor(),
-            new HtmlExtractor(),
             new XmlExtractor(),
             new RtfExtractor(),
             new SqlExtractor(),
             new CodeBlockExtractor(),
-            new PdfExtractor(),
-            new DocxExtractor(),
         ];
 
         if (XlsxExtractor::isRuntimeSupported()) {
@@ -47,6 +50,11 @@ final class ExtractorFactory
 
         if (OdpExtractor::isRuntimeSupported()) {
             $extractors[] = new OdpExtractor();
+        }
+
+        $additional = $additionalExtractors ?? (new BackstoryExtractorDiscovery())->discover();
+        foreach ($additional as $extractor) {
+            $extractors[] = $extractor;
         }
 
         foreach ($extractors as $extractor) {

@@ -5,6 +5,20 @@ declare(strict_types=1);
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 
+// Sweep temp workspaces left behind by tests/Unit/Agent/LeanHarness.php's
+// makeOrchestrator(). Each call creates a fresh sys_get_temp_dir() workspace
+// that the harness itself never cleans up (Tasks 4-8 all call it repeatedly),
+// so without this they accrete across the whole suite run. Bound via uses()
+// so it applies suite-wide (a bare afterEach() in Pest.php only scopes to
+// hooks/tests declared in this exact file, per Pest's Backtrace::testFile()).
+uses()->afterEach(function (): void {
+	foreach (glob(sys_get_temp_dir() . '/coqui-lean-harness-*') ?: [] as $dir) {
+		if (is_dir($dir)) {
+			cleanupTestTree($dir);
+		}
+	}
+})->in('Unit');
+
 function toolFromToolkit(ToolkitInterface $toolkit, string $name): ToolInterface
 {
 	foreach ($toolkit->tools() as $tool) {
@@ -100,22 +114,6 @@ function createFakeComposerBinary(): string
 	chmod($path, 0755);
 
 	return $path;
-}
-
-/**
-	* @param list<string> $paragraphs
-	*/
-function createTestDocx(string $path, array $paragraphs): void
-{
-	$document = new \PhpOffice\PhpWord\PhpWord();
-	$section = $document->addSection();
-
-	foreach ($paragraphs as $paragraph) {
-		$section->addText($paragraph);
-	}
-
-	$writer = \PhpOffice\PhpWord\IOFactory::createWriter($document, 'Word2007');
-	$writer->save($path);
 }
 
 /**

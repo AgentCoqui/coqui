@@ -8,9 +8,7 @@ use CoquiBot\Coqui\Backstory\Extractor\JsonExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\YamlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\CsvExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\CodeBlockExtractor;
-use CoquiBot\Coqui\Backstory\Extractor\DocxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory;
-use CoquiBot\Coqui\Backstory\Extractor\HtmlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\OdpExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\OdsExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\OdtExtractor;
@@ -191,33 +189,6 @@ test('CsvExtractor fails on headers-only file', function () {
     expect($result->error)->toContain('no data rows');
 });
 
-// --- HtmlExtractor ---
-
-test('HtmlExtractor sanitizes and converts html to markdown', function () {
-    $path = $this->tempDir . '/profile.html';
-    file_put_contents($path, '<h1>Title</h1><script>alert(1)</script><p>Hello <strong>world</strong>.</p>');
-
-    $extractor = new HtmlExtractor();
-    $result = $extractor->extract($path);
-
-    expect($result->success)->toBeTrue();
-    expect($result->content)->toContain('# Title');
-    expect($result->content)->toContain('Hello **world**.');
-    expect($result->content)->not->toContain('alert(1)');
-});
-
-test('HtmlExtractor strips dangerous href values', function () {
-    $path = $this->tempDir . '/links.html';
-    file_put_contents($path, '<p><a href="javascript:alert(1)">Click</a></p>');
-
-    $extractor = new HtmlExtractor();
-    $result = $extractor->extract($path);
-
-    expect($result->success)->toBeTrue();
-    expect($result->content)->toContain('Click');
-    expect($result->content)->not->toContain('javascript:');
-});
-
 // --- XmlExtractor ---
 
 test('XmlExtractor renders simple xml as markdown outline', function () {
@@ -268,21 +239,6 @@ test('RtfExtractor rejects invalid rtf files', function () {
 
     expect($result->success)->toBeFalse();
     expect($result->error)->toContain('Invalid RTF');
-});
-
-// --- DocxExtractor ---
-
-test('DocxExtractor reads docm files as Word OOXML documents', function () {
-    $path = $this->tempDir . '/story.docm';
-    createTestDocx($path, ['First paragraph', 'Second paragraph']);
-
-    $extractor = new DocxExtractor();
-    $result = $extractor->extract($path);
-
-    expect($result->success)->toBeTrue();
-    expect($result->content)->toContain('First paragraph');
-    expect($result->content)->toContain('Second paragraph');
-    expect($extractor->supportedExtensions())->toContain('docm');
 });
 
 test('OdtExtractor reads text paragraphs from odt files', function () {
@@ -799,7 +755,7 @@ test('PptxExtractor includes speaker notes when present', function () {
 // --- ExtractorFactory ---
 
 test('ExtractorFactory maps extensions to extractors', function () {
-    $factory = new ExtractorFactory();
+    $factory = new ExtractorFactory([]);
 
     expect($factory->get('txt'))->toBeInstanceOf(TextExtractor::class);
     expect($factory->get('md'))->toBeInstanceOf(MarkdownExtractor::class);
@@ -809,12 +765,18 @@ test('ExtractorFactory maps extensions to extractors', function () {
     expect($factory->get('csv'))->toBeInstanceOf(CsvExtractor::class);
     expect($factory->get('tsv'))->toBeInstanceOf(CsvExtractor::class);
     expect($factory->get('mdx'))->toBeInstanceOf(MarkdownExtractor::class);
-    expect($factory->get('html'))->toBeInstanceOf(HtmlExtractor::class);
     expect($factory->get('xml'))->toBeInstanceOf(XmlExtractor::class);
     expect($factory->get('rtf'))->toBeInstanceOf(RtfExtractor::class);
     expect($factory->get('sql'))->toBeInstanceOf(SqlExtractor::class);
     expect($factory->get('py'))->toBeInstanceOf(CodeBlockExtractor::class);
-    expect($factory->get('docm'))->toBeInstanceOf(DocxExtractor::class);
+
+    // Dependency-carrying formats now live in the backstory-formats mod.
+    expect($factory->get('html'))->toBeNull();
+    expect($factory->get('htm'))->toBeNull();
+    expect($factory->get('pdf'))->toBeNull();
+    expect($factory->get('docx'))->toBeNull();
+    expect($factory->get('docm'))->toBeNull();
+
     if (OdtExtractor::isRuntimeSupported()) {
         expect($factory->get('odt'))->toBeInstanceOf(OdtExtractor::class);
     }
@@ -844,7 +806,6 @@ test('ExtractorFactory isSupported', function () {
     expect($factory->isSupported('txt'))->toBeTrue();
     expect($factory->isSupported('TXT'))->toBeTrue();
     expect($factory->isSupported('php'))->toBeTrue();
-    expect($factory->isSupported('docm'))->toBeTrue();
     expect($factory->isSupported('odt'))->toBe(OdtExtractor::isRuntimeSupported());
     expect($factory->isSupported('ods'))->toBe(OdsExtractor::isRuntimeSupported());
     expect($factory->isSupported('odp'))->toBe(OdpExtractor::isRuntimeSupported());

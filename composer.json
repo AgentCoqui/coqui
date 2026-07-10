@@ -20,12 +20,9 @@
     "coquibot/coqui-toolkit-mod-manager": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
-    "league/html-to-markdown": "^5.1",
-    "phpoffice/phpword": "^1.0",
     "react/async": "^4",
     "react/child-process": "^0.6",
     "react/http": "^1.11",
-    "smalot/pdfparser": "^2.0",
     "symfony/console": "^8.0",
     "symfony/http-client": "^8.0",
     "yethee/tiktoken": "^1.0"

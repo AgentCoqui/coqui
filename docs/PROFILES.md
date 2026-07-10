@@ -199,14 +199,19 @@ profiles/caelum/
 | `.odp` | Optionally converted into per-slide markdown sections with slide-title fallbacks when ZIP support is available |
 | `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
 | `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections with speaker notes appended when ZIP support is available |
-| `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
+| `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` — requires the `coqui-toolkit-backstory-formats` mod |
 | `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
 | `.rtf` | Converted to plain text with conservative RTF control-word stripping |
 | Common code files | Wrapped in fenced code blocks with language hints and never executed |
-| `.pdf` | Text extracted via `smalot/pdfparser` |
-| `.docx`, `.docm` | Text extracted via `phpoffice/phpword` |
+| `.pdf` | Text extracted via `smalot/pdfparser` — requires the `coqui-toolkit-backstory-formats` mod |
+| `.docx`, `.docm` | Text extracted via `phpoffice/phpword` — requires the `coqui-toolkit-backstory-formats` mod |
 
 Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.css`, `.scss`, `.less`, and similar formats.
+
+> **Word, PDF, and HTML** (`.docx`, `.docm`, `.pdf`, `.html`, `.htm`) are provided by the optional
+> `coqui-toolkit-backstory-formats` mod (it carries the `phpoffice/phpword`, `smalot/pdfparser`, and
+> `league/html-to-markdown` dependencies). Install it with `/mods install coquibot/coqui-toolkit-backstory-formats`.
+> Without the mod, these formats are listed as unsupported in `/backstory failed`.
 
 HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
 

@@ -14,13 +14,14 @@ use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
  *
  * Persists overrides to workspace/toolkit-loading.json. The tri-state model:
  *
- * - System:   Always loaded (hardcoded in CoquiDefaults::SYSTEM_TOOLKITS, immutable)
+ * - System:   Always loaded (immutable core set, see below)
  * - Eager:    User override — always loaded regardless of budget
  * - Deferred: User override — always deferred regardless of budget/frequency
  * - Auto:     Budget gate decides (default for all non-system toolkits)
  *
  * Only Eager and Deferred are persisted. Removing an entry returns to Auto.
- * System is resolved from CoquiDefaults::SYSTEM_TOOLKITS at query time.
+ * The System set defaults to CoquiDefaults::SYSTEM_TOOLKITS but callers may
+ * supply the resolved active-profile core set instead (see ToolProfileResolver).
  *
  * Orthogonal to ToolkitVisibilityRegistry — visibility controls whether
  * the LLM can see the tool at all, loading mode controls *when* it enters context.
@@ -31,12 +32,20 @@ final class ToolkitLoadingRegistry
 
     private string $filePath;
 
+    /** @var list<string> Toolkit basenames that are immutable/never-deferred. */
+    private array $systemToolkits;
+
     /** @var array<string, string>|null classBasename => mode string */
     private ?array $cache = null;
 
-    public function __construct(string $workspacePath)
+    /**
+     * @param list<string>|null $systemToolkits Immutable core toolkits; defaults to
+     *        CoquiDefaults::SYSTEM_TOOLKITS for backward compatibility.
+     */
+    public function __construct(string $workspacePath, ?array $systemToolkits = null)
     {
         $this->filePath = PathHelper::trimTrailingSlash($workspacePath) . '/toolkit-loading.json';
+        $this->systemToolkits = $systemToolkits ?? CoquiDefaults::SYSTEM_TOOLKITS;
     }
 
     /**
@@ -114,7 +123,7 @@ final class ToolkitLoadingRegistry
      */
     public function isSystem(string $classBasename): bool
     {
-        return in_array($classBasename, CoquiDefaults::SYSTEM_TOOLKITS, true);
+        return in_array($classBasename, $this->systemToolkits, true);
     }
 
     /**
