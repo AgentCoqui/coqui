@@ -441,7 +441,6 @@ final class RunCommand extends Command
                 $this->storage,
                 $this->boot->loopDiscovery(),
                 $this->loopExecutor,
-                $terminalState,
                 [
                     'maxIterations' => $this->boot->config()->get('agents.defaults.maxIterations'),
                     'budgetExitThreshold' => $this->boot->config()->get('agents.defaults.context.budgetExitThreshold'),
