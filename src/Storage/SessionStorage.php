@@ -527,10 +527,8 @@ final class SessionStorage
                  s.visibility,
                    s.group_enabled, s.group_composition_key, s.group_max_rounds,
                    s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                    (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-             {$this->sessionChannelJoin('s')}
              WHERE s.visibility = 'visible'
               AND s.group_enabled = 1
               AND s.group_composition_key = :group_composition_key
@@ -617,10 +615,8 @@ final class SessionStorage
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                  (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            {$this->sessionChannelJoin('s')}
             {$filter}
             ORDER BY s.updated_at DESC
             LIMIT :limit
@@ -1605,21 +1601,6 @@ final class SessionStorage
             return $row;
         }
 
-        $channelBound = is_string($row['channel_instance_id'] ?? null) && $row['channel_instance_id'] !== '';
-        $row['channel_bound'] = $channelBound;
-        if ($channelBound) {
-            $row['session_origin'] = 'channel';
-        }
-        $row['channel'] = $channelBound
-            ? [
-                'instance_id' => (string) $row['channel_instance_id'],
-                'name' => (string) ($row['channel_name'] ?? ''),
-                'driver' => (string) ($row['channel_driver'] ?? ''),
-                'display_name' => (string) (($row['channel_display_name'] ?? '') !== '' ? $row['channel_display_name'] : ($row['channel_name'] ?? '')),
-            ]
-            : null;
-        unset($row['channel_instance_id'], $row['channel_name'], $row['channel_driver'], $row['channel_display_name']);
-
         if (SessionType::fromSessionRow($row) === SessionType::Group) {
             $row['group_members'] = $includeMembers && isset($row['id'])
                 ? $this->listSessionGroupMembers((string) $row['id'])
@@ -1653,10 +1634,8 @@ final class SessionStorage
                                                                          s.session_type, s.visibility,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                                                                         sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                                      (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-                        {$this->sessionChannelJoin('s')}
                         WHERE s.visibility = 'visible'
               AND s.profile = :profile
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
@@ -2218,10 +2197,8 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-                        {$this->sessionChannelJoin('s')}
                         WHERE s.visibility = 'visible'
               AND s.profile IS NULL
-                            AND sc.channel_instance_id IS NULL
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
@@ -2242,9 +2219,7 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-                        {$this->sessionChannelJoin('s')}
                         WHERE s.visibility = 'visible'
-                            AND sc.channel_instance_id IS NULL
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
@@ -2265,9 +2240,7 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id
             FROM sessions s
-                        {$this->sessionChannelJoin('s')}
                         WHERE s.visibility = 'visible'
-                            AND sc.channel_instance_id IS NULL
               AND s.profile = :profile
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
@@ -2312,18 +2285,6 @@ final class SessionStorage
             return;
         }
 
-        $channelFilter = $this->channelTablesAvailable()
-            ? 'AND s.id NOT IN (
-                    SELECT ci.bound_session_id
-                    FROM channel_instances ci
-                    WHERE ci.bound_session_id IS NOT NULL
-                    UNION
-                    SELECT cc.session_id
-                    FROM channel_conversations cc
-                    WHERE cc.session_id IS NOT NULL
-                )'
-            : '';
-
         $this->db->exec(<<<SQL
             UPDATE sessions AS s
             SET visibility = 'hidden'
@@ -2333,7 +2294,6 @@ final class SessionStorage
                     FROM background_tasks bt
                     WHERE bt.session_id = s.id
               )
-              {$channelFilter}
         SQL);
     }
 
@@ -2349,10 +2309,8 @@ final class SessionStorage
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                  (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
              FROM sessions s
-             {$this->sessionChannelJoin('s')}
              WHERE s.id = :id
              {$visibilityFilter}
         SQL);
@@ -2365,71 +2323,6 @@ final class SessionStorage
         }
 
         return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
-    }
-
-    private function sessionChannelJoin(string $sessionAlias): string
-    {
-        if (!$this->channelTablesAvailable()) {
-            return <<<SQL
-                LEFT JOIN (
-                    SELECT NULL AS session_id,
-                           NULL AS channel_instance_id,
-                           NULL AS channel_name,
-                           NULL AS channel_driver,
-                           NULL AS channel_display_name
-                    WHERE 1 = 0
-                ) sc ON sc.session_id = {$sessionAlias}.id
-            SQL;
-        }
-
-        return <<<SQL
-            LEFT JOIN (
-                SELECT session_id,
-                       MIN(channel_instance_id) AS channel_instance_id,
-                       MIN(channel_name) AS channel_name,
-                       MIN(channel_driver) AS channel_driver,
-                       MIN(channel_display_name) AS channel_display_name
-                FROM (
-                    SELECT ci.bound_session_id AS session_id,
-                           ci.id AS channel_instance_id,
-                           ci.name AS channel_name,
-                           ci.driver AS channel_driver,
-                           ci.display_name AS channel_display_name
-                    FROM channel_instances ci
-                    WHERE ci.bound_session_id IS NOT NULL
-
-                    UNION ALL
-
-                    SELECT cc.session_id AS session_id,
-                           ci.id AS channel_instance_id,
-                           ci.name AS channel_name,
-                           ci.driver AS channel_driver,
-                           ci.display_name AS channel_display_name
-                    FROM channel_conversations cc
-                    INNER JOIN channel_instances ci ON ci.id = cc.channel_instance_id
-                    WHERE cc.session_id IS NOT NULL
-                ) channel_sessions
-                GROUP BY session_id
-            ) sc ON sc.session_id = {$sessionAlias}.id
-        SQL;
-    }
-
-    private function channelTablesAvailable(): bool
-    {
-        $stmt = $this->db->query(<<<SQL
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-              AND name IN ('channel_instances', 'channel_conversations')
-        SQL);
-
-        if ($stmt === false) {
-            return false;
-        }
-
-        $names = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-        return count($names) === 2;
     }
 
     private function backgroundTaskTableAvailable(): bool

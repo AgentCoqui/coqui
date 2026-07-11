@@ -32,10 +32,7 @@ final readonly class ProfileSessionLifecycleManager
      */
     public function finalizeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
     {
-        $sessions = array_values(array_filter(
-            $this->storage->listActiveInteractiveSessionsForProfile($profile),
-            static fn(array $session): bool => !((bool) ($session['channel_bound'] ?? false)),
-        ));
+        $sessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
         $finalized = [];
 
         foreach ($sessions as $session) {

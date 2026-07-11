@@ -12,7 +12,6 @@ use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
-use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
@@ -128,7 +127,6 @@ function createPromptBackstoryRouterFixture(bool $conversationHistoryInSystemPro
         $instantiate(TaskHandler::class),
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
-        $instantiate(ChannelHandler::class),
         $instantiate(ProjectHandler::class),
         $instantiate(RoleHandler::class),
         $instantiate(GroupHandler::class),

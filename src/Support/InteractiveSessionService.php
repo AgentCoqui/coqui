@@ -43,10 +43,7 @@ final readonly class InteractiveSessionService
         string $closureReasonPrefix = 'api_create_profile_session',
     ): InteractiveSessionOperationResult {
         if ($profile !== null) {
-            $activeSessions = array_values(array_filter(
-                $this->storage->listActiveInteractiveSessionsForProfile($profile),
-                static fn(array $session): bool => !((bool) ($session['channel_bound'] ?? false)),
-            ));
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
             if ($activeSessions !== [] && !$confirmCloseActiveProfileSession) {
                 throw $this->profileSessionActiveConflict($profile, $activeSessions);
             }
@@ -74,10 +71,7 @@ final readonly class InteractiveSessionService
         string $duplicateCleanupReasonPrefix = 'api_profile_duplicate_cleanup',
     ): InteractiveSessionOperationResult {
         if ($profile !== null) {
-            $activeSessions = array_values(array_filter(
-                $this->storage->listActiveInteractiveSessionsForProfile($profile),
-                static fn(array $session): bool => !((bool) ($session['channel_bound'] ?? false)),
-            ));
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
             if ($activeSessions !== []) {
                 $sessionId = (string) ($activeSessions[0]['id'] ?? '');
                 if ($sessionId !== '') {
@@ -184,10 +178,7 @@ final readonly class InteractiveSessionService
         $this->assertProfileRoleAllowed($resolvedProfile, $resolvedRole);
 
         if ($resolvedProfile !== null && !$this->storage->isSessionClosed($sessionId)) {
-            $activeSessions = array_values(array_filter(
-                $this->storage->listActiveInteractiveSessionsForProfile($resolvedProfile),
-                static fn(array $activeSession): bool => !((bool) ($activeSession['channel_bound'] ?? false)),
-            ));
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($resolvedProfile);
             $conflicts = array_values(array_filter(
                 $activeSessions,
                 static fn(array $activeSession): bool => (string) ($activeSession['id'] ?? '') !== $sessionId,

@@ -8,7 +8,6 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
-use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -33,7 +32,6 @@ final readonly class ServerHandler
         private string $databasePath,
         private ?BackgroundTaskManager $taskManager = null,
         private ?LoopManager $loopManager = null,
-        private ?ChannelManager $channelManager = null,
         private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
@@ -71,18 +69,6 @@ final readonly class ServerHandler
             $data['loops'] = [
                 'last_tick_at' => $this->loopManager->lastTickAt(),
                 'last_reconcile_at' => $this->loopManager->lastReconcileAt(),
-            ];
-        }
-
-        if ($this->channelManager !== null) {
-            $data['channels'] = [
-                'configured' => $this->channelManager->stats()['total'],
-                'enabled' => $this->channelManager->stats()['enabled'],
-                'ready' => $this->channelManager->stats()['ready'],
-                'active_runtimes' => $this->channelManager->stats()['active_runtimes'],
-                'registered_drivers' => $this->channelManager->stats()['registered_drivers'],
-                'last_tick_at' => $this->channelManager->lastTickAt(),
-                'last_reconcile_at' => $this->channelManager->lastReconcileAt(),
             ];
         }
 

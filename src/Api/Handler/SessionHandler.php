@@ -398,7 +398,7 @@ final readonly class SessionHandler
         $model = is_string($session['model'] ?? null) ? trim((string) $session['model']) : '';
         $role = is_string($session['model_role'] ?? null) ? trim((string) $session['model_role']) : '';
 
-        if ($model !== '' && !str_starts_with($model, 'channel:')) {
+        if ($model !== '') {
             return $session;
         }
 

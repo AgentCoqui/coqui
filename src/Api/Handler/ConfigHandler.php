@@ -112,7 +112,6 @@ final readonly class ConfigHandler
         $data = [
             'agents' => $config->get('agents'),
             'models' => $this->sanitizeModelsConfig(),
-            'channels' => $config->get('channels'),
         ];
 
         return Router::jsonResponse($data);
