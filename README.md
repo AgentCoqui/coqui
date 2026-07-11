@@ -356,7 +356,6 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
 | **Loops** | `loop_start`, `loop_status`, `loop_definitions` | Automated multi-iteration workflows chaining roles |
 | **Vision** | `vision_analyze` | Multi-provider image analysis |
-| **Packages** | `composer`, `packagist` | Dependency management and package search |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |
 
 Toolkits from the [Coqui Mods marketplace](https://agentcoqui.com) and local workspace packages add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, image generation, and more.

@@ -452,17 +452,10 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 
 Add toolkit dependencies directly to the generated package `composer.json`, then run `composer install` in the toolkit package directory.
 
-### Using Packagist
+### Finding Packages
 
-Coqui has a built-in `packagist` tool for discovering packages before adding them:
-
-```
-packagist(action: "search", query: "http client")
-packagist(action: "details", package: "guzzlehttp/guzzle")
-packagist(action: "advisories", package: "guzzlehttp/guzzle")
-```
-
-**Recommended workflow:** search → details → advisories → add to toolkit dependencies.
+Search [packagist.org](https://packagist.org) for packages and review their
+security advisories before adding them to a toolkit's dependencies.
 
 ### Dependency Guidelines
 
