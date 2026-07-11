@@ -62,12 +62,9 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Support\StringHelper;
-use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
-use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
@@ -168,12 +165,9 @@ final class OrchestratorAgent extends AbstractAgent
         'ArtifactToolkit' => 'artifacts',
         'ProjectToolkit' => 'projects',
         'CoquiSourceToolkit' => 'coqui-source',
-        'ComposerToolkit' => 'packages',
-        'PackagistToolkit' => 'packages',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
-        'BackgroundTaskToolkit' => 'background-tasks',
     ];
 
     /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
@@ -264,7 +258,6 @@ final class OrchestratorAgent extends AbstractAgent
         $credentialResolver = $deps->credentialResolver;
         $cancellationToken = $deps->cancellationToken;
         $pendingInputProvider = $deps->pendingInputProvider;
-        $backgroundTaskToolkit = $deps->backgroundTaskToolkit;
         $configManager = $deps->configManager;
         $configGuard = $deps->configGuard;
         $toolExecutor = $deps->toolExecutor;
@@ -485,15 +478,6 @@ final class OrchestratorAgent extends AbstractAgent
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addSystemToolkit('CoquiSourceToolkit', "Read Coqui's own source", new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
-        // Composer & Packagist toolkits — workspace package management
-        if ($effectiveAccessLevel === 'full') {
-            $this->addSystemToolkit('ComposerToolkit', 'Composer package operations', new ComposerToolkit(
-                workspacePath: $this->workspacePath,
-                listener: $discovery,
-            ));
-            $this->addSystemToolkit('PackagistToolkit', 'Search Packagist', new PackagistToolkit());
-        }
-
         // Schedule toolkit — cron-style task scheduling (top-level agents only)
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
@@ -598,15 +582,6 @@ final class OrchestratorAgent extends AbstractAgent
                     ];
                 }
             }
-        }
-
-        // Background task toolkit — only in API mode, never in loop stages
-        if ($backgroundTaskToolkit !== null && $this->workScopeSessionId === null) {
-            $candidateToolkits[] = [
-                'toolkit' => $backgroundTaskToolkit,
-                'package' => '',
-                'description' => 'background task management',
-            ];
         }
 
         // Webhook toolkit — only for top-level agents, never in loop stages.

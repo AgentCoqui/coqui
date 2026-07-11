@@ -82,6 +82,12 @@ final readonly class LoopToolkit implements ToolkitInterface
         **Available definitions:** {$defList}
         {$activeDetails}
 
+        ### Ad-hoc background work
+        There is no separate background-task tool. To run work asynchronously alongside the
+        conversation, start a goal-driven loop:
+        `loop_start(definition: "goal-driven", goal: "<what to accomplish>")`.
+        Loops run concurrently with the conversation and govern and verify their own progress.
+
         ### Usage
         - Start a loop: `loop_start(definition: "harness", goal: "Build feature X")`
         - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"output_format\": \"comparison matrix\"}")`

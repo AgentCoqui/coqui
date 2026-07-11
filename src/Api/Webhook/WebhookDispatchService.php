@@ -84,7 +84,7 @@ final readonly class WebhookDispatchService
             $parts[] = "event: {$eventType}";
         }
 
-        foreach (['action', 'repository.full_name', 'sender.login', 'channel', 'user'] as $path) {
+        foreach (['action', 'repository.full_name', 'sender.login', 'user'] as $path) {
             $keys = explode('.', $path);
             $current = $data;
             foreach ($keys as $key) {

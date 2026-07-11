@@ -9,8 +9,8 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 /**
  * Shared shell command resolution logic.
  *
- * Centralizes the three duplicate implementations that existed in
- * OrchestratorAgent, RunCommand, and BackgroundToolExecutor.
+ * Centralizes the duplicate shell command resolution that existed in
+ * OrchestratorAgent, RunCommand, and SpawnAgentTool.
  */
 final class ShellConfigResolver
 {

@@ -1,14 +1,18 @@
 # Coqui HTTP API
 
-> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Most loop, schedule, and config-editing control flows remain REPL-first or tool-driven, while launcher-managed API restarts and channel CRUD are now exposed over HTTP with explicit restart-state metadata.
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Most loop, schedule, and config-editing control flows remain REPL-first or tool-driven, while launcher-managed API restarts are now exposed over HTTP with explicit restart-state metadata.
 
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
 The API is built on ReactPHP and runs as a long-lived PHP process. It shares the same core engine as the terminal REPL but without any terminal I/O dependency.
 
+## Changelog
+
+- Session objects no longer include `channel`/`channel_bound`; `session_origin` is never `channel`.
+
 ## Starting the Server
 
-Use the launcher-managed entrypoint by default. The API is a required runtime for background tasks, channels, schedules, and other long-lived features.
+Use the launcher-managed entrypoint by default. The API is a required runtime for background tasks, schedules, and other long-lived features.
 
 ```bash
 # Recommended default: full app (REPL + API)
@@ -271,14 +275,6 @@ Liveness check. Does **not** require authentication.
     "managed_by_launcher": true,
     "pid": 21093,
     "started_at": "2026-04-22T20:59:23Z"
-  },
-  "channels": {
-    "total": 1,
-    "enabled": 1,
-    "ready": 1,
-    "errors": 0,
-    "active_runtimes": 1,
-    "registered_drivers": 3
   }
 }
 ```
@@ -297,9 +293,7 @@ Session lifecycle fields have distinct meanings:
 - `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
 - In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
 
-Channel-backed interactive sessions are still first-class visible sessions. Their payloads include `channel_bound: true` plus a `channel` object describing the bound channel instance. Ordinary app-style session resolution intentionally skips channel-backed sessions so a normal "resume latest chat" flow does not land inside a Signal, Telegram, or Discord conversation lane.
-
-Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions and `channel` for channel-backed conversations. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
+Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
 
 #### `GET /api/v1/sessions`
 
@@ -316,7 +310,7 @@ This endpoint is user-facing and only returns surfaced sessions (`visibility = v
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
 | `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
 
-Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions and `channel` for channel-backed visible conversations.
+Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions or `background` for hidden background sessions.
 
 **Response `200`**
 
@@ -334,13 +328,6 @@ Each returned session also includes `session_origin`, which is `user` for ordina
       "closed_at": null,
       "archived_at": null,
       "closure_reason": null,
-      "channel_bound": true,
-      "channel": {
-        "instance_id": "channel_123",
-        "name": "signal-primary",
-        "driver": "signal",
-        "display_name": "Signal Primary"
-      },
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
@@ -490,7 +477,7 @@ This mirrors REPL startup behavior:
 
 - Omit `profile` to target the unprofiled interactive session pool.
 - Pass `profile` to target a profile-specific interactive session pool.
-- Hidden worker sessions and visible channel-backed sessions are excluded from ordinary reuse.
+- Hidden worker sessions are excluded from ordinary reuse.
 - If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
@@ -580,13 +567,6 @@ Get session details.
   "closed_at": null,
   "archived_at": null,
   "closure_reason": null,
-  "channel_bound": true,
-  "channel": {
-    "instance_id": "channel_123",
-    "name": "signal-primary",
-    "driver": "signal",
-    "display_name": "Signal Primary"
-  },
   "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
@@ -3802,149 +3782,6 @@ Returned when:
 - the loop is still `running`
 - the iteration is not in `failed` or `needs_rework`
 
-### Channels
-
-Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work. Channel mutations now return a `restart` payload when operator action is required so clients can keep the API and persisted config in sync.
-
-#### `GET /api/v1/channels`
-
-List configured channel instances with joined runtime health.
-
-**Query Parameters**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `enabled` | bool | `null` | Filter to enabled or disabled instances |
-| `driver` | string | `null` | Filter by driver name |
-
-#### `POST /api/v1/channels`
-
-Create a channel instance definition. The response includes the updated channel plus a `restart` object when the API should be restarted to reload runtimes against the persisted config cleanly.
-
-**Request Body**
-
-```json
-{
-  "name": "signal-primary",
-  "driver": "signal",
-  "displayName": "Signal Primary",
-  "defaultProfile": "caelum",
-  "boundSessionId": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "settings": {
-    "transport": "signal-cli"
-  }
-}
-```
-
-Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `boundSessionId`, `settings`, `allowedScopes`, and `security`.
-
-`boundSessionId` is optional. When set, the channel instance routes all inbound conversations into one existing visible interactive session instead of creating per-conversation interactive sessions.
-
-**Response `201`**
-
-```json
-{
-  "channel": {
-    "id": "channel_123",
-    "name": "signal-primary",
-    "driver": "signal",
-    "display_name": "Signal Primary",
-    "default_profile": "caelum",
-    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
-  },
-  "restart": {
-    "required": true,
-    "reason": "channel_configuration_changed"
-  }
-}
-```
-
-#### `GET /api/v1/channels/drivers`
-
-List registered built-in and external channel drivers with capability metadata.
-
-#### `GET /api/v1/channels/{id}`
-
-Get one channel instance by id or name.
-
-**Response `200`**
-
-```json
-{
-  "channel": {
-    "id": "channel_123",
-    "name": "signal-primary",
-    "driver": "signal",
-    "display_name": "Signal Primary",
-    "enabled": true,
-    "default_profile": "caelum",
-    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-    "worker_status": "running",
-    "ready": true,
-    "summary": "Signal runtime ready."
-  }
-}
-```
-
-#### `PATCH /api/v1/channels/{id}`
-
-Update any mutable channel fields from the create payload. Successful mutations return the updated channel plus restart metadata when a clean API restart is required.
-
-Clients may send either `boundSessionId` or `bound_session_id` in update payloads. The response always normalizes the stored field to `bound_session_id`.
-
-#### `DELETE /api/v1/channels/{id}`
-
-Remove a configured channel instance. Successful mutations return restart metadata when the API should be restarted to fully reconcile runtime state.
-
-#### `POST /api/v1/channels/{id}/enable`
-
-Enable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
-
-#### `POST /api/v1/channels/{id}/disable`
-
-Disable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
-
-#### `POST /api/v1/channels/{id}/test`
-
-Force a reconcile/tick cycle and return the refreshed channel row.
-
-#### `GET /api/v1/channels/{id}/health`
-
-Return the stored runtime health snapshot for one channel.
-
-#### `GET /api/v1/channels/{id}/links`
-
-List channel identity links.
-
-#### `POST /api/v1/channels/{id}/links`
-
-Create a channel identity link.
-
-**Request Body**
-
-```json
-{
-  "remote_user_key": "signal:+15551234567",
-  "profile": "caelum"
-}
-```
-
-#### `DELETE /api/v1/channels/{id}/links/{linkId}`
-
-Delete a channel identity link.
-
-#### `GET /api/v1/channels/{id}/conversations`
-
-List stored channel conversation records for one instance.
-
-#### `GET /api/v1/channels/{id}/events`
-
-List stored inbound event records for one instance.
-
-#### `GET /api/v1/channels/{id}/deliveries`
-
-List stored delivery records for one instance.
-
 ### Webhooks
 
 Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
@@ -4832,15 +4669,6 @@ The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-m
 | `/mcp refresh <name>` | `POST /api/v1/mcp/servers/{name}/refresh` | Reconnects and refreshes MCP tools |
 | `/mcp test <name>` | `POST /api/v1/mcp/servers/{name}/test` | Tests MCP connectivity and tool discovery |
 | `/mcp set-env <name> <ENV_KEY>` | `POST /api/v1/mcp/servers/{name}/env` | Links a secret or env placeholder to an MCP server |
-| `/channels` | `GET /api/v1/channels` | Lists channels with runtime state |
-| `/channels drivers` | `GET /api/v1/channels/drivers` | Lists registered channel drivers |
-| `/channels status <id>` | `GET /api/v1/channels/{id}` | Shows channel details |
-| `/channels health <id>` | `GET /api/v1/channels/{id}/health` | Shows channel health |
-| `/channels enable <id>` | `POST /api/v1/channels/{id}/enable` | Enables a channel instance |
-| `/channels disable <id>` | `POST /api/v1/channels/{id}/disable` | Disables a channel instance |
-| `/channels delete <id>` | `DELETE /api/v1/channels/{id}` | Deletes a channel instance |
-| `/channels links <id>` | `GET /api/v1/channels/{id}/links` | Lists identity links for a channel |
-| `/channels deliveries <id>` | `GET /api/v1/channels/{id}/deliveries` | Lists delivery records for a channel |
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
@@ -4959,22 +4787,6 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/mcp/tools/search` | Yes | Search discovered MCP tools |
 | `POST` | `/api/v1/mcp/servers/{name}/env` | Yes | Link env config to an MCP server |
 | `POST` | `/api/v1/mcp/servers/{name}/auth` | Yes | Run browser-based OAuth for an MCP server (requires optional `coquibot/coqui-toolkit-mcp-client`) |
-| `GET` | `/api/v1/channels` | Yes | List channels with runtime state |
-| `POST` | `/api/v1/channels` | Yes | Create a channel instance |
-| `GET` | `/api/v1/channels/drivers` | Yes | List registered channel drivers |
-| `GET` | `/api/v1/channels/{id}` | Yes | Get one channel instance |
-| `PATCH` | `/api/v1/channels/{id}` | Yes | Update a channel instance |
-| `DELETE` | `/api/v1/channels/{id}` | Yes | Delete a channel instance |
-| `POST` | `/api/v1/channels/{id}/enable` | Yes | Enable a channel instance |
-| `POST` | `/api/v1/channels/{id}/disable` | Yes | Disable a channel instance |
-| `POST` | `/api/v1/channels/{id}/test` | Yes | Reconcile and refresh a channel instance |
-| `GET` | `/api/v1/channels/{id}/health` | Yes | Get channel health |
-| `GET` | `/api/v1/channels/{id}/links` | Yes | List channel identity links |
-| `POST` | `/api/v1/channels/{id}/links` | Yes | Create a channel identity link |
-| `DELETE` | `/api/v1/channels/{id}/links/{linkId}` | Yes | Delete a channel identity link |
-| `GET` | `/api/v1/channels/{id}/conversations` | Yes | List stored channel conversations |
-| `GET` | `/api/v1/channels/{id}/events` | Yes | List stored inbound channel events |
-| `GET` | `/api/v1/channels/{id}/deliveries` | Yes | List stored channel deliveries |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
 | `POST` | `/api/v1/schedules` | Yes | Create schedule |
@@ -5012,4 +4824,4 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
 | `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 
-Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart and channel CRUD now expose explicit restart-state metadata over HTTP for app clients.
+Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart now exposes explicit restart-state metadata over HTTP for app clients.

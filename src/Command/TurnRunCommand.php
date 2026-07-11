@@ -138,7 +138,6 @@ final class TurnRunCommand extends Command
             storage: $storage,
             observer: new NullObserver(),
             unsafeMode: $unsafeMode,
-            backgroundTasksEnabled: true,
             includeConfigManager: true,
             toolExecutor: new ConcurrentToolExecutor(),
         );

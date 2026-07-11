@@ -82,9 +82,6 @@ final class SetupWizard
         // Step 5: Image generation defaults
         $imageModelConfig = $this->configureImageGeneration();
 
-        // Step 6: Child background tasks
-        $childBackgroundTasks = $this->configureChildBackgroundTasks();
-
         // Step 7: Memory extraction behavior
         $memoryAutoExtract = $this->configureMemoryExtraction();
 
@@ -107,7 +104,7 @@ final class SetupWizard
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig, $defaultProfile, $imageModelConfig);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $memoryAutoExtract, $summarizationConfig, $defaultProfile, $imageModelConfig);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -177,7 +174,6 @@ final class SetupWizard
         $sections = [
             'providers' => 'Providers & Models (providers, model discovery, role assignments, primary model)',
             'image_model' => 'Image Generation Defaults (/image and image toolkits)',
-            'child_bg'  => 'Child Background Tasks (allow child agents to spawn background tasks)',
             'summarization' => 'Summarization (auto-summarization mode and thresholds)',
             'workspace' => 'Workspace Directory',
             'profile'   => 'Default Profile',
@@ -240,13 +236,6 @@ final class SetupWizard
             $imageModelConfig = $currentImageModelConfig;
         }
 
-        // --- Child Background Tasks ---
-        if (in_array('child_bg', $selectedKeys, true)) {
-            $childBackgroundTasks = $this->configureChildBackgroundTasks();
-        } else {
-            $childBackgroundTasks = !empty($defaults['childBackgroundTasks']);
-        }
-
         // --- Summarization ---
         if (in_array('summarization', $selectedKeys, true)) {
             $summarizationConfig = $this->configureSummarization();
@@ -292,7 +281,6 @@ final class SetupWizard
             $roles,
             $workspace,
             $mounts,
-            $childBackgroundTasks,
             in_array('providers', $selectedKeys, true),
             $summarizationConfig,
             $defaultProfile,
@@ -331,7 +319,6 @@ final class SetupWizard
         array $roles,
         string $workspace,
         array $mounts,
-        bool $childBackgroundTasks,
         bool $providersEdited,
         array $summarizationConfig = [],
         ?string $defaultProfile = null,
@@ -348,12 +335,6 @@ final class SetupWizard
             $config['agents']['defaults']['profile'] = strtolower(trim($defaultProfile));
         } else {
             unset($config['agents']['defaults']['profile']);
-        }
-
-        if ($childBackgroundTasks) {
-            $config['agents']['defaults']['childBackgroundTasks'] = true;
-        } else {
-            unset($config['agents']['defaults']['childBackgroundTasks']);
         }
 
         if ($summarizationConfig !== []) {
@@ -387,7 +368,7 @@ final class SetupWizard
 
         // Only rebuild the models section when providers were re-configured
         if ($providersEdited) {
-            $config['models'] = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, imageModelConfig: $imageModelConfig)['models'];
+            $config['models'] = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, imageModelConfig: $imageModelConfig)['models'];
         }
 
         return $config;
@@ -835,28 +816,6 @@ final class SetupWizard
         $flipped = array_flip($modelChoices);
 
         return $flipped[$selected] ?? $orchestratorModel;
-    }
-
-    /**
-    * Step 6: Configure child agent background task spawning.
-     */
-    private function configureChildBackgroundTasks(): bool
-    {
-        $this->io->section('Step 6: Child Background Tasks');
-
-        $this->io->text([
-            'Child agents (spawned via <fg=cyan>spawn_agent</>) can optionally create background tasks.',
-            'This enables powerful autonomous workflows where delegated agents can kick off',
-            'long-running work independently.',
-            '',
-            '<fg=yellow>Risks:</>',
-            '  • A child agent could spawn background tasks that spawn more child agents',
-            '  • Each background task is capped at <fg=cyan>' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ' iterations</> for safety',
-            '  • Background tasks spawned from within a background task cannot spawn further tasks',
-            '',
-        ]);
-
-        return $this->confirm('Allow child agents to spawn background tasks?', false);
     }
 
     /**
@@ -1330,7 +1289,7 @@ final class SetupWizard
     * @param array<string, mixed> $imageModelConfig
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null, array $imageModelConfig = []): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null, array $imageModelConfig = []): array
     {
         $modelDefinitions = [];
 
@@ -1429,10 +1388,6 @@ final class SetupWizard
 
         if ($defaultProfile !== null && trim($defaultProfile) !== '') {
             $defaults['profile'] = strtolower(trim($defaultProfile));
-        }
-
-        if ($childBackgroundTasks) {
-            $defaults['childBackgroundTasks'] = true;
         }
 
         if ($memoryAutoExtract) {
