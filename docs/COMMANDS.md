@@ -210,6 +210,8 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/multiline on` | Enable multiline compose mode |
 | `/multiline off` | Disable multiline compose mode |
 
+> The REPL `/loops` view is text-only: a status/progress table and per-loop `/loops status <id>` snapshots. Rich, live loop monitoring lives on the HTTP API (see [docs/API.md](API.md)); the REPL no longer opens a full-screen loop dashboard.
+
 ### Context Management
 
 | Command | Description |
