@@ -6,8 +6,11 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\LoopLiveViewBuilder;
+use CoquiBot\Coqui\Api\LoopStreamTracker;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Api\SseStream;
+use CoquiBot\Coqui\Contract\LoopStreamState;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -32,6 +35,7 @@ use React\Http\Message\Response;
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
  * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
  * GET    /api/v1/loops/{id}/live          — get rich live snapshot (current stage, model, budget, events)
+ * GET    /api/v1/loops/{id}/events        — SSE live nudge stream
  * POST   /api/v1/loops/{id}/skip-stage    — skip current non-running stage
  * POST   /api/v1/loops/{id}/pause         — pause loop
  * POST   /api/v1/loops/{id}/resume        — resume loop
@@ -42,6 +46,8 @@ use React\Http\Message\Response;
  */
 final readonly class LoopHandler
 {
+    private const float POLL_INTERVAL = 1.0;
+
     public function __construct(
         private LoopStore $store,
         private LoopDiscovery $discovery,
@@ -451,6 +457,92 @@ final readonly class LoopHandler
     }
 
     /**
+     * GET /api/v1/loops/{id}/events
+     *
+     * SSE stream of thin nudges (connected, stage_changed, activity, done) for a
+     * running loop. Clients refetch GET /loops/{id}/live on each nudge. Mirrors
+     * the task-events long-poll: a ReactPHP timer diffs cheap loop state per tick.
+     */
+    public function events(ServerRequestInterface $request, string $id): Response
+    {
+        if ($this->store->getLoop($id) === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $sse = new SseStream();
+        $sse->connected(['loop_id' => $id]);
+
+        $prev = null;
+        $emit = function (LoopStreamState $now) use ($sse, &$prev): bool {
+            $event = LoopStreamTracker::diff($prev, $now);
+            $prev = $now;
+            if ($event === null) {
+                return false;
+            }
+            if ($event->type === 'done') {
+                $sse->done($event->data);
+
+                return true;
+            }
+            $sse->event($event->type, $event->data, $now->latestActivityId);
+
+            return false;
+        };
+
+        // Initial emit: current position, or done if already terminal.
+        $closed = $emit($this->readStreamState($id));
+
+        if (!$closed) {
+            $timer = \React\EventLoop\Loop::addPeriodicTimer(self::POLL_INTERVAL, function () use (&$timer, $sse, $id, $emit): void {
+                try {
+                    if ($emit($this->readStreamState($id))) {
+                        if ($timer instanceof \React\EventLoop\TimerInterface) {
+                            \React\EventLoop\Loop::cancelTimer($timer);
+                        }
+                    }
+                } catch (\Throwable) {
+                    try {
+                        $sse->end();
+                        if ($timer instanceof \React\EventLoop\TimerInterface) {
+                            \React\EventLoop\Loop::cancelTimer($timer);
+                        }
+                    } catch (\Throwable) {
+                        // Already closed.
+                    }
+                }
+            });
+
+            $sse->onClose(function () use (&$timer): void {
+                /** @phpstan-ignore instanceof.alwaysTrue */
+                if ($timer instanceof \React\EventLoop\TimerInterface) {
+                    \React\EventLoop\Loop::cancelTimer($timer);
+                }
+            });
+        }
+
+        return $sse->response();
+    }
+
+    /**
+     * Read the minimal loop state a stream tick observes. A vanished loop row
+     * (deleted mid-stream) is treated as terminal 'cancelled'.
+     */
+    private function readStreamState(string $id): LoopStreamState
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return new LoopStreamState('cancelled', 0, 0, null);
+        }
+
+        return new LoopStreamState(
+            status: (string) ($loop['status'] ?? 'cancelled'),
+            currentIteration: (int) ($loop['current_iteration'] ?? 0),
+            currentStage: (int) ($loop['current_stage'] ?? 0),
+            latestActivityId: $this->store->latestActivityId($id),
+        );
+    }
+
+    /**
      * PATCH /api/v1/loops/{id}
      */
     public function update(ServerRequestInterface $request, string $id): Response
@@ -846,6 +938,7 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/{id}/history', [$this, 'history']);
         $router->get($v1 . '/loops/{id}/metrics', [$this, 'metrics']);
         $router->get($v1 . '/loops/{id}/live', [$this, 'live']);
+        $router->get($v1 . '/loops/{id}/events', [$this, 'events']);
         if ($this->executor !== null) {
             $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
             $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);

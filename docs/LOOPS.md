@@ -247,6 +247,8 @@ breakdown, and a newest-first feed of recent activity — everything a dashboard
 status poller needs in one call. It is a pure read-model over existing loop, task,
 turn, and event data. See [API.md](API.md) for the full response shape.
 
+- `GET /api/v1/loops/{id}/events` streams SSE nudges (`connected`, `stage_changed`, `activity`, `done`) so clients can watch a running loop live and refetch `/loops/{id}/live` on each signal.
+
 ### Pause and Resume
 
 ```
@@ -289,6 +291,7 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `GET` | `/api/v1/loops/{id}/history` | Get full loop iteration history |
 | `GET` | `/api/v1/loops/{id}/metrics` | Get aggregate loop metrics |
 | `GET` | `/api/v1/loops/{id}/live` | Get rich live snapshot (current stage, model, budget, events) |
+| `GET` | `/api/v1/loops/{id}/events` | SSE stream of live nudges (`connected`, `stage_changed`, `activity`, `done`) |
 | `PATCH` | `/api/v1/loops/{id}` | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Pause loop |

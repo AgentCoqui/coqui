@@ -411,6 +411,26 @@ final class LoopStore
     }
 
     /**
+     * The highest task_events.id produced across all of a loop's stage tasks,
+     * or null when the loop has produced no events yet. Cheap activity cursor
+     * for the loop events stream (single aggregate query, same PDO).
+     */
+    public function latestActivityId(string $loopId): ?int
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT MAX(te.id) AS max_id
+            FROM loop_iterations li
+            JOIN loop_stages ls ON ls.iteration_id = li.id
+            JOIN task_events te ON te.task_id = ls.task_id
+            WHERE li.loop_id = :loop_id
+        SQL);
+        $stmt->execute(['loop_id' => $loopId]);
+        $value = $stmt->fetchColumn();
+
+        return ($value === false || $value === null) ? null : (int) $value;
+    }
+
+    /**
      * Update stage status with optional result data.
      *
      * @param array<string, mixed>|null $metadata

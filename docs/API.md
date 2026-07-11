@@ -3638,7 +3638,9 @@ newest-first feed of recent activity. This is a read-model composed from
 existing loop, task, turn, and event data — it makes no changes to the loop.
 
 Intended for dashboards and status pollers. It is poll-based; clients refresh on
-an interval. (Streaming is a future addition.)
+an interval. For push-based updates, pair it with the
+[`GET /api/v1/loops/{id}/events`](#get-apiv1loopsidevents) SSE stream below and
+refetch this snapshot on each nudge.
 
 **Response `200`**
 
@@ -3723,6 +3725,21 @@ turn has not completed). `time.remaining_seconds` is `null` when the loop has no
 deadline.
 
 **Response `404`** — loop not found.
+
+#### `GET /api/v1/loops/{id}/events`
+
+Server-Sent Events stream of lightweight nudges for a running loop, so a client can watch progress without fixed-interval polling. The stream carries **signals only** — on each nudge the client re-fetches `GET /loops/{id}/live` for the full snapshot (that endpoint stays the single source of truth).
+
+**Response `200`** — `Content-Type: text/event-stream`. Unknown loop → `404`.
+
+| Event | Fires when | `data` |
+|---|---|---|
+| `connected` | on open | `{"loop_id": "<id>"}` |
+| `stage_changed` | iteration/stage advanced, or lifecycle status changed (incl. pause/resume) | `{"iteration": N, "stage_index": N, "status": "<status>"}` |
+| `activity` | new task events, position unchanged (coalesced to one per tick) | `{"cursor": <max_event_id>}` |
+| `done` | loop reached `completed`/`failed`/`cancelled` — stream then closes | `{"status": "<status>"}` |
+
+Each frame carries an SSE `id:` (the activity cursor) so reconnecting clients resume via `Last-Event-ID`; a reconnect re-syncs by refetching `/live`. `role`/`model`/budget are intentionally not in the payload — read them from `/live`.
 
 #### `GET /api/v1/loops/{id}`
 
