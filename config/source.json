@@ -997,6 +997,20 @@
             ]
         },
         {
+            "path": "src/Contract/LoopStreamState.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStreamState",
+            "layer": "contract",
+            "description": "Value object: the minimal loop snapshot a single events-stream tick observes (status, currentIteration, currentStage, latestActivityId). Consumed by LoopStreamTracker::diff.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/LoopStreamEvent.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStreamEvent",
+            "layer": "contract",
+            "description": "Value object: one thin loop-stream nudge (type, data) produced by LoopStreamTracker::diff and serialized onto the SSE stream by LoopHandler::events.",
+            "methods": []
+        },
+        {
             "path": "src/Contract/IterationOutcome.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
             "layer": "contract",
@@ -3044,6 +3058,7 @@
                 "createStage(string, int, string, string): string — create stage record",
                 "getCurrentState(string): ?array — get loop with current iteration and stages",
                 "countActive(): int — count running loops",
+                "latestActivityId(string): ?int — max task_events.id across a loop's stage tasks (activity cursor), null when none",
                 "deleteLoop(string): bool — delete loop and cascading records"
             ]
         },
@@ -3105,13 +3120,38 @@
             ]
         },
         {
+            "path": "src/Api/SseStream.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\SseStream",
+            "layer": "agent",
+            "description": "Helper for Server-Sent Events over a ReactPHP ThroughStream: pure format() frame builder, connected/event/done writers, client-disconnect wiring via onClose(), and the text/event-stream Response. Used by the loop events endpoint; the existing TaskHandler/MessageHandler SSE endpoints are untouched.",
+            "methods": [
+                "format(string, array, ?int): string — pure SSE frame formatter (optional id line)",
+                "connected(array): void — write a connected frame",
+                "event(string, array, ?int): void — write a typed frame with optional id",
+                "done(array): void — write a terminal done frame and close the stream",
+                "end(): void — close the stream",
+                "onClose(callable): void — register a client-disconnect callback",
+                "response(): Response — the 200 text/event-stream Response"
+            ]
+        },
+        {
+            "path": "src/Api/LoopStreamTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopStreamTracker",
+            "layer": "agent",
+            "description": "Pure change-detection for the loop events stream: diff(?prev, now) returns the single most-significant nudge (precedence done > stage_changed > activity) or null when nothing moved. No I/O, no ReactPHP; diff(null, now) unifies the initial connect emit with per-tick logic. Fully unit-tested; the LoopHandler::events timer is thin glue over it.",
+            "methods": [
+                "diff(?LoopStreamState, LoopStreamState): ?LoopStreamEvent — most-significant nudge for a state transition, or null"
+            ]
+        },
+        {
             "path": "src/Api/Handler/LoopHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
             "layer": "agent",
-            "description": "REST API endpoints for loop CRUD and control, plus full CRUD over loop definition files (GET/POST/PUT/DELETE /loops/definitions[/{name}], with a builtin flag in the list). Endpoints: list, create, definitions, get, history, metrics, live, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. Self-registers routes via register(Router). Surfaces loop origin: list() enriches each loop with a derived headless boolean and supports a ?headless=true|false filter; normalizeLoop() adds origin ('headless' | 'conversation'), both derived from loop metadata via loopOrigin().",
+            "description": "REST API endpoints for loop CRUD and control, plus full CRUD over loop definition files (GET/POST/PUT/DELETE /loops/definitions[/{name}], with a builtin flag in the list). Endpoints: list, create, definitions, get, history, metrics, live, events, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. The events endpoint is an SSE nudge stream (connected, stage_changed, activity, done) built on SseStream + the pure LoopStreamTracker::diff, mirroring TaskHandler::events' 1s ReactPHP timer; clients refetch /live on each nudge. Self-registers routes via register(Router). Surfaces loop origin: list() enriches each loop with a derived headless boolean and supports a ?headless=true|false filter; normalizeLoop() adds origin ('headless' | 'conversation'), both derived from loop metadata via loopOrigin().",
             "methods": [
                 "register(Router): void — register all loop API routes",
                 "live(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/live (rich live snapshot via LoopLiveViewBuilder)",
+                "events(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/events (SSE nudge stream)",
                 "list(ServerRequestInterface): Response — GET /api/v1/loops (adds headless flag, supports ?headless= filter)",
                 "create(ServerRequestInterface): Response — POST /api/v1/loops",
                 "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions (each entry flagged builtin)",
