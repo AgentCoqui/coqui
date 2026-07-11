@@ -36,7 +36,6 @@ use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
-use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
@@ -416,7 +415,6 @@ final class RunCommand extends Command
             config: new ConfigHandler($this->boot, $this->workDir),
             thinking: new ThinkingHandler($this->boot),
             conversation: new ConversationHandler($this->boot, $this->storage),
-            webhook: new WebhookHandler($this->storage),
             loop: new LoopHandler(
                 $this->storage,
                 $this->boot->loopDiscovery(),

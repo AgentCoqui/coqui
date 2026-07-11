@@ -167,7 +167,6 @@ final class OrchestratorAgent extends AbstractAgent
         'CoquiSourceToolkit' => 'coqui-source',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
-        'WebhookToolkit' => 'webhooks',
     ];
 
     /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
@@ -582,20 +581,6 @@ final class OrchestratorAgent extends AbstractAgent
                         'description' => $this->extractToolkitDescription($discoveredToolkit),
                     ];
                 }
-            }
-        }
-
-        // Webhook toolkit — only for top-level agents, never in loop stages.
-        // Loop stages must not spawn background tasks, create schedules, manage webhooks, or
-        // start nested loops — this prevents infinite recursion and uncontrolled spawning.
-        if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
-                $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
-                $candidateToolkits[] = [
-                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore, '', $this->activeProfile),
-                    'package' => '',
-                    'description' => 'webhook subscription management',
-                ];
             }
         }
 

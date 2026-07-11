@@ -34,15 +34,12 @@ use CoquiBot\Coqui\Api\Handler\SessionProjectHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
-use CoquiBot\Coqui\Api\Handler\WebhookHandler;
-use CoquiBot\Coqui\Api\Handler\WebhookManagementHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
@@ -60,7 +57,6 @@ use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
-use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
@@ -218,9 +214,8 @@ final class ApiCommand extends Command
 
         $startTime = microtime(true);
 
-        // Schedule & webhook stores (created early for health endpoint)
+        // Schedule store (created early for health endpoint)
         $scheduleStore = new ScheduleStore($storage->getPdo());
-        $webhookStore = new WebhookStore($storage->getPdo());
         $runtimeStateStore = new RuntimeStateStore($storage->getPdo());
         $lifecycle = new ApiLifecycleController(
             runtimeStateStore: $runtimeStateStore,
@@ -231,8 +226,6 @@ final class ApiCommand extends Command
         $lifecycle->markBooted();
 
         $artifactStore = new ArtifactStore($storage->getPdo());
-        // Schedule & webhook infrastructure
-        $verifierRegistry = new WebhookVerifierRegistry();
 
         // Loop + Schedule managers (autonomous execution engines)
         $loopStore = $boot->loopStore();
@@ -295,7 +288,7 @@ final class ApiCommand extends Command
         }
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $lifecycle);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $lifecycle);
         $profileSessionLifecycle = new ProfileSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
@@ -353,9 +346,6 @@ final class ApiCommand extends Command
         $mcpServerHandler = new McpServerHandler($mcpRuntime->managementService());
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
-        $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
-        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
-        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery(), $storage, $webhookDispatcher);
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
@@ -365,7 +355,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Discover and register API features from installed mods
         $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->profileDiscovery(), $boot->config());
@@ -502,11 +492,6 @@ final class ApiCommand extends Command
             });
         }
 
-        // Periodic timer: purge old webhook delivery logs daily (3600s check)
-        Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {
-            $webhookStore->purgeOldDeliveries();
-        });
-
         // Periodic timer: evaluate due schedules every 60 seconds
         Loop::addPeriodicTimer(60.0, static function () use ($scheduleManager): void {
             $scheduleManager->tick();
@@ -563,8 +548,6 @@ final class ApiCommand extends Command
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
         ScheduleHandler $schedule,
-        WebhookHandler $webhook,
-        WebhookManagementHandler $webhookMgmt,
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
         ?SessionProjectHandler $sessionProject,
@@ -694,10 +677,6 @@ final class ApiCommand extends Command
         $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
         $router->post($v1 . '/schedules/{id}/disable', [$schedule, 'disable']);
         $router->post($v1 . '/schedules/{id}/trigger', [$schedule, 'trigger']);
-
-        // Webhooks (incoming receiver + management CRUD)
-        $webhook->register($router);
-        $webhookMgmt->register($router);
 
         // Loops
         $loop?->register($router);

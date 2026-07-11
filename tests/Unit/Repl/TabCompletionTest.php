@@ -21,7 +21,6 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\ModManager\Config\ModRegistry;
 use CoquiBot\ModManager\ModManagerToolkit;
 
@@ -56,7 +55,6 @@ function createTabCompletionFixture(): array
     new ArtifactStore($storage->getPdo(), null, $projectStore);
     $scheduleStore = new ScheduleStore($storage->getPdo());
     $loopStore = new LoopStore($storage->getPdo());
-    $webhookStore = new WebhookStore($storage->getPdo());
 
     $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
         'agents' => [
@@ -98,7 +96,6 @@ function createTabCompletionFixture(): array
     $projectStore->createProject('Docs Cleanup', 'docs-cleanup');
     $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', 'Run nightly review');
     $loopId = $loopStore->createLoop('harness', 'Keep REPL docs aligned', []);
-    $webhookId = $webhookStore->create('release-hook', 'Summarize the release payload.');
 
     $pendingTaskId = $storage->createTask($sessionId, 'Pending review task');
     $completedTaskId = $storage->createTask($sessionId, 'Completed review task');
@@ -120,7 +117,6 @@ function createTabCompletionFixture(): array
         'resumeSessionId' => $resumeSessionId,
         'scheduleId' => $scheduleId,
         'loopId' => $loopId,
-        'webhookId' => $webhookId,
         'pendingTaskId' => $pendingTaskId,
         'completedTaskId' => $completedTaskId,
     ];
@@ -200,7 +196,6 @@ test('static command completion covers catalog argument hints', function (): voi
             '/tasks ' => ['all', 'pending', 'running', 'cancelling', 'completed', 'failed', 'cancelled'],
             '/schedules ' => ['status', 'enable', 'disable', 'delete', 'trigger'],
             '/loops ' => ['start', 'definitions', 'defs', 'status', 'pause', 'resume', 'stop', 'running', 'paused', 'completed', 'failed', 'cancelled'],
-            '/webhooks ' => ['status', 'deliveries', 'enable', 'disable', 'delete', 'rotate'],
             '/prompt ' => ['export'],
             '/summarize ' => ['recent', 'focus'],
             '/roles ' => ['list', 'update', 'ignore', 'unignore'],
@@ -270,7 +265,7 @@ test('group completion uses current group members for add and remove suggestions
     }
 });
 
-test('project, schedule, loop, and webhook completion cover filters and live identifiers', function (): void {
+test('project, schedule, and loop completion cover filters and live identifiers', function (): void {
     $fixture = createTabCompletionFixture();
 
     try {
@@ -286,8 +281,6 @@ test('project, schedule, loop, and webhook completion cover filters and live ide
         expect($fixture['completion']->complete('/schedules disable '))->toContain('all');
         expect($fixture['completion']->complete('/schedules disable '))->toContain('nightly-review');
         expect($fixture['completion']->complete('/schedules disable '))->toContain($fixture['scheduleId']);
-        expect($fixture['completion']->complete('/webhooks enable '))->toContain('release-hook');
-        expect($fixture['completion']->complete('/webhooks enable '))->toContain($fixture['webhookId']);
     } finally {
         cleanupTabCompletionFixture($fixture);
     }

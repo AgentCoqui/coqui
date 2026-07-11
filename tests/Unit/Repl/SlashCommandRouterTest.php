@@ -26,7 +26,6 @@ use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
-use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -62,7 +61,6 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(ConfigHandler::class),
         $instantiate(ThinkingHandler::class),
         $instantiate(ConversationHandler::class),
-        $instantiate(WebhookHandler::class),
         $instantiate(LoopHandler::class),
         $instantiate(BackstoryHandler::class),
         $instantiate(AgentRunner::class),
@@ -204,7 +202,6 @@ test('slash command router renders local markdown previews through its markdown 
             $instantiate(ConfigHandler::class),
             $instantiate(ThinkingHandler::class),
             $instantiate(ConversationHandler::class),
-            $instantiate(WebhookHandler::class),
             $instantiate(LoopHandler::class),
             $instantiate(BackstoryHandler::class),
             $instantiate(AgentRunner::class),

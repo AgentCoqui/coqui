@@ -21,7 +21,6 @@ test('repl command catalog help rows surface critical command variants', functio
 
     expect($rows)->toContain(['/loops [filter|action]', 'Inspect loops and definitions. Start|pause|resume|stop actions are advanced automation controls.']);
     expect($rows)->toContain(['/schedules [action]', 'Inspect schedules or run status|enable|disable|delete|trigger for operator control.']);
-    expect($rows)->toContain(['/webhooks [action]', 'Inspect webhook subscriptions or run status|deliveries|enable|disable|delete|rotate for operator control.']);
     expect($rows)->toContain(['/group [action]', 'Inspect or manage session-based group chats.']);
     expect($rows)->toContain(['/profile [name|default|reset]', 'Show or switch the active profile, set a default with default <name|none>, or clear it.']);
     expect($rows)->toContain(['/quit', 'Exit Coqui. Aliases: /exit, /q.']);
