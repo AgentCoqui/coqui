@@ -1100,3 +1100,59 @@ test('evaluateIteration goal_bound multi-iteration lifecycle', function () {
     expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
     expect($this->loopStore->listIterations($loopId))->toHaveCount(2);
 });
+
+// ──────────────────────────────────────────────
+//  Headless start (auto-provisioned work-scope session)
+// ──────────────────────────────────────────────
+
+test('headless startLoop provisions a hidden loop-owned work-scope session', function (): void {
+    $dbPath = sys_get_temp_dir() . '/coqui-loop-headless-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new CoquiBot\Coqui\Storage\SessionStorage($dbPath);
+    $projectStore = new CoquiBot\Coqui\Storage\ProjectStore($storage->getPdo());
+    $loopStore = new CoquiBot\Coqui\Storage\LoopStore($storage->getPdo());
+    $executor = new CoquiBot\Coqui\Agent\LoopExecutor($loopStore, $projectStore, $storage);
+
+    $definition = [
+        'name' => 'harness',
+        'description' => 'test',
+        'roles' => [['role' => 'plan', 'prompt' => 'Do {{subject}}.']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        'parameters' => [['name' => 'subject', 'description' => 's', 'required' => false, 'default' => 'x']],
+    ];
+
+    $loopId = $executor->startLoop($definition, 'ship it'); // no sessionId → headless
+
+    $loop = $loopStore->getLoop($loopId);
+    expect($loop['session_id'])->not->toBeNull();
+
+    $session = $storage->getSession((string) $loop['session_id']);
+    expect($session)->not->toBeNull();
+    expect($session['visibility'])->toBe('hidden');
+    expect($storage->getActiveProjectId((string) $loop['session_id']))->toBe((string) $loop['project_id']);
+
+    $metadata = json_decode((string) $loop['metadata'], true);
+    expect($metadata['origin'])->toBe('headless');
+});
+
+test('conversation startLoop records origin and does not provision a session', function (): void {
+    $dbPath = sys_get_temp_dir() . '/coqui-loop-conv-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new CoquiBot\Coqui\Storage\SessionStorage($dbPath);
+    $projectStore = new CoquiBot\Coqui\Storage\ProjectStore($storage->getPdo());
+    $loopStore = new CoquiBot\Coqui\Storage\LoopStore($storage->getPdo());
+    $executor = new CoquiBot\Coqui\Agent\LoopExecutor($loopStore, $projectStore, $storage);
+
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: 'ollama/x');
+    $definition = [
+        'name' => 'harness',
+        'description' => 'test',
+        'roles' => [['role' => 'plan', 'prompt' => 'Do it.']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+    ];
+
+    $loopId = $executor->startLoop($definition, 'ship it', $sessionId);
+
+    $loop = $loopStore->getLoop($loopId);
+    expect($loop['session_id'])->toBe($sessionId);
+    $metadata = json_decode((string) $loop['metadata'], true);
+    expect($metadata['origin'])->toBe('conversation');
+});

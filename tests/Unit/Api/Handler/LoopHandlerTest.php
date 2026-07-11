@@ -587,6 +587,42 @@ test('GET /loops/{id}/live returns a snapshot for a known loop', function (): vo
     }
 });
 
+test('GET /loops flags and filters headless loops', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        // Headless loop (no session) and a conversation loop.
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/x');
+        $rawHarness = [
+            'name' => 'harness',
+            'description' => 't',
+            'roles' => [['role' => 'plan', 'prompt' => 'go']],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ];
+        $headlessLoop = (new CoquiBot\Coqui\Agent\LoopExecutor(
+            $fixture['loopStore'], $fixture['projectStore'], $fixture['storage']
+        ))->startLoop($rawHarness, 'headless goal');
+        $convLoop = (new CoquiBot\Coqui\Agent\LoopExecutor(
+            $fixture['loopStore'], $fixture['projectStore'], $fixture['storage']
+        ))->startLoop($rawHarness, 'conv goal', $sessionId);
+
+        $all = json_decode((string) $fixture['handler']->list(new ServerRequest('GET', '/api/v1/loops'))->getBody(), true);
+        $byId = [];
+        foreach ($all['loops'] as $l) { $byId[$l['id']] = $l; }
+        expect($byId[$headlessLoop]['headless'])->toBeTrue();
+        expect($byId[$convLoop]['headless'])->toBeFalse();
+
+        $filtered = json_decode((string) $fixture['handler']->list(
+            new ServerRequest('GET', '/api/v1/loops?headless=true')
+        )->getBody(), true);
+        $ids = array_map(static fn(array $l): string => $l['id'], $filtered['loops']);
+        expect($ids)->toContain($headlessLoop);
+        expect($ids)->not->toContain($convLoop);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
 test('GET /loops/{id}/live 404s for an unknown loop', function (): void {
     $fixture = createLoopHandlerFixture();
 
@@ -596,6 +632,28 @@ test('GET /loops/{id}/live 404s for an unknown loop', function (): void {
             'nope',
         );
         expect($response->getStatusCode())->toBe(404);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('GET /loops/{id} includes origin', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $rawHarness = [
+            'name' => 'harness', 'description' => 't',
+            'roles' => [['role' => 'plan', 'prompt' => 'go']],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ];
+        $loopId = (new CoquiBot\Coqui\Agent\LoopExecutor(
+            $fixture['loopStore'], $fixture['projectStore'], $fixture['storage']
+        ))->startLoop($rawHarness, 'g');
+
+        $body = json_decode((string) $fixture['handler']->get(
+            new ServerRequest('GET', "/api/v1/loops/{$loopId}"), $loopId
+        )->getBody(), true);
+        expect($body['loop']['origin'])->toBe('headless');
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }

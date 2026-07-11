@@ -178,6 +178,26 @@ final readonly class LoopHandler
         $loops = $this->store->listLoops($status);
         $activeCount = $this->store->countActive();
 
+        $params = $request->getQueryParams();
+        $headlessFilter = null;
+        if (isset($params['headless'])) {
+            $raw = strtolower(trim((string) $params['headless']));
+            if ($raw === 'true' || $raw === '1') {
+                $headlessFilter = true;
+            } elseif ($raw === 'false' || $raw === '0') {
+                $headlessFilter = false;
+            }
+        }
+
+        $loops = array_map(function (array $loop): array {
+            $loop['headless'] = $this->loopOrigin($loop) === 'headless';
+            return $loop;
+        }, $loops);
+
+        if ($headlessFilter !== null) {
+            $loops = array_values(array_filter($loops, static fn(array $l): bool => $l['headless'] === $headlessFilter));
+        }
+
         return Router::jsonResponse([
             'loops' => $loops,
             'count' => count($loops),
@@ -785,9 +805,27 @@ final readonly class LoopHandler
      */
     private function normalizeLoop(array $loop): array
     {
+        $origin = $this->loopOrigin($loop);
         $loop['metadata'] = JsonHelper::decodeJsonObject($loop['metadata'] ?? null);
+        $loop['origin'] = $origin;
 
         return $loop;
+    }
+
+    /**
+     * Resolve a loop's origin ('headless' or 'conversation') from its metadata.
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function loopOrigin(array $loop): string
+    {
+        $metadata = isset($loop['metadata']) && is_string($loop['metadata'])
+            ? json_decode($loop['metadata'], true)
+            : (is_array($loop['metadata'] ?? null) ? $loop['metadata'] : null);
+
+        $origin = is_array($metadata) && isset($metadata['origin']) ? (string) $metadata['origin'] : 'conversation';
+
+        return $origin === 'headless' ? 'headless' : 'conversation';
     }
 
     /**

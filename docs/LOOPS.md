@@ -48,6 +48,17 @@ loop_start(
 loop_start(definition: "harness", goal: "...", max_iterations: 3)
 ```
 
+### Headless Start
+
+A loop can also start with no conversation. Post just a definition and goal to the API:
+
+```
+POST /api/v1/loops
+{ "definition": "harness", "goal": "Build a Redis caching layer for the API" }
+```
+
+With no `session_id`, Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project. This restores the same project propagation and cross-stage artifact scoping that chat-started loops get (see [Session Context Propagation](#session-context-propagation)). Headless loops record `metadata.origin: "headless"` (conversation-started loops record `"conversation"`), surfaced on the loop read endpoints as `origin` and a derived `headless` flag — see [docs/API.md](API.md).
+
 ## How a Loop Executes
 
 ```
@@ -129,6 +140,8 @@ OrchestratorAgent sessionId
 ```
 
 This means stage agents can read and create artifacts — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
+
+For headless loops (started with no conversation), `LoopExecutor::startLoop` provisions a hidden loop-owned session up front and sets its active project, so `loops.session_id` is non-null and this same propagation chain applies unchanged.
 
 ## Stage Agent Capabilities
 
