@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CoquiBot\Coqui\Api\CoreServices;
+use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Contract\ApiFeatureInterface;
 
 /**
@@ -73,6 +75,27 @@ final class ApiFeatureDiscovery
         }
 
         return $features;
+    }
+
+    /**
+     * Register every feature, isolating failures so one faulty mod cannot
+     * abort API-server boot. Each register() runs in its own try/catch; on
+     * failure $onError is invoked (when given) and the loop continues.
+     *
+     * @param iterable<ApiFeatureInterface> $features
+     * @param (callable(ApiFeatureInterface, \Throwable): void)|null $onError
+     */
+    public function registerAll(iterable $features, Router $router, CoreServices $services, ?callable $onError = null): void
+    {
+        foreach ($features as $feature) {
+            try {
+                $feature->register($router, $services);
+            } catch (\Throwable $e) {
+                if ($onError !== null) {
+                    $onError($feature, $e);
+                }
+            }
+        }
     }
 
     private static function tryInstantiate(string $className): ?ApiFeatureInterface

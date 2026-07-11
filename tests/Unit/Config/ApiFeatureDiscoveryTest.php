@@ -18,6 +18,16 @@ if (!class_exists('FakePingFeature')) {
     }
 }
 
+if (!class_exists('FakeThrowingFeature')) {
+    class FakeThrowingFeature implements ApiFeatureInterface
+    {
+        public function register(Router $router, CoreServices $services): void
+        {
+            throw new \RuntimeException('boom');
+        }
+    }
+}
+
 beforeEach(function () {
     $this->tempDir = sys_get_temp_dir() . '/coqui-apifeature-' . bin2hex(random_bytes(4));
     mkdir($this->tempDir, 0755, true);
@@ -62,6 +72,39 @@ test('a discovered feature registers routes on the Router', function () {
         (new FakePingFeature())->register($router, $services);
         $response = $router->dispatch(new \React\Http\Message\ServerRequest('GET', '/api/v1/__ping'));
         expect($response->getStatusCode())->toBe(200);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+});
+
+test('registerAll isolates a throwing feature and continues past it', function () {
+    $router = new Router();
+    $dbPath = sys_get_temp_dir() . '/coqui-apifeat-' . bin2hex(random_bytes(8)) . '.db';
+
+    try {
+        $storage = new \CoquiBot\Coqui\Storage\SessionStorage($dbPath);
+        $services = new CoreServices(
+            $storage,
+            new \CoquiBot\Coqui\Config\ProfileDiscovery(sys_get_temp_dir()),
+            \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([])
+        );
+
+        $errors = [];
+        (new ApiFeatureDiscovery($this->tempDir))->registerAll(
+            [new FakeThrowingFeature(), new FakePingFeature()],
+            $router,
+            $services,
+            function (ApiFeatureInterface $feature, \Throwable $e) use (&$errors) {
+                $errors[] = $feature::class . ': ' . $e->getMessage();
+            },
+        );
+
+        // The good feature after the throwing one still registered its route.
+        $response = $router->dispatch(new \React\Http\Message\ServerRequest('GET', '/api/v1/__ping'));
+        expect($response->getStatusCode())->toBe(200);
+        // The failure was reported exactly once, with the offending class + message.
+        expect($errors)->toHaveCount(1);
+        expect($errors[0])->toContain('FakeThrowingFeature')->toContain('boom');
     } finally {
         cleanupSqliteTestDb($dbPath);
     }

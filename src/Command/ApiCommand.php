@@ -357,11 +357,18 @@ final class ApiCommand extends Command
         $router = new Router();
         $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
-        // Discover and register API features from installed mods
+        // Discover and register API features from installed mods. Failures are
+        // isolated so one faulty third-party mod cannot abort API-server boot.
         $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->profileDiscovery(), $boot->config());
-        foreach ((new \CoquiBot\Coqui\Config\ApiFeatureDiscovery())->discover() as $apiFeature) {
-            $apiFeature->register($router, $coreServices);
-        }
+        $apiFeatureDiscovery = new \CoquiBot\Coqui\Config\ApiFeatureDiscovery();
+        $apiFeatureDiscovery->registerAll(
+            $apiFeatureDiscovery->discover(),
+            $router,
+            $coreServices,
+            static function (\CoquiBot\Coqui\Contract\ApiFeatureInterface $feature, \Throwable $e) use ($output): void {
+                $output->writeln(sprintf('<comment>Skipped API feature %s: %s</comment>', $feature::class, $e->getMessage()));
+            },
+        );
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
