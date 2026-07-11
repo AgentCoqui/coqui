@@ -1493,44 +1493,6 @@
             ]
         },
         {
-            "path": "src/Toolkit/ComposerToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ComposerToolkit",
-            "layer": "toolkit",
-            "description": "System toolkit for workspace Composer package management. Always loaded — never budget-gated or deferred. Wraps the single `composer` tool with 12 subcommands: show, add, remove, update, install, dump-autoload, validate, doctor, search, show-package, outdated, audit. Supports path repositories for local packages, @dev stability, object-oriented composer.json manipulation, backup before mutations, denylist for blocked frameworks, and PackageEventListener notification on install/remove.",
-            "methods": [
-                "tools(): ToolInterface[] — returns composer tool",
-                "guidelines(): string — usage instructions for workspace package management"
-            ]
-        },
-        {
-            "path": "src/Toolkit/PackagistToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\PackagistToolkit",
-            "layer": "toolkit",
-            "description": "System toolkit for Packagist package discovery. Always loaded — never budget-gated or deferred. Wraps the single `packagist` tool with 2 actions: search (keyword search with pagination, tags, type filter) and details (package info + versions + security advisories). Guidelines encourage searching Packagist before building custom solutions.",
-            "methods": [
-                "tools(): ToolInterface[] — returns packagist tool",
-                "guidelines(): string — usage instructions emphasizing search-first approach"
-            ]
-        },
-        {
-            "path": "src/Tool/ComposerTool.php",
-            "fqcn": "CoquiBot\\Coqui\\Tool\\ComposerTool",
-            "layer": "tool",
-            "description": "ToolInterface implementation for workspace Composer management. 12-subcommand tool: show (display composer.json), add (with path/VCS repo support, denylist, backup, security audit), remove (with orphaned repo cleanup), update, install, dump-autoload, validate, doctor (6-point health check), search (installed packages), show-package, outdated, audit. Uses object-oriented JSON manipulation for structural changes and Composer CLI for dependency resolution.",
-            "methods": [
-                "execute(array $input): ToolResult — dispatches to subcommand handler based on action parameter"
-            ]
-        },
-        {
-            "path": "src/Tool/PackagistTool.php",
-            "fqcn": "CoquiBot\\Coqui\\Tool\\PackagistTool",
-            "layer": "tool",
-            "description": "ToolInterface implementation for Packagist API access. 2-action tool: search (keyword search with pagination, tags, type, per_page) and details (package info + all versions + security advisories in a single call). Uses Symfony HttpClient for API requests.",
-            "methods": [
-                "execute(array $input): ToolResult — dispatches to search or details handler"
-            ]
-        },
-        {
             "path": "src/Contract/SkillProperties.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\SkillProperties",
             "layer": "contract",

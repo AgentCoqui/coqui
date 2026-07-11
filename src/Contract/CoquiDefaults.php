@@ -201,8 +201,6 @@ final class CoquiDefaults
         'ArtifactToolkit',
         'ProjectToolkit',
         'CoquiSourceToolkit',
-        'ComposerToolkit',
-        'PackagistToolkit',
         'McpToolkit',
         'LoopToolkit',
         'ScheduleToolkit',
