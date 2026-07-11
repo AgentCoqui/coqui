@@ -517,6 +517,92 @@ test('loop handler retries the latest failed iteration', function () {
     }
 });
 
+test('POST creates a definition and 409s on duplicate', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $body = json_encode([
+            'name' => 'api-made',
+            'description' => 'via api',
+            'roles' => [['role' => 'plan', 'prompt' => 'go']],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ]) ?: '';
+
+        $created = $fixture['handler']->createDefinition(
+            new ServerRequest('POST', '/api/v1/loops/definitions', ['Content-Type' => 'application/json'], $body)
+        );
+        expect($created->getStatusCode())->toBe(201);
+        expect(json_decode((string) $created->getBody(), true)['name'])->toBe('api-made');
+
+        $dup = $fixture['handler']->createDefinition(
+            new ServerRequest('POST', '/api/v1/loops/definitions', ['Content-Type' => 'application/json'], $body)
+        );
+        expect($dup->getStatusCode())->toBe(409);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('POST 400s on an invalid name and invalid structure', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $badName = $fixture['handler']->createDefinition(new ServerRequest(
+            'POST', '/api/v1/loops/definitions', [], json_encode(['name' => '../evil', 'roles' => []]) ?: ''
+        ));
+        expect($badName->getStatusCode())->toBe(400);
+
+        $badShape = $fixture['handler']->createDefinition(new ServerRequest(
+            'POST', '/api/v1/loops/definitions', [], json_encode(['name' => 'ok', 'roles' => []]) ?: ''
+        ));
+        expect($badShape->getStatusCode())->toBe(400); // empty roles / missing termination
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT upserts and GET/{name} returns raw; DELETE removes', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $body = json_encode([
+            'description' => 'upserted',
+            'roles' => [['role' => 'plan', 'prompt' => 'go']],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ]) ?: '';
+
+        $put = $fixture['handler']->updateDefinition(
+            new ServerRequest('PUT', '/api/v1/loops/definitions/upsertme', ['Content-Type' => 'application/json'], $body),
+            'upsertme'
+        );
+        expect($put->getStatusCode())->toBe(200);
+
+        $got = $fixture['handler']->getDefinition(new ServerRequest('GET', '/api/v1/loops/definitions/upsertme'), 'upsertme');
+        expect($got->getStatusCode())->toBe(200);
+        expect(json_decode((string) $got->getBody(), true)['name'])->toBe('upsertme');
+
+        $del = $fixture['handler']->deleteDefinition(new ServerRequest('DELETE', '/api/v1/loops/definitions/upsertme'), 'upsertme');
+        expect($del->getStatusCode())->toBe(200);
+
+        $missing = $fixture['handler']->getDefinition(new ServerRequest('GET', '/api/v1/loops/definitions/upsertme'), 'upsertme');
+        expect($missing->getStatusCode())->toBe(404);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('definitions list marks builtin', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $body = json_decode((string) $fixture['handler']->definitions(
+            new ServerRequest('GET', '/api/v1/loops/definitions')
+        )->getBody(), true);
+        $byName = [];
+        foreach ($body['definitions'] as $d) { $byName[$d['name']] = $d; }
+        // The fixture seeds a 'harness' definition into the workspace; it is a built-in.
+        expect($byName['harness']['builtin'])->toBeTrue();
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
 test('loop handler skips the current failed stage and reopens the iteration', function () {
     $fixture = createLoopHandlerFixture();
 

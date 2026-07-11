@@ -3436,6 +3436,7 @@ List available loop definitions.
   "definitions": [
     {
       "name": "harness",
+      "builtin": true,
       "description": "Generator-evaluator pattern",
       "parameters": [
         {
@@ -3468,6 +3469,81 @@ List available loop definitions.
   "count": 1
 }
 ```
+
+Each entry's `builtin` flag is `true` when a definition of that name ships in
+`config/loops/` (seeded into the workspace on boot). Built-ins are editable and
+deletable like any other definition; a deleted built-in re-seeds on the next
+boot.
+
+#### `GET /api/v1/loops/definitions/{name}`
+
+Get one loop definition as its raw JSON (the exact stored file contents).
+
+**Response `200`** — the raw definition object.
+
+**Errors**
+
+- `400 validation_error` — `{name}` is not a valid definition name.
+- `404 not_found` — no definition with that name exists.
+
+`{name}` must match `^[a-z0-9][a-z0-9_-]*$` (the name becomes a filename, so
+this is a strict path-traversal guard).
+
+#### `POST /api/v1/loops/definitions`
+
+Create a new loop definition. Create-only — use `PUT` to overwrite an existing
+one. The `name` field in the body is authoritative and becomes the filename
+(`workspace/loops/{name}.json`).
+
+**Request**
+
+```json
+{
+  "name": "my-loop",
+  "description": "My custom loop",
+  "roles": [
+    { "role": "plan", "prompt": "Plan work for {{subject}}." }
+  ],
+  "termination_condition": { "type": "iteration_bound", "value": 3 }
+}
+```
+
+**Response `201`** — the stored raw definition.
+
+**Errors**
+
+- `400 validation_error` — missing/invalid `name` (must match `^[a-z0-9][a-z0-9_-]*$`),
+  or an invalid structure (e.g. empty `roles`, missing `termination_condition`).
+- `409 conflict` — a definition with that name already exists.
+
+#### `PUT /api/v1/loops/definitions/{name}`
+
+Upsert a loop definition — creates it if absent, overwrites it if present. The
+path `{name}` is authoritative; any `name` in the body is ignored.
+
+**Request** — same shape as `POST`, without a required `name`.
+
+**Response `200`** — the stored raw definition.
+
+**Errors**
+
+- `400 validation_error` — invalid `{name}`, or an invalid structure.
+
+#### `DELETE /api/v1/loops/definitions/{name}`
+
+Delete a loop definition file. Deleting a built-in removes it from the
+workspace; it re-seeds from `config/loops/` on the next boot.
+
+**Response `200`**
+
+```json
+{ "deleted": true, "name": "my-loop" }
+```
+
+**Errors**
+
+- `400 validation_error` — invalid `{name}`.
+- `404 not_found` — no definition with that name exists.
 
 #### `GET /api/v1/loops/{id}/history`
 
@@ -4899,6 +4975,10 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
+| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one raw loop definition |
+| `POST` | `/api/v1/loops/definitions` | Yes | Create a loop definition |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Upsert a loop definition |
+| `DELETE` | `/api/v1/loops/definitions/{name}` | Yes | Delete a loop definition |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
 | `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Yes | Delete a terminal loop |

@@ -355,3 +355,85 @@ test('getRawDefinition preserves goal_bound with all fields', function () {
     expect($raw['termination_condition']['value']['max_iterations'])->toBe(5);
 });
 
+// ──────────────────────────────────────────────
+//  saveDefinition / deleteDefinition / isBuiltin
+// ──────────────────────────────────────────────
+
+test('saveDefinition writes a valid definition that becomes discoverable', function (): void {
+    $ws = sys_get_temp_dir() . '/coqui-defs-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    $discovery = new CoquiBot\Coqui\Config\LoopDiscovery($ws);
+
+    $discovery->saveDefinition('my-loop', [
+        'name' => 'ignored-name',
+        'description' => 'mine',
+        'roles' => [['role' => 'plan', 'prompt' => 'go']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 3],
+    ]);
+
+    expect($discovery->exists('my-loop'))->toBeTrue();
+    $raw = $discovery->getRawDefinition('my-loop');
+    expect($raw['name'])->toBe('my-loop'); // filename is authoritative
+    expect(is_file($ws . '/loops/my-loop.json'))->toBeTrue();
+});
+
+test('saveDefinition rejects traversal names without writing', function (): void {
+    $ws = sys_get_temp_dir() . '/coqui-defs-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    $discovery = new CoquiBot\Coqui\Config\LoopDiscovery($ws);
+
+    foreach (['../evil', 'a/b', 'Bad Name', '.hidden'] as $bad) {
+        expect(fn() => $discovery->saveDefinition($bad, [
+            'description' => 'x',
+            'roles' => [['role' => 'plan', 'prompt' => 'x']],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => ['max_iterations' => 1]],
+        ]))->toThrow(InvalidArgumentException::class);
+    }
+    // Nothing written outside the loops dir.
+    expect(glob($ws . '/loops/*.json'))->toBe([]);
+});
+
+test('saveDefinition rejects structurally invalid definitions', function (): void {
+    $ws = sys_get_temp_dir() . '/coqui-defs-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    $discovery = new CoquiBot\Coqui\Config\LoopDiscovery($ws);
+
+    // Missing termination_condition.
+    expect(fn() => $discovery->saveDefinition('bad', [
+        'description' => 'x',
+        'roles' => [['role' => 'plan', 'prompt' => 'x']],
+    ]))->toThrow(InvalidArgumentException::class);
+
+    // Empty roles.
+    expect(fn() => $discovery->saveDefinition('bad', [
+        'description' => 'x',
+        'roles' => [],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => ['max_iterations' => 1]],
+    ]))->toThrow(InvalidArgumentException::class);
+});
+
+test('deleteDefinition removes a custom file and reports missing', function (): void {
+    $ws = sys_get_temp_dir() . '/coqui-defs-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    $discovery = new CoquiBot\Coqui\Config\LoopDiscovery($ws);
+    $discovery->saveDefinition('temp', [
+        'description' => 'x',
+        'roles' => [['role' => 'plan', 'prompt' => 'x']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 1],
+    ]);
+
+    expect($discovery->deleteDefinition('temp'))->toBeTrue();
+    expect($discovery->exists('temp'))->toBeFalse();
+    expect($discovery->deleteDefinition('never-existed'))->toBeFalse();
+});
+
+test('isBuiltin distinguishes built-in from custom', function (): void {
+    $ws = sys_get_temp_dir() . '/coqui-defs-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    // Default projectRoot points at the repo's config/loops, where harness.json ships.
+    $discovery = new CoquiBot\Coqui\Config\LoopDiscovery($ws);
+
+    expect($discovery->isBuiltin('harness'))->toBeTrue();
+    expect($discovery->isBuiltin('my-custom-thing'))->toBeFalse();
+});
+
