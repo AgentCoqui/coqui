@@ -249,7 +249,6 @@ final class RunCommand extends Command
             storage: $this->storage,
             observer: $this->escObserver,
             unsafeMode: $this->unsafeMode,
-            backgroundTasksEnabled: true,
             includeConfigManager: true,
             includeVisibilityRegistry: true,
             includeLoadingData: true,

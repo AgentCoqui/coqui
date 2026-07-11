@@ -40,7 +40,6 @@ final readonly class AgentRunnerDependencies
         public ?SkillDiscovery $skillDiscovery = null,
         public ?RoleDiscovery $roleDiscovery = null,
         public bool $unsafeMode = false,
-        public bool $backgroundTasksEnabled = false,
         public ?MemoryStore $memoryStore = null,
         public ?MemorySummarizer $memorySummarizer = null,
         public ?MountManager $mountManager = null,
