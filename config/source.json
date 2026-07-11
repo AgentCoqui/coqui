@@ -586,15 +586,6 @@
             ]
         },
         {
-            "path": "src/Repl/Handler/WebhookHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\WebhookHandler",
-            "layer": "command",
-            "description": "Handles /webhooks REPL command. Displays webhook subscriptions in a table.",
-            "methods": [
-                "handle(SymfonyStyle, string): void — /webhooks listing"
-            ]
-        },
-        {
             "path": "src/Repl/Handler/BackstoryHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BackstoryHandler",
             "layer": "command",
@@ -1155,6 +1146,15 @@
                 "discoverPackageSkillPaths(): string[] — discover skill directory paths declared by registered packages via extra.php-agents.skills",
                 "discoverPackageRolePaths(): string[] — discover role directory paths declared by registered packages via extra.php-agents.roles",
                 "discoverPackageLoopPaths(): string[] — discover loop definition directory paths declared by registered packages via extra.php-agents.loops"
+            ]
+        },
+        {
+            "path": "src/Config/ApiFeatureDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ApiFeatureDiscovery",
+            "layer": "config",
+            "description": "Discovers API-feature providers contributed by installed Composer packages via extra.php-agents.apiFeatures. Instantiates no-arg providers implementing ApiFeatureInterface. Mirrors ToolkitDiscovery / BackstoryExtractorDiscovery so whole HTTP features live in optional mods.",
+            "methods": [
+                "discover(): list<ApiFeatureInterface> — instantiate declared API-feature providers"
             ]
         },
         {
@@ -1816,6 +1816,27 @@
             ]
         },
         {
+            "path": "src/Contract/ApiFeatureInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ApiFeatureInterface",
+            "layer": "config",
+            "description": "Contract a mod implements to contribute HTTP API routes. ApiFeatureDiscovery finds declared providers; ApiCommand calls register() with the live Router and a CoreServices handle. Enables whole HTTP features to live in optional mods instead of core.",
+            "methods": [
+                "register(Router, CoreServices): void — register a mod's HTTP routes on the server"
+            ]
+        },
+        {
+            "path": "src/Api/CoreServices.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\CoreServices",
+            "layer": "config",
+            "description": "Read-only handle to the core collaborators a mod-provided API feature needs. Deliberately minimal — widen only when a future feature-mod requires more.",
+            "methods": [
+                "sessionStorage(): SessionStorage — the shared session store",
+                "pdo(): \\PDO — the core SQLite PDO (sessionStorage()->getPdo())",
+                "profileDiscovery(): ProfileDiscovery — profile resolution",
+                "config(): OpenClawConfig — runtime configuration"
+            ]
+        },
+        {
             "path": "src/Api/SessionAccess.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\SessionAccess",
             "layer": "config",
@@ -1874,7 +1895,7 @@
             "path": "src/Api/Handler/HealthHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
             "layer": "command",
-            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook stats, and compact manager readiness summaries.",
+            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule stats, and compact manager readiness summaries.",
             "methods": [
                 "__invoke(ServerRequestInterface $request): Response"
             ]
@@ -3063,26 +3084,6 @@
             ]
         },
         {
-            "path": "src/Storage/WebhookStore.php",
-            "fqcn": "CoquiBot\\Coqui\\Storage\\WebhookStore",
-            "layer": "storage",
-            "description": "SQLite-backed persistence for webhook subscriptions and delivery logs. Webhook subscriptions map incoming HTTP requests to background task creation. Delivery logs provide an audit trail.",
-            "methods": [
-                "create(string, string, ...): string — create webhook subscription, returns ID",
-                "get(string): ?array — get subscription by ID",
-                "getByName(string): ?array — get subscription by unique name",
-                "update(string, ...): bool — update subscription fields",
-                "delete(string): bool — delete subscription and deliveries",
-                "list(?bool, int): array — list subscriptions with optional enabled filter",
-                "rotateSecret(string): ?string — generate and store new signing secret",
-                "markTriggered(string): void — increment trigger count",
-                "getStats(): array — count total, enabled, disabled, total_triggers",
-                "logDelivery(string, string, ...): string — create delivery audit entry",
-                "getDeliveries(string, int): array — get recent deliveries for a webhook",
-                "purgeOldDeliveries(int): int — delete deliveries older than N days"
-            ]
-        },
-        {
             "path": "src/Api/ScheduleManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
             "layer": "agent",
@@ -3171,56 +3172,6 @@
             ]
         },
         {
-            "path": "src/Api/Handler/WebhookHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookHandler",
-            "layer": "agent",
-            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, and delegates prompt rendering, background-task creation, and delivery logging to WebhookDispatchService.",
-            "methods": [
-                "register(Router): void — register POST /api/v1/webhooks/incoming/{name} route"
-            ]
-        },
-        {
-            "path": "src/Api/Handler/WebhookManagementHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookManagementHandler",
-            "layer": "agent",
-            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, delivery history, delivery detail, and synthetic test dispatch.",
-            "methods": [
-                "register(Router): void — register all webhook management routes"
-            ]
-        },
-        {
-            "path": "src/Api/Webhook/WebhookDispatchService.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Webhook\\WebhookDispatchService",
-            "layer": "agent",
-            "description": "Shared webhook delivery dispatcher used by both live incoming webhooks and the management test endpoint. Renders webhook templates, creates profiled background-task sessions, creates tasks, and records delivery audit rows.",
-            "methods": [
-                "dispatch(array, string, string, array, ?ServerRequestInterface, bool): array — create a background task and log a delivered or test_delivered webhook event",
-                "summarizePayload(array, string): string — derive a compact audit summary from common payload fields",
-                "renderTemplate(string, string, string, array): string — apply builtin placeholders and dotted payload references"
-            ]
-        },
-        {
-            "path": "src/Contract/WebhookVerifierInterface.php",
-            "fqcn": "CoquiBot\\Coqui\\Contract\\WebhookVerifierInterface",
-            "layer": "contract",
-            "description": "Interface for webhook signature verification. Implementations validate HMAC signatures from different webhook sources.",
-            "methods": [
-                "verify(string, string, array): bool — verify payload signature",
-                "sourceType(): string — return the source type identifier"
-            ]
-        },
-        {
-            "path": "src/Api/Webhook/WebhookVerifierRegistry.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Webhook\\WebhookVerifierRegistry",
-            "layer": "agent",
-            "description": "Registry mapping source types to WebhookVerifierInterface implementations. Auto-registers GitHub, Slack, and Generic verifiers. Falls back to generic for unknown sources.",
-            "methods": [
-                "register(WebhookVerifierInterface): void — add a verifier",
-                "get(string): WebhookVerifierInterface — get verifier by source type",
-                "supportedTypes(): array — list registered source types"
-            ]
-        },
-        {
             "path": "src/Toolkit/ScheduleToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ScheduleToolkit",
             "layer": "toolkit",
@@ -3241,20 +3192,10 @@
             ]
         },
         {
-            "path": "src/Toolkit/WebhookToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebhookToolkit",
-            "layer": "toolkit",
-            "description": "Agent-facing tools for managing webhook subscriptions. 6 tools: webhook_create, webhook_list, webhook_get, webhook_update, webhook_delete, webhook_rotate_secret. Returns webhook URLs and secrets for external service configuration. Uses SecretMasker for consistent secret display.",
-            "methods": [
-                "tools(): array — return all 6 webhook tools",
-                "guidelines(): string — dynamic stats and webhook reference"
-            ]
-        },
-        {
             "path": "src/Utility/SecretMasker.php",
             "fqcn": "CoquiBot\\Coqui\\Utility\\SecretMasker",
             "layer": "config",
-            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between. Used by WebhookManagementHandler and WebhookToolkit.",
+            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between. Consumed by the optional webhooks mod's management handler and toolkit.",
             "methods": [
                 "mask(string, int, int): string — mask a secret, showing prefix/suffix with asterisks"
             ]

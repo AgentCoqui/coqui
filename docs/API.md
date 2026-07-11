@@ -3978,6 +3978,8 @@ Returned when:
 
 ### Webhooks
 
+> **Requires the `coqui-toolkit-webhooks` mod.** Webhook endpoints are provided by an optional mod. Without it installed, all `/api/v1/webhooks*` routes return `404`. Install with `/mods install coquibot/coqui-toolkit-webhooks`.
+
 Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
 
 Incoming webhook delivery is an API-server responsibility. The REPL can manage webhook records through commands and tools, but it does not host an HTTP listener.

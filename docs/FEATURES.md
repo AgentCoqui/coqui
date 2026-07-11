@@ -162,6 +162,8 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 ## <a id="webhooks"></a> 🔗 Webhooks
 
+**Optional mod:** ships in `coqui-toolkit-webhooks`, not core. Install with `/mods install coquibot/coqui-toolkit-webhooks`.
+
 **What it does:** Receive incoming webhooks from external services that trigger agent background tasks. Supports GitHub, Slack, and generic HMAC signature verification with delivery logging and automatic purging.
 
 **How it helps:** React to external events automatically — review a PR when it's opened, process a Slack message, or respond to CI pipeline results.
@@ -169,7 +171,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 **How to use it:**
 - Create a subscription: the agent calls `webhook_create(name: "github-pr", source: "github", prompt_template: "Review this PR: {{payload}}")`.
 - Configure your external service to POST to `/api/v1/webhooks/incoming/{name}` with the signing secret.
-- View deliveries: `/webhooks` in the REPL or `GET /api/v1/webhooks/{id}/deliveries` via API.
+- View deliveries: `GET /api/v1/webhooks/{id}/deliveries` via API.
 
 ## <a id="background-tasks"></a> 🏗️ Background Tasks
 
