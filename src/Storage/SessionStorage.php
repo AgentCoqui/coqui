@@ -2676,6 +2676,16 @@ final class SessionStorage
     }
 
     /**
+     * Get the most recent task events, newest-first.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getRecentTaskEvents(string $taskId, int $limit = 50): array
+    {
+        return $this->taskStore->getRecentTaskEvents($taskId, $limit);
+    }
+
+    /**
      * Append an event to the turn process event log.
      */
     public function appendTurnEvent(string $turnProcessId, string $eventType, mixed $data = null): void

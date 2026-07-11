@@ -152,6 +152,33 @@ test('builds a newest-first recent-event feed', function (): void {
     expect($events[1]['summary'])->toBe('Called grep');
 });
 
+test('surfaces the newest events when a stage exceeds the recent-events limit', function (): void {
+    [$builder, $loopId, $storage, $loopStore] = seedLiveLoop();
+
+    // Find the running stage's task and flood it with more than the 50-event
+    // recent limit, each event distinctly numbered by insertion order.
+    $runningTaskId = null;
+    foreach ($loopStore->listIterations($loopId) as $iteration) {
+        foreach ($loopStore->listStages((string) $iteration['id']) as $stage) {
+            if (($stage['status'] ?? null) === 'running') {
+                $runningTaskId = (string) $stage['task_id'];
+            }
+        }
+    }
+    expect($runningTaskId)->not->toBeNull();
+
+    for ($i = 1; $i <= 60; $i++) {
+        $storage->appendTaskEvent($runningTaskId, 'tool_call', ['tool' => 'tool-' . $i]);
+    }
+
+    $snapshot = $builder->build($loopId)->toArray();
+
+    // The newest inserted event must lead the recent-events feed and be the
+    // current stage's latest activity — not the oldest-50 the ASC query returns.
+    expect($snapshot['recent_events'][0]['summary'])->toBe('Called tool-60');
+    expect($snapshot['current_stage']['latest_activity']['summary'])->toBe('Called tool-60');
+});
+
 test('a running stage with no turn yet reports zero tokens and null model', function (): void {
     [$builder, $loopId] = seedLiveLoop();
     $reviewer = $builder->build($loopId)->toArray()['stages'][1];

@@ -77,7 +77,7 @@ final readonly class LoopLiveViewBuilder
                 );
 
                 if ($taskId !== null) {
-                    foreach ($this->storage->getTaskEvents($taskId, null, self::RECENT_EVENTS_LIMIT) as $event) {
+                    foreach ($this->storage->getRecentTaskEvents($taskId, self::RECENT_EVENTS_LIMIT) as $event) {
                         $eventRows[] = [
                             'id' => (int) ($event['id'] ?? 0),
                             'event' => new LoopLiveEvent(
@@ -170,11 +170,11 @@ final readonly class LoopLiveViewBuilder
         if ($taskId === null) {
             return null;
         }
-        $events = $this->storage->getTaskEvents($taskId, null, self::RECENT_EVENTS_LIMIT);
+        $events = $this->storage->getRecentTaskEvents($taskId, self::RECENT_EVENTS_LIMIT);
         if ($events === []) {
             return null;
         }
-        $last = $events[array_key_last($events)];
+        $last = $events[0];
 
         return [
             'type' => (string) ($last['event_type'] ?? ''),
