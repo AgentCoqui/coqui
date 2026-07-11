@@ -48,6 +48,17 @@ loop_start(
 loop_start(definition: "harness", goal: "...", max_iterations: 3)
 ```
 
+### Headless Start
+
+A loop can also start with no conversation. Post just a definition and goal to the API:
+
+```
+POST /api/v1/loops
+{ "definition": "harness", "goal": "Build a Redis caching layer for the API" }
+```
+
+With no `session_id`, Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project. This restores the same project propagation and cross-stage artifact scoping that chat-started loops get (see [Session Context Propagation](#session-context-propagation)). Headless loops record `metadata.origin: "headless"` (conversation-started loops record `"conversation"`), surfaced on the loop read endpoints as `origin` and a derived `headless` flag — see [docs/API.md](API.md).
+
 ## How a Loop Executes
 
 ```
@@ -130,6 +141,8 @@ OrchestratorAgent sessionId
 
 This means stage agents can read and create artifacts — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
 
+For headless loops (started with no conversation), `LoopExecutor::startLoop` provisions a hidden loop-owned session up front and sets its active project, so `loops.session_id` is non-null and this same propagation chain applies unchanged.
+
 ## Stage Agent Capabilities
 
 Stage agents receive toolkits based on their role's access level:
@@ -155,7 +168,13 @@ This is an architectural constraint, not configuration — these toolkits are on
 
 ## Custom Loop Definitions
 
-Create JSON files in `workspace/loops/`:
+Create JSON files in `workspace/loops/` — either by hand, or over the API with
+full CRUD (`GET`/`POST`/`PUT`/`DELETE /api/v1/loops/definitions[/{name}]`; see
+[API.md](API.md)). The definition name must match `^[a-z0-9][a-z0-9_-]*$` and
+becomes the filename. Built-in definitions are editable and deletable like any
+other; a deleted built-in re-seeds from `config/loops/` on the next boot.
+
+Example file:
 
 ```json
 {
@@ -219,6 +238,15 @@ loop_status(id: "loop123")
 
 Returns: current iteration/stage, status, elapsed time, and stage results.
 
+### Observing a Running Loop
+
+For a live, poll-friendly view of an in-flight loop, use
+`GET /api/v1/loops/{id}/live`. It returns the loop's current stage and model, its
+consumption budget (tokens, iterations, elapsed/remaining time), a per-stage
+breakdown, and a newest-first feed of recent activity — everything a dashboard or
+status poller needs in one call. It is a pure read-model over existing loop, task,
+turn, and event data. See [API.md](API.md) for the full response shape.
+
 ### Pause and Resume
 
 ```
@@ -252,10 +280,15 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `GET` | `/api/v1/loops` | List loops |
 | `GET` | `/api/v1/loops/active/count` | Count running loops |
 | `POST` | `/api/v1/loops` | Create/start a loop |
-| `GET` | `/api/v1/loops/definitions` | List definitions |
+| `GET` | `/api/v1/loops/definitions` | List definitions (each flagged `builtin`) |
+| `GET` | `/api/v1/loops/definitions/{name}` | Get one raw definition |
+| `POST` | `/api/v1/loops/definitions` | Create a definition (409 if it exists) |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Upsert a definition |
+| `DELETE` | `/api/v1/loops/definitions/{name}` | Delete a definition |
 | `GET` | `/api/v1/loops/{id}` | Get loop details |
 | `GET` | `/api/v1/loops/{id}/history` | Get full loop iteration history |
 | `GET` | `/api/v1/loops/{id}/metrics` | Get aggregate loop metrics |
+| `GET` | `/api/v1/loops/{id}/live` | Get rich live snapshot (current stage, model, budget, events) |
 | `PATCH` | `/api/v1/loops/{id}` | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Pause loop |

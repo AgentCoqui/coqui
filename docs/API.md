@@ -3324,6 +3324,8 @@ Use `session_id` when the loop should inherit the session's active project and d
 
 When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
+**Headless start.** Omit `session_id` (send just `{definition, goal}`, optionally a project) to start a loop with no conversation. Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project, so cross-stage artifacts stay project-scoped exactly as they do for chat-started loops. Such loops record `metadata.origin: "headless"` (vs `"conversation"` when a `session_id` is supplied); see the `origin`/`headless` fields on the loop read endpoints below.
+
 **Request Body**
 
 ```json
@@ -3385,6 +3387,9 @@ List all loops with optional status filter.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `status` | string | Filter by status: `running`, `paused`, `completed`, `failed`, `cancelled` |
+| `headless` | boolean | Filter by origin: `true`/`1` returns only headless loops, `false`/`0` only conversation loops |
+
+Each returned loop carries a derived `headless` boolean (`true` when the loop was started with no conversation session).
 
 **Response `200`**
 
@@ -3398,6 +3403,7 @@ List all loops with optional status filter.
       "status": "running",
       "current_iteration": 2,
       "current_stage": 1,
+      "headless": false,
       "created_at": "2026-02-16T14:00:00Z",
       "updated_at": "2026-02-16T14:30:00Z"
     }
@@ -3430,6 +3436,7 @@ List available loop definitions.
   "definitions": [
     {
       "name": "harness",
+      "builtin": true,
       "description": "Generator-evaluator pattern",
       "parameters": [
         {
@@ -3462,6 +3469,81 @@ List available loop definitions.
   "count": 1
 }
 ```
+
+Each entry's `builtin` flag is `true` when a definition of that name ships in
+`config/loops/` (seeded into the workspace on boot). Built-ins are editable and
+deletable like any other definition; a deleted built-in re-seeds on the next
+boot.
+
+#### `GET /api/v1/loops/definitions/{name}`
+
+Get one loop definition as its raw JSON (the exact stored file contents).
+
+**Response `200`** — the raw definition object.
+
+**Errors**
+
+- `400 validation_error` — `{name}` is not a valid definition name.
+- `404 not_found` — no definition with that name exists.
+
+`{name}` must match `^[a-z0-9][a-z0-9_-]*$` (the name becomes a filename, so
+this is a strict path-traversal guard).
+
+#### `POST /api/v1/loops/definitions`
+
+Create a new loop definition. Create-only — use `PUT` to overwrite an existing
+one. The `name` field in the body is authoritative and becomes the filename
+(`workspace/loops/{name}.json`).
+
+**Request**
+
+```json
+{
+  "name": "my-loop",
+  "description": "My custom loop",
+  "roles": [
+    { "role": "plan", "prompt": "Plan work for {{subject}}." }
+  ],
+  "termination_condition": { "type": "iteration_bound", "value": 3 }
+}
+```
+
+**Response `201`** — the stored raw definition.
+
+**Errors**
+
+- `400 validation_error` — missing/invalid `name` (must match `^[a-z0-9][a-z0-9_-]*$`),
+  or an invalid structure (e.g. empty `roles`, missing `termination_condition`).
+- `409 conflict` — a definition with that name already exists.
+
+#### `PUT /api/v1/loops/definitions/{name}`
+
+Upsert a loop definition — creates it if absent, overwrites it if present. The
+path `{name}` is authoritative; any `name` in the body is ignored.
+
+**Request** — same shape as `POST`, without a required `name`.
+
+**Response `200`** — the stored raw definition.
+
+**Errors**
+
+- `400 validation_error` — invalid `{name}`, or an invalid structure.
+
+#### `DELETE /api/v1/loops/definitions/{name}`
+
+Delete a loop definition file. Deleting a built-in removes it from the
+workspace; it re-seeds from `config/loops/` on the next boot.
+
+**Response `200`**
+
+```json
+{ "deleted": true, "name": "my-loop" }
+```
+
+**Errors**
+
+- `400 validation_error` — invalid `{name}`.
+- `404 not_found` — no definition with that name exists.
 
 #### `GET /api/v1/loops/{id}/history`
 
@@ -3548,9 +3630,103 @@ Return aggregate counts and timing summaries for a loop.
 
 **Response `404`** — loop not found.
 
+#### `GET /api/v1/loops/{id}/live`
+
+Return a rich, poll-friendly snapshot of an in-flight loop: where it is, what
+it is running right now, how much it has consumed, a per-stage breakdown, and a
+newest-first feed of recent activity. This is a read-model composed from
+existing loop, task, turn, and event data — it makes no changes to the loop.
+
+Intended for dashboards and status pollers. It is poll-based; clients refresh on
+an interval. (Streaming is a future addition.)
+
+**Response `200`**
+
+```json
+{
+  "loop": {
+    "id": "abc123",
+    "definition_name": "harness",
+    "goal": "Implement a new caching layer",
+    "status": "running",
+    "project_id": null,
+    "work_scope_session_id": null,
+    "started_at": "2026-07-11T10:00:00Z",
+    "last_activity_at": "2026-07-11T10:03:00Z",
+    "completed_at": null,
+    "deadline": "2026-07-11T10:10:00Z"
+  },
+  "position": {
+    "current_iteration": 1,
+    "max_iterations": 4,
+    "current_stage_index": 1,
+    "current_stage_role": "reviewer",
+    "stages_per_iteration": 2
+  },
+  "current_stage": {
+    "stage_id": "stage789",
+    "iteration_number": 1,
+    "stage_index": 1,
+    "role": "reviewer",
+    "model": "claude-sonnet-5",
+    "status": "running",
+    "task_id": "task456",
+    "session_id": "sess456",
+    "started_at": "2026-07-11T10:02:30Z",
+    "last_heartbeat_at": "2026-07-11T10:03:00Z",
+    "latest_activity": {
+      "type": "tool_call",
+      "summary": "Called read",
+      "timestamp": "2026-07-11T10:03:00Z"
+    }
+  },
+  "budget": {
+    "tokens": { "prompt": 100, "completion": 50, "total": 150 },
+    "iterations": { "used": 1, "max": 4 },
+    "time": {
+      "elapsed_seconds": 180,
+      "deadline": "2026-07-11T10:10:00Z",
+      "remaining_seconds": 420
+    }
+  },
+  "stages": [
+    {
+      "iteration_number": 1,
+      "stage_index": 0,
+      "role": "plan",
+      "model": "claude-sonnet-5",
+      "status": "completed",
+      "tokens": { "prompt": 100, "completion": 50, "total": 150 },
+      "duration_ms": 1200,
+      "tools_used": ["grep", "read"],
+      "result_summary": "planned",
+      "started_at": "2026-07-11T10:00:05Z",
+      "completed_at": "2026-07-11T10:02:25Z",
+      "task_id": "task123"
+    }
+  ],
+  "recent_events": [
+    {
+      "timestamp": "2026-07-11T10:03:00Z",
+      "stage_id": "stage789",
+      "role": "reviewer",
+      "type": "tool_call",
+      "summary": "Called read"
+    }
+  ]
+}
+```
+
+`current_stage` is `null` when no stage is currently running. Fields that have
+no data yet are `null` (e.g. `model` and zeroed `tokens` for a stage whose first
+turn has not completed). `time.remaining_seconds` is `null` when the loop has no
+deadline.
+
+**Response `404`** — loop not found.
+
 #### `GET /api/v1/loops/{id}`
 
-Get detailed loop status including current iteration and stage information.
+Get detailed loop status including current iteration and stage information. The loop object carries `origin` (`headless` or `conversation`).
 
 **Response `200`**
 
@@ -3563,6 +3739,7 @@ Get detailed loop status including current iteration and stage information.
     "status": "running",
     "current_iteration": 2,
     "current_stage": 1,
+    "origin": "conversation",
     "configuration": "{...}",
     "metadata": {
       "dispatch": {
@@ -4798,6 +4975,10 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
+| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one raw loop definition |
+| `POST` | `/api/v1/loops/definitions` | Yes | Create a loop definition |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Upsert a loop definition |
+| `DELETE` | `/api/v1/loops/definitions/{name}` | Yes | Delete a loop definition |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
 | `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Yes | Delete a terminal loop |

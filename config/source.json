@@ -135,9 +135,9 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, goal_bound). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage and goalEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Headless start: when startLoop runs with no conversation session, auto-provisions a hidden loop-owned work-scope session (active project = loop's project) so LoopManager's project propagation and cross-stage artifact scoping apply unchanged, and records metadata.origin ('headless' | 'conversation'). Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, goal_bound). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage and goalEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters, resolves project via 3-tier fallback, provisions a hidden work-scope session + records metadata.origin when headless, creates loop and first iteration",
                 "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with rich project context",
                 "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
                 "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), advances if continuing",
@@ -970,6 +970,33 @@
             ]
         },
         {
+            "path": "src/Contract/LoopLiveEvent.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveEvent",
+            "layer": "contract",
+            "description": "Immutable value object for one entry in a loop's recent-activity feed, used by LoopLiveViewBuilder and the GET /api/v1/loops/{id}/live endpoint. Captures timestamp, stage id, role, event type, and a human summary.",
+            "methods": [
+                "toArray(): array - serialize the event to a snake_case array"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopLiveStage.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveStage",
+            "layer": "contract",
+            "description": "Immutable value object for one stage's rolled-up execution data in the loop live view: iteration/stage index, role, model, status, prompt/completion/total tokens, duration, tools used, result summary, timestamps, and task id. Built by LoopLiveViewBuilder.",
+            "methods": [
+                "toArray(): array - serialize the stage with nested tokens block"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopLiveSnapshot.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveSnapshot",
+            "layer": "contract",
+            "description": "Immutable top-level snapshot returned by LoopLiveViewBuilder and serialized by GET /api/v1/loops/{id}/live. Groups loop meta, position, current running stage, consumption budget, per-stage LoopLiveStage list, and a newest-first LoopLiveEvent feed.",
+            "methods": [
+                "toArray(): array - serialize the snapshot with nested stages and events"
+            ]
+        },
+        {
             "path": "src/Contract/IterationOutcome.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
             "layer": "contract",
@@ -1120,11 +1147,15 @@
             "path": "src/Config/LoopDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
             "layer": "config",
-            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse. Accepts an optional LoopUpdateTracker during seeding to record content hashes for update detection.",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse. Accepts an optional LoopUpdateTracker during seeding to record content hashes for update detection. Also provides definition write CRUD (save/delete) with a strict slug/path-traversal name guard used by the API.",
             "methods": [
                 "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
                 "get(string): ?LoopDefinition — get a single definition by name",
                 "names(): string[] — list all available definition names",
+                "isValidDefinitionName(string): bool — true when the name is a filesystem-safe slug (^[a-z0-9][a-z0-9_-]*$); path-traversal guard for filenames",
+                "isBuiltin(string): bool — true when a definition of this name ships in config/loops/",
+                "saveDefinition(string $name, array $definition): void — validate via LoopDefinition::fromArray and persist to workspace/loops/{name}.json (throws InvalidArgumentException on bad name/structure)",
+                "deleteDefinition(string $name): bool — delete workspace/loops/{name}.json, returns whether a file was removed (throws InvalidArgumentException on bad name)",
                 "seedBuiltins(?LoopUpdateTracker): void — copy config/loops/*.json to workspace/loops/ if not present; records hashes when tracker provided",
                 "seedPackageLoops(string[] $packageLoopPaths): void — copy .json loop files from package directories to workspace/loops/ (never overwrites)"
             ]
@@ -3065,15 +3096,29 @@
             ]
         },
         {
+            "path": "src/Api/LoopLiveViewBuilder.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopLiveViewBuilder",
+            "layer": "agent",
+            "description": "Pure read-model that assembles a rich, poll-friendly snapshot of an in-flight loop for GET /api/v1/loops/{id}/live. Composes existing store methods (LoopStore::getLoop/listIterations/listStages, SessionStorage::getTask/getTurns/getTaskEvents) over the loop -> stage(task) -> session -> turns chain to produce per-stage model/token rollups, a consumption budget (tokens, iterations, elapsed/remaining time against an injectable now), the current running stage with heartbeat and latest activity, and a newest-first recent-event feed. No schema, storage-query, or loop-execution changes; returns null for an unknown loop.",
+            "methods": [
+                "build(string, ?string): ?LoopLiveSnapshot — build the live snapshot for a loop id (optional injected now), null if unknown"
+            ]
+        },
+        {
             "path": "src/Api/Handler/LoopHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
             "layer": "agent",
-            "description": "REST API endpoints for loop CRUD and control. 10 endpoints: list, create, definitions, get, delete, pause, resume, stop, iterations, iteration. Self-registers routes via register(Router).",
+            "description": "REST API endpoints for loop CRUD and control, plus full CRUD over loop definition files (GET/POST/PUT/DELETE /loops/definitions[/{name}], with a builtin flag in the list). Endpoints: list, create, definitions, get, history, metrics, live, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. Self-registers routes via register(Router). Surfaces loop origin: list() enriches each loop with a derived headless boolean and supports a ?headless=true|false filter; normalizeLoop() adds origin ('headless' | 'conversation'), both derived from loop metadata via loopOrigin().",
             "methods": [
                 "register(Router): void — register all loop API routes",
-                "list(ServerRequestInterface): Response — GET /api/v1/loops",
+                "live(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/live (rich live snapshot via LoopLiveViewBuilder)",
+                "list(ServerRequestInterface): Response — GET /api/v1/loops (adds headless flag, supports ?headless= filter)",
                 "create(ServerRequestInterface): Response — POST /api/v1/loops",
-                "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions",
+                "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions (each entry flagged builtin)",
+                "getDefinition(ServerRequestInterface, string): Response — GET /api/v1/loops/definitions/{name} (raw definition or 404)",
+                "createDefinition(ServerRequestInterface): Response — POST /api/v1/loops/definitions (201, 409 if exists, 400 on bad name/structure)",
+                "updateDefinition(ServerRequestInterface, string): Response — PUT /api/v1/loops/definitions/{name} (upsert)",
+                "deleteDefinition(ServerRequestInterface, string): Response — DELETE /api/v1/loops/definitions/{name} (200 or 404)",
                 "get(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}",
                 "delete(ServerRequestInterface, string): Response — DELETE /api/v1/loops/{id}",
                 "pause(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/pause",

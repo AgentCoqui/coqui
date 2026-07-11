@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\LoopLiveViewBuilder;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Agent\LoopExecutor;
@@ -23,9 +24,14 @@ use React\Http\Message\Response;
  * POST   /api/v1/loops                    — create loop
  * GET    /api/v1/loops                    — list loops
  * GET    /api/v1/loops/definitions        — list available definitions
+ * GET    /api/v1/loops/definitions/{name} — get one raw definition
+ * POST   /api/v1/loops/definitions        — create a definition
+ * PUT    /api/v1/loops/definitions/{name} — upsert a definition
+ * DELETE /api/v1/loops/definitions/{name} — delete a definition
  * GET    /api/v1/loops/{id}               — get loop status
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
  * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
+ * GET    /api/v1/loops/{id}/live          — get rich live snapshot (current stage, model, budget, events)
  * POST   /api/v1/loops/{id}/skip-stage    — skip current non-running stage
  * POST   /api/v1/loops/{id}/pause         — pause loop
  * POST   /api/v1/loops/{id}/resume        — resume loop
@@ -176,6 +182,26 @@ final readonly class LoopHandler
         $loops = $this->store->listLoops($status);
         $activeCount = $this->store->countActive();
 
+        $params = $request->getQueryParams();
+        $headlessFilter = null;
+        if (isset($params['headless'])) {
+            $raw = strtolower(trim((string) $params['headless']));
+            if ($raw === 'true' || $raw === '1') {
+                $headlessFilter = true;
+            } elseif ($raw === 'false' || $raw === '0') {
+                $headlessFilter = false;
+            }
+        }
+
+        $loops = array_map(function (array $loop): array {
+            $loop['headless'] = $this->loopOrigin($loop) === 'headless';
+            return $loop;
+        }, $loops);
+
+        if ($headlessFilter !== null) {
+            $loops = array_values(array_filter($loops, static fn(array $l): bool => $l['headless'] === $headlessFilter));
+        }
+
         return Router::jsonResponse([
             'loops' => $loops,
             'count' => count($loops),
@@ -204,6 +230,7 @@ final readonly class LoopHandler
         foreach ($defs as $def) {
             $result[] = [
                 'name' => $def->name,
+                'builtin' => $this->discovery->isBuiltin($def->name),
                 'description' => $def->description,
                 'parameters' => array_map(
                     static fn($parameter) => $parameter->toArray(),
@@ -222,6 +249,86 @@ final readonly class LoopHandler
             'definitions' => $result,
             'count' => count($result),
         ]);
+    }
+
+    /**
+     * GET /api/v1/loops/definitions/{name}
+     */
+    public function getDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+        if (!$this->discovery->exists($name)) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name));
+    }
+
+    /**
+     * POST /api/v1/loops/definitions
+     */
+    public function createDefinition(ServerRequestInterface $request): Response
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $name = isset($body['name']) ? trim((string) $body['name']) : '';
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid or missing loop definition name');
+        }
+        if ($this->discovery->exists($name)) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Loop definition "%s" already exists', $name));
+        }
+
+        try {
+            $this->discovery->saveDefinition($name, $body);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name), 201);
+    }
+
+    /**
+     * PUT /api/v1/loops/definitions/{name}
+     */
+    public function updateDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        try {
+            $this->discovery->saveDefinition($name, $body);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name));
+    }
+
+    /**
+     * DELETE /api/v1/loops/definitions/{name}
+     */
+    public function deleteDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+        if (!$this->discovery->deleteDefinition($name)) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
+        }
+
+        return Router::jsonResponse(['deleted' => true, 'name' => $name]);
     }
 
     /**
@@ -324,6 +431,23 @@ final readonly class LoopHandler
                 'iteration_timings' => $timings,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/v1/loops/{id}/live
+     */
+    public function live(ServerRequestInterface $request, string $id): Response
+    {
+        if ($this->storage === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop live view is not available');
+        }
+
+        $snapshot = (new LoopLiveViewBuilder($this->store, $this->storage))->build($id);
+        if ($snapshot === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        return Router::jsonResponse($snapshot->toArray());
     }
 
     /**
@@ -714,9 +838,14 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops', [$this, 'list']);
         $router->get($v1 . '/loops/active/count', [$this, 'activeCount']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
+        $router->get($v1 . '/loops/definitions/{name}', [$this, 'getDefinition']);
+        $router->post($v1 . '/loops/definitions', [$this, 'createDefinition']);
+        $router->put($v1 . '/loops/definitions/{name}', [$this, 'updateDefinition']);
+        $router->delete($v1 . '/loops/definitions/{name}', [$this, 'deleteDefinition']);
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/history', [$this, 'history']);
         $router->get($v1 . '/loops/{id}/metrics', [$this, 'metrics']);
+        $router->get($v1 . '/loops/{id}/live', [$this, 'live']);
         if ($this->executor !== null) {
             $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
             $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);
@@ -765,9 +894,27 @@ final readonly class LoopHandler
      */
     private function normalizeLoop(array $loop): array
     {
+        $origin = $this->loopOrigin($loop);
         $loop['metadata'] = JsonHelper::decodeJsonObject($loop['metadata'] ?? null);
+        $loop['origin'] = $origin;
 
         return $loop;
+    }
+
+    /**
+     * Resolve a loop's origin ('headless' or 'conversation') from its metadata.
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function loopOrigin(array $loop): string
+    {
+        $metadata = isset($loop['metadata']) && is_string($loop['metadata'])
+            ? json_decode($loop['metadata'], true)
+            : (is_array($loop['metadata'] ?? null) ? $loop['metadata'] : null);
+
+        $origin = is_array($metadata) && isset($metadata['origin']) ? (string) $metadata['origin'] : 'conversation';
+
+        return $origin === 'headless' ? 'headless' : 'conversation';
     }
 
     /**
