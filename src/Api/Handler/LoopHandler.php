@@ -23,6 +23,10 @@ use React\Http\Message\Response;
  * POST   /api/v1/loops                    — create loop
  * GET    /api/v1/loops                    — list loops
  * GET    /api/v1/loops/definitions        — list available definitions
+ * GET    /api/v1/loops/definitions/{name} — get one raw definition
+ * POST   /api/v1/loops/definitions        — create a definition
+ * PUT    /api/v1/loops/definitions/{name} — upsert a definition
+ * DELETE /api/v1/loops/definitions/{name} — delete a definition
  * GET    /api/v1/loops/{id}               — get loop status
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
  * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
@@ -204,6 +208,7 @@ final readonly class LoopHandler
         foreach ($defs as $def) {
             $result[] = [
                 'name' => $def->name,
+                'builtin' => $this->discovery->isBuiltin($def->name),
                 'description' => $def->description,
                 'parameters' => array_map(
                     static fn($parameter) => $parameter->toArray(),
@@ -222,6 +227,86 @@ final readonly class LoopHandler
             'definitions' => $result,
             'count' => count($result),
         ]);
+    }
+
+    /**
+     * GET /api/v1/loops/definitions/{name}
+     */
+    public function getDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+        if (!$this->discovery->exists($name)) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name));
+    }
+
+    /**
+     * POST /api/v1/loops/definitions
+     */
+    public function createDefinition(ServerRequestInterface $request): Response
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $name = isset($body['name']) ? trim((string) $body['name']) : '';
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid or missing loop definition name');
+        }
+        if ($this->discovery->exists($name)) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Loop definition "%s" already exists', $name));
+        }
+
+        try {
+            $this->discovery->saveDefinition($name, $body);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name), 201);
+    }
+
+    /**
+     * PUT /api/v1/loops/definitions/{name}
+     */
+    public function updateDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        try {
+            $this->discovery->saveDefinition($name, $body);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        }
+
+        return Router::jsonResponse($this->discovery->getRawDefinition($name));
+    }
+
+    /**
+     * DELETE /api/v1/loops/definitions/{name}
+     */
+    public function deleteDefinition(ServerRequestInterface $request, string $name): Response
+    {
+        if (!$this->discovery->isValidDefinitionName($name)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
+        }
+        if (!$this->discovery->deleteDefinition($name)) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
+        }
+
+        return Router::jsonResponse(['deleted' => true, 'name' => $name]);
     }
 
     /**
@@ -714,6 +799,10 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops', [$this, 'list']);
         $router->get($v1 . '/loops/active/count', [$this, 'activeCount']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
+        $router->get($v1 . '/loops/definitions/{name}', [$this, 'getDefinition']);
+        $router->post($v1 . '/loops/definitions', [$this, 'createDefinition']);
+        $router->put($v1 . '/loops/definitions/{name}', [$this, 'updateDefinition']);
+        $router->delete($v1 . '/loops/definitions/{name}', [$this, 'deleteDefinition']);
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/history', [$this, 'history']);
         $router->get($v1 . '/loops/{id}/metrics', [$this, 'metrics']);
