@@ -1,8 +1,10 @@
 # Background Tasks
 
-Background tasks let Coqui run long-running agent work in a separate process while the main conversation continues. Instead of blocking the chat while the agent researches, codes, or processes data, you can kick off a background task and check in on its progress whenever you want.
+Background tasks are the execution substrate that runs a single unit of agent work in an isolated child process while the main conversation stays responsive. They are **not** something the orchestrator agent creates directly — the LLM has no background-task tools. Instead, background tasks are the shared engine that **loops, schedules, webhooks, and the `/tasks` HTTP API** all run on.
 
-> **Requires the API server**: Task execution is handled by the API server's `BackgroundTaskManager`. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them. Start Coqui with `coqui` for the full launcher-managed app, or use `coqui --api-only` when you only need the API runtime.
+> **Agent-driven async work goes through loops.** To run work asynchronously alongside the conversation, the agent starts a goal-driven loop: `loop_start(definition: "goal-driven", goal: "…")`. Each loop iteration is executed as a background task on this substrate. See [LOOPS.md](LOOPS.md).
+
+> **Requires the API server**: Task execution is handled by the API server's `BackgroundTaskManager`. The REPL can monitor tasks, but only the API server spawns the child processes that execute them. Start Coqui with `coqui` for the full launcher-managed app, or use `coqui --api-only` when you only need the API runtime.
 
 ## How It Works
 
@@ -14,7 +16,7 @@ When a background task is started, Coqui:
 4. Events (iterations, tool calls, results) are logged to SQLite in real time
 5. When the task finishes, its result and status are persisted
 
-Because each task runs in its own process, the API server's event loop stays fully responsive. Users can continue chatting, start additional tasks, or monitor running tasks without any blocking.
+Because each task runs in its own process, the API server's event loop stays fully responsive. Loops advance, schedules fire, and users keep chatting without any blocking.
 
 ### Task Lifecycle
 
@@ -30,7 +32,7 @@ pending  -->  running  -->  completed
 - **Cancelling** — cancel requested; the manager will send SIGTERM on its next tick
 - **Completed** — finished successfully with a result
 - **Failed** — encountered an error (agent error, process crash, etc.)
-- **Cancelled** — stopped by user or agent request (cooperative, finishes current iteration)
+- **Cancelled** — stopped by user or request (cooperative, finishes current iteration)
 
 Pending tasks can be cancelled immediately (status goes straight to `cancelled`). Running tasks transition through `cancelling` first — the `BackgroundTaskManager` detects this on its next tick and sends SIGTERM to the child process, which then finishes its current iteration and exits.
 
@@ -52,19 +54,24 @@ By default, up to 32 background tasks run concurrently. Additional tasks are que
 
 If the API server restarts while tasks are running, orphaned tasks (status `running` with no live process) are automatically marked as `failed` with an explanatory message. Pending tasks remain in the queue and will be picked up by the task manager after restart.
 
+## What Produces Background Tasks
+
+There is no agent-facing tool for creating raw background tasks. Task records are produced by:
+
+- **Loops** — each loop stage/iteration is scheduled as a background task by `LoopManager`. This is how an agent runs ad-hoc async work: `loop_start(definition: "goal-driven", goal: "…")`.
+- **Schedules** — a cron-style schedule tick creates a task for its next run (`ScheduleManager`).
+- **Webhooks** — an inbound HTTP event can spawn a task (`WebhookToolkit`).
+- **The HTTP API** — external integrations create tasks via `POST /api/v1/tasks`.
+
+In every case the API server is the sole executor: the ReactPHP event loop manages child processes and SSE event streams. Producers write task records; the API server consumes and executes them.
+
 ## Enabling Background Tasks
 
-Background tasks are **automatically available** when running the API server. No additional configuration is required.
+The substrate is **automatically available** when running the API server. No additional configuration is required.
 
 ```bash
 coqui
 ```
-
-Background task **tools** are available in both API and REPL modes. In REPL mode, the agent can create, list, check status, and cancel tasks. Task records are written to SQLite and remain queued until the API server picks them up for execution.
-
-The API server is still the sole executor — the ReactPHP event loop manages child processes and SSE event streams. The REPL acts as a producer: it writes task records, and the API server consumes and executes them.
-
-When Coqui creates a background task from the REPL or an agent tool, it now performs a worker-readiness check first. This verifies that the API task manager is ticking and that the API worker is serving the same workspace context, preventing tasks from being queued into an unreachable or mismatched database.
 
 ### Requirements
 
@@ -72,56 +79,11 @@ When Coqui creates a background task from the REPL or an agent tool, it now perf
 - `pcntl` extension (for signal handling in child processes) — included in most PHP CLI installs
 - `posix` extension (for process management) — included in most PHP CLI installs
 
-## Using Background Tasks
-
-### Via the LLM Agent
-
-When connected through the API, the orchestrator agent has access to five background task tools. You can ask it naturally:
-
-> "Start a background task to refactor the authentication module"
-
-The agent will use `start_background_task` to create the task, and you can ask it to check progress:
-
-> "How's the refactoring task going?"
-
-The agent calls `task_status` and reports back with the current state and recent activity.
-
-#### Available Agent Tools
-
-| Tool | Description |
-|------|-------------|
-| `start_background_task` | Create and queue a new task with a prompt, title, and optional role/iteration limit |
-| `start_background_tool` | Execute a single tool directly in a background process (zero LLM tokens) |
-| `task_status` | Check the status, result, and recent events of a specific task (result/error capped at 2000 chars) |
-| `list_tasks` | List tasks with optional status filter |
-| `cancel_task` | Cancel a pending or running task |
-
-> These tools are available in both API and REPL modes. They are intentionally excluded from background task agents themselves to prevent recursive task spawning.
-
-### Background Tool Execution
-
-`start_background_tool` runs a single tool call directly in a background process without spawning an LLM agent. This is ideal for long-running operations where the exact tool and arguments are already known.
-
-```
-start_background_tool(
-    tool_name: "exec",
-    arguments: {"command": "composer test"},
-    title: "Run test suite"
-)
-```
-
-| Aspect | `start_background_task` | `start_background_tool` |
-|--------|------------------------|------------------------|
-| Execution | Full LLM agent loop | Direct `tool->execute()` call |
-| LLM tokens | Yes (agent reasons and iterates) | None (zero token cost) |
-| Iterations | Up to 100 (configurable) | Always 1 (single tool call) |
-| Use case | Complex multi-step work | Single long-running tool call |
-
-The background tool executor builds the same toolkit set as `OrchestratorAgent` (filesystem, shell, discovered packages), resolves the tool by name, and calls `execute()` directly. Results are persisted to the task record and streamed via SSE, monitored with the same `task_status` and `list_tasks` tools.
+## Monitoring Background Tasks
 
 ### Via REPL Slash Commands
 
-The REPL provides three slash commands for quick task management without going through the LLM:
+The REPL provides operator commands for inspecting and cancelling tasks (loops, schedules, and webhooks all surface here):
 
 | Command | Description |
 |---------|-------------|
@@ -325,5 +287,5 @@ Task events (iterations, tool calls, results) are stored in the `task_events` ta
 | `BackgroundTaskObserver` | Persists agent events to `task_events` table |
 | `DatabasePendingInputProvider` | Reads injected input from `task_inputs` table |
 | `ProcessCancellationToken` | Converts SIGTERM to cooperative cancellation |
-| `BackgroundTaskToolkit` | LLM-facing tools for the orchestrator agent (API + REPL) |
+| `LoopManager` / `ScheduleManager` | Produce tasks for loop iterations and scheduled runs |
 | `TaskHandler` | HTTP API handler for all task endpoints |

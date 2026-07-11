@@ -113,16 +113,6 @@
             ]
         },
         {
-            "path": "src/Agent/BackgroundToolExecutor.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\BackgroundToolExecutor",
-            "layer": "agent",
-            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Shell is open by default — resolveShellAllowedCommands() returns an empty array unless agents.defaults.shellAllowedCommands is configured; resolveShellDeniedCommands() returns ['sudo'] unless allowSudo is true. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
-            "methods": [
-                "execute(string $toolName, array $arguments): ToolResult — resolve tool and call execute() directly",
-                "hasTool(string $toolName): bool — check if a tool exists in the index"
-            ]
-        },
-        {
             "path": "src/Agent/ConcurrentToolExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ConcurrentToolExecutor",
             "layer": "agent",
@@ -1089,7 +1079,7 @@
             "path": "src/Config/ShellConfigResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ShellConfigResolver",
             "layer": "config",
-            "description": "Shared shell command resolution logic. Centralizes the shell allowed/denied command resolution and the READ_ONLY_SHELL_COMMANDS constant that were previously duplicated across OrchestratorAgent, RunCommand, BackgroundToolExecutor, and SpawnAgentTool.",
+            "description": "Shared shell command resolution logic. Centralizes the shell allowed/denied command resolution and the READ_ONLY_SHELL_COMMANDS constant that were previously duplicated across OrchestratorAgent, RunCommand, and SpawnAgentTool.",
             "methods": [
                 "resolveAllowed(ConfigInterface $config): array — reads agents.defaults.shellAllowedCommands; empty array means all allowed",
                 "resolveDenied(ConfigInterface $config): array — reads agents.defaults.allowSudo; returns ['sudo'] when false"
@@ -1356,13 +1346,12 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment, honoring profile-specific role overrides and profile-level model defaults when an active profile is present. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment, honoring profile-specific role overrides and profile-level model defaults when an active profile is present. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
-                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
+                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering and credential guards in child mode",
                 "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
-                "getChildRunCount(): int — returns number of child agents spawned during this turn",
-                "isChildBackgroundTasksEnabled(): bool — checks agents.defaults.childBackgroundTasks config flag"
+                "getChildRunCount(): int — returns number of child agents spawned during this turn"
             ]
         },
         {
@@ -2950,10 +2939,9 @@
             "path": "src/Command/TaskRunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\TaskRunCommand",
             "layer": "command",
-            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion and publishes user-facing notifications, promoting failed task outcomes to actionable notifications that the API-side automation runner can claim for retry handling.",
+            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler, and runs the task through AgentRunner. Updates task status on completion and publishes user-facing notifications, promoting failed task outcomes to actionable notifications that the API-side automation runner can claim for retry handling.",
             "methods": [
-                "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled",
-                "executeToolTask(taskId, task, boot, storage, workDir, unsafeMode, output): int — direct tool execution path for background tool tasks"
+                "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled"
             ]
         },
         {
@@ -2981,16 +2969,6 @@
             "description": "SplObserver that persists interactive API turn events to the turn_events SQLite table. Mirrors the task event payload shape without reusing background-task heartbeats or task-specific storage.",
             "methods": [
                 "update(subject): void — handle agent events, persist to turn_events"
-            ]
-        },
-        {
-            "path": "src/Toolkit/BackgroundTaskToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\BackgroundTaskToolkit",
-            "layer": "toolkit",
-            "description": "LLM-facing toolkit providing 5 tools for managing background tasks and tools: start_background_task, start_background_tool, task_status, list_tasks, cancel_task. start_background_tool runs a specific tool directly (no LLM) with provided arguments. Available in both API and REPL modes. In REPL mode tasks are queued in SQLite for the API server to execute. Cancel for running tasks uses transient 'cancelling' status. task_status caps result/error at 2000 chars.",
-            "methods": [
-                "tools(): ToolInterface[] — returns 5 background task/tool tools",
-                "guidelines(): string — usage guidelines for the LLM"
             ]
         },
         {

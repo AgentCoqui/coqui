@@ -148,7 +148,6 @@ All access levels receive: `ArtifactToolkit` and `SkillToolkit` (except minimal)
 Stage agents intentionally do **not** receive:
 
 - `LoopToolkit` — prevents infinite loop recursion
-- `BackgroundTaskToolkit` — prevents uncontrolled process spawning
 - `ScheduleToolkit` — prevents unbounded schedule creation
 - `WebhookToolkit` — prevents uncontrolled webhook registration
 
