@@ -65,9 +65,7 @@ use CoquiBot\Coqui\Support\StringHelper;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
-use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
@@ -168,8 +166,6 @@ final class OrchestratorAgent extends AbstractAgent
         'ArtifactToolkit' => 'artifacts',
         'ProjectToolkit' => 'projects',
         'CoquiSourceToolkit' => 'coqui-source',
-        'ComposerToolkit' => 'packages',
-        'PackagistToolkit' => 'packages',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
@@ -484,15 +480,6 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addSystemToolkit('CoquiSourceToolkit', "Read Coqui's own source", new CoquiSourceToolkit(projectRoot: $this->projectRoot));
-
-        // Composer & Packagist toolkits — workspace package management
-        if ($effectiveAccessLevel === 'full') {
-            $this->addSystemToolkit('ComposerToolkit', 'Composer package operations', new ComposerToolkit(
-                workspacePath: $this->workspacePath,
-                listener: $discovery,
-            ));
-            $this->addSystemToolkit('PackagistToolkit', 'Search Packagist', new PackagistToolkit());
-        }
 
         // Schedule toolkit — cron-style task scheduling (top-level agents only)
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
