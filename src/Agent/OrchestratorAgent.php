@@ -62,7 +62,6 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Support\StringHelper;
-use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ComposerToolkit;
@@ -173,7 +172,6 @@ final class OrchestratorAgent extends AbstractAgent
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
-        'BackgroundTaskToolkit' => 'background-tasks',
     ];
 
     /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
@@ -264,7 +262,6 @@ final class OrchestratorAgent extends AbstractAgent
         $credentialResolver = $deps->credentialResolver;
         $cancellationToken = $deps->cancellationToken;
         $pendingInputProvider = $deps->pendingInputProvider;
-        $backgroundTaskToolkit = $deps->backgroundTaskToolkit;
         $configManager = $deps->configManager;
         $configGuard = $deps->configGuard;
         $toolExecutor = $deps->toolExecutor;
@@ -598,15 +595,6 @@ final class OrchestratorAgent extends AbstractAgent
                     ];
                 }
             }
-        }
-
-        // Background task toolkit — only in API mode, never in loop stages
-        if ($backgroundTaskToolkit !== null && $this->workScopeSessionId === null) {
-            $candidateToolkits[] = [
-                'toolkit' => $backgroundTaskToolkit,
-                'package' => '',
-                'description' => 'background task management',
-            ];
         }
 
         // Webhook toolkit — only for top-level agents, never in loop stages.

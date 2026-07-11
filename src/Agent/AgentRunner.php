@@ -50,7 +50,6 @@ use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
-use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
@@ -72,7 +71,6 @@ final class AgentRunner
     private readonly ?SkillDiscovery $skillDiscovery;
     private readonly ?RoleDiscovery $roleDiscovery;
     private readonly bool $unsafeMode;
-    private readonly bool $backgroundTasksEnabled;
     private readonly ?MemoryStore $memoryStore;
     private readonly ?MemorySummarizer $memorySummarizer;
     private readonly ?MountManager $mountManager;
@@ -108,7 +106,6 @@ final class AgentRunner
         $this->skillDiscovery = $deps->skillDiscovery;
         $this->roleDiscovery = $deps->roleDiscovery;
         $this->unsafeMode = $deps->unsafeMode;
-        $this->backgroundTasksEnabled = $deps->backgroundTasksEnabled;
         $this->memoryStore = $deps->memoryStore;
         $this->memorySummarizer = $deps->memorySummarizer;
         $this->mountManager = $deps->mountManager;
@@ -175,7 +172,6 @@ final class AgentRunner
             $observer,
             $cancellationToken,
             $pendingInputProvider,
-            enableBackgroundTasks: false,
             role: $role,
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
@@ -225,7 +221,6 @@ final class AgentRunner
             sessionId: $sessionId,
             executionPolicy: $executionPolicy,
             observer: $observer,
-            enableBackgroundTasks: true,
             role: $role,
             filePaths: $filePaths,
             profile: $profile,
@@ -247,7 +242,6 @@ final class AgentRunner
         ?SplObserver $observer = null,
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
-        bool $enableBackgroundTasks = true,
         ?string $role = null,
         ?int $maxIterations = null,
         ?array $filePaths = null,
@@ -307,7 +301,6 @@ final class AgentRunner
             observer: $observer,
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
-            enableBackgroundTasks: $enableBackgroundTasks,
             role: $effectiveRole,
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
@@ -635,7 +628,6 @@ final class AgentRunner
         ?SplObserver $observer = null,
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
-        bool $enableBackgroundTasks = true,
         ?string $role = null,
         ?int $maxIterations = null,
         ?array $filePaths = null,
@@ -673,7 +665,6 @@ final class AgentRunner
             observer: $observer,
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
-            enableBackgroundTasks: $enableBackgroundTasks,
             role: $effectiveRole,
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
@@ -918,7 +909,6 @@ final class AgentRunner
         ?SplObserver $observer = null,
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
-        bool $enableBackgroundTasks = true,
         string $role = 'orchestrator',
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
@@ -973,17 +963,6 @@ final class AgentRunner
                 credentialResolver: $this->credentialResolver,
                 cancellationToken: $cancellationToken,
                 pendingInputProvider: $effectivePendingInputProvider,
-                backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
-                    ? new BackgroundTaskToolkit(
-                        storage: $this->storage,
-                        parentSessionId: $sessionId,
-                        roleResolver: $this->roleResolver,
-                        maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
-                            ? $this->config->getBackgroundTaskMaxIterations()
-                            : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
-                        expectedWorkspacePath: $this->workspacePath,
-                    )
-                    : null,
                 configManager: $this->configManager,
                 configGuard: $this->configGuard,
                 toolExecutor: $this->toolExecutor,

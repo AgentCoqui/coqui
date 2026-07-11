@@ -170,7 +170,7 @@ All components share data through **session ID propagation**. When one agent spa
 | --- | --- |
 | `spawn_agent` | Parent's `sessionId` → child's `ArtifactToolkit`, `ProjectToolkit` |
 | `loop_start` | Orchestrator's `sessionId` → `loops.session_id` → `LoopStageResult.sessionId` → stage agent toolkits |
-| `start_background_task` | Parent's session → new child task session (separate session, but can read parent artifacts) |
+| Background task (`POST /api/v1/tasks`, loops, schedules, webhooks) | `parent_session_id` → new child task session (separate session, but can read parent artifacts) |
 | `/role switch` | Same session throughout |
 
 ## Active Project Context

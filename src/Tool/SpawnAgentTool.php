@@ -36,7 +36,6 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
-use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
@@ -431,25 +430,6 @@ final class SpawnAgentTool implements ToolInterface
             }
         }
 
-        // Background task toolkit — available to full-access children when enabled via config.
-        // Lets child agents spawn long-running background tools for autonomous execution.
-        if (
-            $accessLevel === 'full'
-            && $this->storage !== null
-            && $this->sessionId !== null
-            && $this->isFeatureEnabled('background_tasks')
-            && $this->isChildBackgroundTasksEnabled()
-        ) {
-            $toolkits[] = new BackgroundTaskToolkit(
-                storage: $this->storage,
-                parentSessionId: $this->sessionId,
-                maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
-                    ? $this->config->getBackgroundTaskMaxIterations()
-                    : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
-                expectedWorkspacePath: $this->workspacePath,
-            );
-        }
-
         // Apply role-based toolkit filtering from the child role's frontmatter
         $resolver = $this->buildChildRoleResolver($role);
         if ($resolver->hasRules()) {
@@ -518,16 +498,6 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         call_user_func([$this->observer, 'handleEvent'], $event, $payload);
-    }
-
-    /**
-     * Check if the config flag enables background tasks for child agents.
-     */
-    private function isChildBackgroundTasksEnabled(): bool
-    {
-        $value = $this->config->get('agents.defaults.childBackgroundTasks', false);
-
-        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
 
     /**

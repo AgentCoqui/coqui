@@ -98,7 +98,6 @@ The simplest valid config only needs a primary model:
             "profile": "caelum",
             "maxIterations": 256,
             "backgroundTaskMaxIterations": 512,
-            "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
             "blacklist": ["/pattern-to-block/i"],
@@ -331,23 +330,11 @@ Maximum iterations any single background task can run. This is a per-task safety
 }
 ```
 
-This cap applies to all background tasks: those created via `start_background_task`, webhook-triggered tasks, schedule-triggered tasks, and API-created tasks.
+This cap applies to all background tasks: loop iterations, webhook-triggered tasks, schedule-triggered tasks, and API-created tasks.
 
-### `childBackgroundTasks`
+### `childBackgroundTasks` (removed)
 
-When `true`, child agents spawned via `spawn_agent` with `full` access level can create their own background tasks. Default: `false`.
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "childBackgroundTasks": true
-        }
-    }
-}
-```
-
-**Warning:** Enabling this allows child agents to spawn background tasks, which consume LLM tokens and system resources. Background tasks spawned by children cannot spawn further background tasks (recursion is bounded to 2 levels).
+This key has been removed. Agents no longer have background-task tools, so child agents cannot create background tasks and the setting no longer has any effect. If it is present in an existing `openclaw.json` it is silently ignored. Agent-driven async work now goes through loops — `loop_start(definition: "goal-driven", goal: "…")`. See [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md) and [LOOPS.md](LOOPS.md).
 
 ### `shellAllowedCommands`
 
@@ -691,7 +678,6 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.allowSudo` | Allow `sudo` commands (default: `false`) |
 | `agents.defaults.maxIterations` | Agent iteration budget |
 | `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
-| `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |
 | `agents.defaults.blacklist` | Additional catastrophic blacklist patterns |
 | `agents.defaults.mcp.allowedStdioCommands` | Exact-match allowlist for stdio MCP server command tuples |
 | `agents.defaults.mcp.deniedStdioCommands` | Exact-match denylist for stdio MCP server command tuples |

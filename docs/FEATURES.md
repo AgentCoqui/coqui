@@ -173,14 +173,14 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 ## <a id="background-tasks"></a> 🏗️ Background Tasks
 
-**What it does:** Run long-running work in isolated background processes. Two modes: `start_background_task` spawns a full LLM agent loop, `start_background_tool` executes a single tool directly (zero LLM tokens).
+**What it does:** The execution substrate that runs a unit of agent work in an isolated child process while the API server stays responsive. It is not an agent-facing tool — it is the shared engine that **loops, schedules, webhooks, and the `/tasks` HTTP API** run on.
 
-**How it helps:** Queue large refactors, research tasks, or deployments without blocking the REPL or API. Multi-task by running several background agents concurrently.
+**How it helps:** Long-running work never blocks the REPL or API. Several tasks run concurrently, each in its own process, with cooperative cancellation and crash recovery.
 
 **How to use it:**
-- Agent tasks: `start_background_task(task: "Refactor auth module", role: "coder")`
-- Direct tool execution: `start_background_tool(tool_name: "exec", arguments: {...}, title: "Run tests")`
-- Monitor: `/tasks` in the REPL, `task_status(id)` from the agent, or SSE streaming via API.
+- Agent async work: `loop_start(definition: "goal-driven", goal: "Refactor auth module")` — each loop iteration executes as a background task.
+- Programmatic: `POST /api/v1/tasks` for external integrations; schedules and webhooks create tasks automatically.
+- Monitor: `/tasks` in the REPL or SSE streaming via the API.
 - See [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md) for details.
 
 ## <a id="loops"></a> 🔁 Loops
@@ -444,7 +444,6 @@ Multiple Coqui features work together to minimize token consumption and API cost
 | **Utility model** | [Multi-Model Orchestration](#multi-model-orchestration) | Titles, summaries, and internal tasks use a fast, cheap model |
 | **Progressive skills** | [Skills System](#skills-system) | Skills show metadata only — full content is fetched on demand |
 | **Budget pruning** | [Context Window Management](#context-window-management) | `SummarizePruningStrategy` compresses before dropping messages |
-| **Background tools** | [Background Tasks](#background-tasks) | `start_background_tool` executes directly with zero LLM tokens |
 
 ## See Also
 

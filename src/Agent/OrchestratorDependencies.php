@@ -30,7 +30,6 @@ use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
-use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\ModManager\ModManagerToolkit;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use SplObserver;
@@ -60,7 +59,6 @@ final readonly class OrchestratorDependencies
         public ?CredentialResolverInterface $credentialResolver = null,
         public ?CancellationTokenInterface $cancellationToken = null,
         public ?PendingInputProviderInterface $pendingInputProvider = null,
-        public ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
         public ?ConfigManager $configManager = null,
         public ?ConfigGuard $configGuard = null,
         public ?ToolExecutorInterface $toolExecutor = null,
