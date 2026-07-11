@@ -3195,7 +3195,7 @@
             "path": "src/Utility/SecretMasker.php",
             "fqcn": "CoquiBot\\Coqui\\Utility\\SecretMasker",
             "layer": "config",
-            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between. Consumed by the optional webhooks mod's management handler and toolkit.",
+            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between.",
             "methods": [
                 "mask(string, int, int): string — mask a secret, showing prefix/suffix with asterisks"
             ]

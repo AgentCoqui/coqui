@@ -352,7 +352,7 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |
 | **Planning** | `artifact_create` | Versioned artifacts |
 | **Projects** | `project_create`, `project_switch` | Lean working scopes backed by workspace directories |
-| **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks (webhooks via the optional `coqui-toolkit-webhooks` mod) |
+| **Scheduling** | `schedule_create` | Cron-style automation |
 | **Loops** | `loop_start`, `loop_status`, `loop_definitions` | Automated multi-iteration workflows chaining roles |
 | **Vision** | `vision_analyze` | Multi-provider image analysis |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |

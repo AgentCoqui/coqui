@@ -36,7 +36,7 @@ test('discover instantiates a declared api feature', function () {
     mkdir($composerDir, 0755, true);
     file_put_contents($composerDir . '/installed.json', json_encode([
         'packages' => [[
-            'name' => 'acme/webhooks',
+            'name' => 'acme/example',
             'extra' => ['php-agents' => ['apiFeatures' => ['FakePingFeature']]],
         ]],
     ]));

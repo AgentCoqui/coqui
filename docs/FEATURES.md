@@ -160,28 +160,15 @@ For use cases that require preserving large identity scaffolds or long-running d
 - Inspect via API: `GET /api/v1/schedules`.
 - Failed schedules are automatically disabled after 3 consecutive failures (circuit breaker). Re-enable after investigating.
 
-## <a id="webhooks"></a> 🔗 Webhooks
-
-**Optional mod:** ships in `coqui-toolkit-webhooks`, not core. Install with `/mods install coquibot/coqui-toolkit-webhooks`.
-
-**What it does:** Receive incoming webhooks from external services that trigger agent background tasks. Supports GitHub, Slack, and generic HMAC signature verification with delivery logging and automatic purging.
-
-**How it helps:** React to external events automatically — review a PR when it's opened, process a Slack message, or respond to CI pipeline results.
-
-**How to use it:**
-- Create a subscription: the agent calls `webhook_create(name: "github-pr", source: "github", prompt_template: "Review this PR: {{payload}}")`.
-- Configure your external service to POST to `/api/v1/webhooks/incoming/{name}` with the signing secret.
-- View deliveries: `GET /api/v1/webhooks/{id}/deliveries` via API.
-
 ## <a id="background-tasks"></a> 🏗️ Background Tasks
 
-**What it does:** The execution substrate that runs a unit of agent work in an isolated child process while the API server stays responsive. It is not an agent-facing tool — it is the shared engine that **loops, schedules, webhooks, and the `/tasks` HTTP API** run on.
+**What it does:** The execution substrate that runs a unit of agent work in an isolated child process while the API server stays responsive. It is not an agent-facing tool — it is the shared engine that **loops, schedules, and the `/tasks` HTTP API** run on.
 
 **How it helps:** Long-running work never blocks the REPL or API. Several tasks run concurrently, each in its own process, with cooperative cancellation and crash recovery.
 
 **How to use it:**
 - Agent async work: `loop_start(definition: "goal-driven", goal: "Refactor auth module")` — each loop iteration executes as a background task.
-- Programmatic: `POST /api/v1/tasks` for external integrations; schedules and webhooks create tasks automatically.
+- Programmatic: `POST /api/v1/tasks` for external integrations; schedules create tasks automatically.
 - Monitor: `/tasks` in the REPL or SSE streaming via the API.
 - See [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md) for details.
 
@@ -309,7 +296,7 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 ## <a id="http-api"></a> 🌐 HTTP API
 
-**What it does:** Fully asynchronous REST and SSE server powered by ReactPHP. Supports session management, message streaming, background tasks, scheduling, webhooks, toolkit management, and more.
+**What it does:** Fully asynchronous REST and SSE server powered by ReactPHP. Supports session management, message streaming, background tasks, scheduling, toolkit management, and more.
 
 **How it helps:** Build web dashboards, mobile apps, or headless automation that uses the same AI engine as the CLI.
 
