@@ -185,19 +185,6 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/loops pause <id\|all>` | Advanced automation control: pause running loop(s) |
 | `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
 | `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
-| `/channels` | List configured channels with runtime health and heartbeat state |
-| `/channels drivers` | Show registered channel drivers and declared capabilities |
-| `/channels status <name\|id>` | Show one channel's configuration and runtime state |
-| `/channels health <name\|id>` | Show compact health output for one channel |
-| `/channels add <driver> <name> [driver-args...]` | Advanced operator control: create a channel instance in `openclaw.json` (for Signal: optional account number as the third argument) |
-| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `boundSessionId`, `enabled`, `settings`, `allowedScopes`, or `security` |
-| `/channels enable <name\|id>` | Advanced operator control: enable a channel instance |
-| `/channels disable <name\|id>` | Advanced operator control: disable a channel instance |
-| `/channels delete <name\|id>` | Advanced operator control: remove a channel instance |
-| `/channels links <name\|id>` | Show identity links for one channel |
-| `/channels link <name\|id> <remote-user-key> <profile>` | Create an identity link for a remote user |
-| `/channels unlink <name\|id> <link-id>` | Remove an identity link |
-| `/channels deliveries <name\|id>` | Show recent outbound delivery records for one channel |
 | `/webhooks` | List webhook subscriptions with status and trigger counts for monitoring |
 | `/webhooks status <name\|id>` | Show webhook configuration, secret mask, and trigger state |
 | `/webhooks deliveries <name\|id>` | Show recent delivery logs for one webhook |
