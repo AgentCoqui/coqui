@@ -744,3 +744,41 @@ test('GET /loops/{id} includes origin', function (): void {
         cleanupLoopHandlerFixture($fixture);
     }
 });
+
+test('GET /loops/{id}/events 404s for an unknown loop', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->events(
+            new ServerRequest('GET', '/api/v1/loops/nope/events'),
+            'nope',
+        );
+        expect($response->getStatusCode())->toBe(404);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('GET /loops/{id}/events returns an SSE stream for a terminal loop', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $loopId = $fixture['loopStore']->createLoop(
+            definitionName: 'harness',
+            goal: 'done already',
+            configuration: ['roles' => [['role' => 'plan']]],
+            maxIterations: 2,
+        );
+        // Terminal at open → connected + done, no timer registered.
+        $fixture['loopStore']->updateLoopStatus($loopId, 'completed');
+
+        $response = $fixture['handler']->events(
+            new ServerRequest('GET', "/api/v1/loops/{$loopId}/events"),
+            $loopId,
+        );
+        expect($response->getStatusCode())->toBe(200);
+        expect($response->getHeaderLine('Content-Type'))->toBe('text/event-stream');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
