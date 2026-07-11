@@ -52,23 +52,25 @@ Let users design and manage custom loop definitions **straight through the API**
 ### Validation (two layers)
 
 1. **Name** (`400` on failure) — enforced in the handler and `LoopDiscovery` before any file path is built: `preg_match('/^[a-z0-9][a-z0-9_-]*$/', $name)`. This is the **path-traversal guard**: names are filenames, so anything with `/`, `..`, whitespace, or other characters is rejected. Non-negotiable, since these endpoints write files from API input.
-2. **Structure** (`422` on failure) — `LoopDefinition::fromArray()` throws `InvalidArgumentException` for malformed `roles`/`parameters`/`termination_condition`; additionally require a non-empty `roles` array (`fromArray` accepts an empty one). The handler maps these throws to `422` with the exception message.
+2. **Structure** (`400` on failure) — `LoopDefinition::fromArray()` throws `InvalidArgumentException` for malformed `roles`/`parameters`/`termination_condition`; additionally require a non-empty `roles` array (`fromArray` accepts an empty one). The handler maps these throws to `400` (`VALIDATION_ERROR`) with the exception message. (The codebase has no `422`; see the error-code note below.)
 
-**Mapping order (removes the 400-vs-422 ambiguity):** the handler validates the name **first** and returns `400` on failure. Because the name is already valid by the time `saveDefinition` runs, any `InvalidArgumentException` it raises is structural → `422`. `saveDefinition` still re-checks the name (defense-in-depth) but that path is unreachable from the handler.
+Both name and structure failures are `400`; the message distinguishes them. The handler validates the name first (cheap guard, avoids any filesystem touch), then lets `saveDefinition`'s structural `InvalidArgumentException` surface as `400`.
 
 ### Response shapes & status codes
 
 - `GET` one → the raw definition object.
-- `POST` → `201` + stored definition; `409` if exists; `422` invalid structure; `400` invalid name.
-- `PUT` → `200` + stored definition; `422` invalid structure; `400` invalid name.
+- `POST` → `201` + stored definition; `409` if exists; `400` invalid structure or name.
+- `PUT` → `200` + stored definition; `400` invalid structure or name.
 - `DELETE` → `200` (`{ "deleted": true, "name": ... }`); `404` if not found; `400` invalid name.
 - `GET` list → existing shape plus `builtin` per entry.
+
+**Error-code note (reconciled with the codebase):** `ApiErrorCode` has **no `422`** — it maps all validation (`VALIDATION_ERROR`/`MISSING_FIELD`/`INVALID_FORMAT`) to **400** and `CONFLICT` to 409. So both invalid *name* and invalid *structure* return **400** (`VALIDATION_ERROR`), distinguished by the message, following the established convention rather than introducing a new 422 code.
 
 ## Error Handling
 
 - Malformed JSON body → `400` (matches `LoopHandler::create`'s existing handling).
-- Invalid name (traversal/format) → `400`, never touching the filesystem.
-- Invalid structure → `422` with the `fromArray` message.
+- Invalid name (traversal/format) → `400` (`VALIDATION_ERROR`), never touching the filesystem.
+- Invalid structure → `400` (`VALIDATION_ERROR`) with the `fromArray` message.
 - `POST` onto an existing name → `409`.
 - `GET`/`DELETE` unknown name → `404`.
 - Filesystem write failure → `500` (surfaced as a generic server error).
