@@ -305,6 +305,85 @@ final class LoopDiscovery
     }
 
     /**
+     * Validate a definition name — must be a filesystem-safe slug. This is the
+     * path-traversal guard: names become filenames.
+     */
+    public function isValidDefinitionName(string $name): bool
+    {
+        return preg_match('/^[a-z0-9][a-z0-9_-]*$/', $name) === 1;
+    }
+
+    /**
+     * True when a built-in definition of this name ships in config/loops/.
+     */
+    public function isBuiltin(string $name): bool
+    {
+        if (!$this->isValidDefinitionName($name)) {
+            return false;
+        }
+
+        return is_file($this->builtinLoopsDir . '/' . $name . '.json');
+    }
+
+    /**
+     * Validate and persist a loop definition to workspace/loops/{name}.json.
+     *
+     * @param array<string, mixed> $definition
+     * @throws \InvalidArgumentException on an invalid name or structure
+     * @throws \RuntimeException on a write failure
+     */
+    public function saveDefinition(string $name, array $definition): void
+    {
+        if (!$this->isValidDefinitionName($name)) {
+            throw new \InvalidArgumentException(sprintf('Invalid loop definition name: "%s"', $name));
+        }
+
+        // The filename is authoritative for the definition's name.
+        $definition['name'] = $name;
+
+        // Structural validation — throws InvalidArgumentException on a bad shape.
+        $parsed = LoopDefinition::fromArray($definition);
+        if ($parsed->roles === []) {
+            throw new \InvalidArgumentException('A loop definition must declare at least one role');
+        }
+
+        $json = json_encode($definition, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw new \InvalidArgumentException('Loop definition is not JSON-serializable');
+        }
+
+        $this->ensureLoopsDir();
+        $path = $this->loopsDir . '/' . $name . '.json';
+        if (file_put_contents($path, $json . "\n") === false) {
+            throw new \RuntimeException(sprintf('Failed to write loop definition "%s"', $name));
+        }
+
+        $this->invalidateCache();
+    }
+
+    /**
+     * Delete workspace/loops/{name}.json. Returns whether a file was removed.
+     *
+     * @throws \InvalidArgumentException on an invalid name
+     */
+    public function deleteDefinition(string $name): bool
+    {
+        if (!$this->isValidDefinitionName($name)) {
+            throw new \InvalidArgumentException(sprintf('Invalid loop definition name: "%s"', $name));
+        }
+
+        $path = $this->loopsDir . '/' . $name . '.json';
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $deleted = unlink($path);
+        $this->invalidateCache();
+
+        return $deleted;
+    }
+
+    /**
      * Invalidate the in-memory cache, forcing a re-scan on next access.
      */
     public function invalidateCache(): void
