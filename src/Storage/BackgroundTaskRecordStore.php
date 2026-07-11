@@ -450,6 +450,32 @@ final class BackgroundTaskRecordStore
     }
 
     /**
+     * Get the most recent task events, newest-first.
+     *
+     * Unlike {@see getTaskEvents()} (oldest-first, cursor-friendly), this
+     * returns the newest N events for read-models that surface current
+     * activity regardless of how many events a task has produced.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getRecentTaskEvents(string $taskId, int $limit = 50): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, event_type, data, created_at
+            FROM task_events
+            WHERE task_id = :task_id
+            ORDER BY id DESC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('task_id', $taskId);
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Add pending user input for a running task.
      */
     public function addTaskInput(string $taskId, string $content): string
