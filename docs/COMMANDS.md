@@ -97,7 +97,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/image help` | Show the same standardized image toolkit command reference |
 | `/image generate <prompt>` | Generate an image through the installed image toolkit and save it into the workspace image library |
 | `/image preview <path>` | Render an existing workspace image as a low-fidelity terminal preview |
-| `/image list` | Browse saved image records; interactive REPL opens a fullscreen browser and `--profile`, `--vendor`, `--category`, `--tag`, and `--sort` narrow the result set |
+| `/image list` | Browse saved image records; `--profile`, `--vendor`, `--category`, `--tag`, and `--sort` narrow the result set |
 | `/image search <query>` | Search saved image records by prompt, tags, owner, profile, model, vendor, or path |
 | `/image get <record-id>` | Show one saved image record |
 | `/image tag <record-id> <tag1,tag2>` | Update tags and optional category for a saved image record |

@@ -30,5 +30,4 @@ Handle yourself: simple questions, file reads, quick shell commands, dependency/
 
 When you lack a capability, extend yourself before giving up:
 1. **Coqui Mods** — search `mods_toolkits` and `mods_skills` for community extensions.
-2. **Packagist** — use `packagist` to find PHP libraries, then `composer` to install them.
-3. **Install it** — add an existing toolkit package when one already matches the need.
+2. **Install it** — add an existing toolkit package when one already matches the need.

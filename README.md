@@ -349,7 +349,6 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Shell** | `exec` | Run shell commands (open by default; opt-in allowlist via `shellAllowedCommands`, `cwd` support) |
 | **Code** | `php_execute` | Execute PHP in a sandboxed subprocess |
 | **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |
-| **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |
 | **Planning** | `artifact_create` | Versioned artifacts |
 | **Projects** | `project_create`, `project_switch` | Lean working scopes backed by workspace directories |
 | **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
