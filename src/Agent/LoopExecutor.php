@@ -105,6 +105,20 @@ final class LoopExecutor
         // Resolve project: explicit → session active → auto-create
         $resolvedProjectId = $this->resolveProject($definition, $goal, $projectId, $projectSlug, $sessionId);
 
+        // Headless start: no conversation session was supplied. Auto-provision a
+        // hidden loop-owned work-scope session so LoopManager can propagate the
+        // project to stage sessions (cross-stage artifacts are project-scoped) and
+        // the live view has a work_scope_session_id — full parity with chat loops.
+        $headless = $sessionId === null;
+        if ($headless && $this->sessionStorage !== null) {
+            $sessionId = $this->sessionStorage->createSession(
+                modelRole: 'orchestrator',
+                model: '',
+                visibility: 'hidden',
+            );
+            $this->sessionStorage->setActiveProject($sessionId, $resolvedProjectId);
+        }
+
         // Snapshot the definition so edits don't affect running loops
         $configuration = $definition->toArray();
 
@@ -143,6 +157,7 @@ final class LoopExecutor
             deadline: $deadline,
             terminationCriteria: $terminationCriteria,
             metadata: [
+                'origin' => $headless ? 'headless' : 'conversation',
                 'dispatch' => [
                     'status' => 'pending',
                     'message' => 'Waiting for the API loop manager to create the first stage background task.',
