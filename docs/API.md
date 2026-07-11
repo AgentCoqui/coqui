@@ -3324,6 +3324,8 @@ Use `session_id` when the loop should inherit the session's active project and d
 
 When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
+**Headless start.** Omit `session_id` (send just `{definition, goal}`, optionally a project) to start a loop with no conversation. Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project, so cross-stage artifacts stay project-scoped exactly as they do for chat-started loops. Such loops record `metadata.origin: "headless"` (vs `"conversation"` when a `session_id` is supplied); see the `origin`/`headless` fields on the loop read endpoints below.
+
 **Request Body**
 
 ```json
@@ -3385,6 +3387,9 @@ List all loops with optional status filter.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `status` | string | Filter by status: `running`, `paused`, `completed`, `failed`, `cancelled` |
+| `headless` | boolean | Filter by origin: `true`/`1` returns only headless loops, `false`/`0` only conversation loops |
+
+Each returned loop carries a derived `headless` boolean (`true` when the loop was started with no conversation session).
 
 **Response `200`**
 
@@ -3398,6 +3403,7 @@ List all loops with optional status filter.
       "status": "running",
       "current_iteration": 2,
       "current_stage": 1,
+      "headless": false,
       "created_at": "2026-02-16T14:00:00Z",
       "updated_at": "2026-02-16T14:30:00Z"
     }
@@ -3550,7 +3556,7 @@ Return aggregate counts and timing summaries for a loop.
 
 #### `GET /api/v1/loops/{id}`
 
-Get detailed loop status including current iteration and stage information.
+Get detailed loop status including current iteration and stage information. The loop object carries `origin` (`headless` or `conversation`).
 
 **Response `200`**
 
@@ -3563,6 +3569,7 @@ Get detailed loop status including current iteration and stage information.
     "status": "running",
     "current_iteration": 2,
     "current_stage": 1,
+    "origin": "conversation",
     "configuration": "{...}",
     "metadata": {
       "dispatch": {
