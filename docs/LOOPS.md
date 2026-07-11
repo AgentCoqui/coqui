@@ -155,7 +155,13 @@ This is an architectural constraint, not configuration — these toolkits are on
 
 ## Custom Loop Definitions
 
-Create JSON files in `workspace/loops/`:
+Create JSON files in `workspace/loops/` — either by hand, or over the API with
+full CRUD (`GET`/`POST`/`PUT`/`DELETE /api/v1/loops/definitions[/{name}]`; see
+[API.md](API.md)). The definition name must match `^[a-z0-9][a-z0-9_-]*$` and
+becomes the filename. Built-in definitions are editable and deletable like any
+other; a deleted built-in re-seeds from `config/loops/` on the next boot.
+
+Example file:
 
 ```json
 {
@@ -252,7 +258,11 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `GET` | `/api/v1/loops` | List loops |
 | `GET` | `/api/v1/loops/active/count` | Count running loops |
 | `POST` | `/api/v1/loops` | Create/start a loop |
-| `GET` | `/api/v1/loops/definitions` | List definitions |
+| `GET` | `/api/v1/loops/definitions` | List definitions (each flagged `builtin`) |
+| `GET` | `/api/v1/loops/definitions/{name}` | Get one raw definition |
+| `POST` | `/api/v1/loops/definitions` | Create a definition (409 if it exists) |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Upsert a definition |
+| `DELETE` | `/api/v1/loops/definitions/{name}` | Delete a definition |
 | `GET` | `/api/v1/loops/{id}` | Get loop details |
 | `GET` | `/api/v1/loops/{id}/history` | Get full loop iteration history |
 | `GET` | `/api/v1/loops/{id}/metrics` | Get aggregate loop metrics |
