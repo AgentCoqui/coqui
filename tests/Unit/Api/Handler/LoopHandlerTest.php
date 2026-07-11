@@ -560,3 +560,43 @@ test('loop handler skips the current failed stage and reopens the iteration', fu
         cleanupLoopHandlerFixture($fixture);
     }
 });
+test('GET /loops/{id}/live returns a snapshot for a known loop', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $loopId = $fixture['loopStore']->createLoop(
+            definitionName: 'harness',
+            goal: 'do the thing',
+            configuration: ['roles' => [['role' => 'plan']]],
+            maxIterations: 3,
+        );
+
+        $response = $fixture['handler']->live(
+            new ServerRequest('GET', "/api/v1/loops/{$loopId}/live"),
+            $loopId,
+        );
+        expect($response->getStatusCode())->toBe(200);
+
+        $body = json_decode((string) $response->getBody(), true);
+        expect($body['loop']['id'])->toBe($loopId);
+        expect($body['loop']['goal'])->toBe('do the thing');
+        expect($body['budget']['iterations'])->toBe(['used' => 0, 'max' => 3]);
+        expect($body)->toHaveKeys(['loop', 'position', 'current_stage', 'budget', 'stages', 'recent_events']);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('GET /loops/{id}/live 404s for an unknown loop', function (): void {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->live(
+            new ServerRequest('GET', '/api/v1/loops/nope/live'),
+            'nope',
+        );
+        expect($response->getStatusCode())->toBe(404);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});

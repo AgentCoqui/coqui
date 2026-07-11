@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\LoopLiveViewBuilder;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Agent\LoopExecutor;
@@ -26,6 +27,7 @@ use React\Http\Message\Response;
  * GET    /api/v1/loops/{id}               — get loop status
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
  * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
+ * GET    /api/v1/loops/{id}/live          — get rich live snapshot (current stage, model, budget, events)
  * POST   /api/v1/loops/{id}/skip-stage    — skip current non-running stage
  * POST   /api/v1/loops/{id}/pause         — pause loop
  * POST   /api/v1/loops/{id}/resume        — resume loop
@@ -324,6 +326,23 @@ final readonly class LoopHandler
                 'iteration_timings' => $timings,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/v1/loops/{id}/live
+     */
+    public function live(ServerRequestInterface $request, string $id): Response
+    {
+        if ($this->storage === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop live view is not available');
+        }
+
+        $snapshot = (new LoopLiveViewBuilder($this->store, $this->storage))->build($id);
+        if ($snapshot === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        return Router::jsonResponse($snapshot->toArray());
     }
 
     /**
@@ -717,6 +736,7 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/history', [$this, 'history']);
         $router->get($v1 . '/loops/{id}/metrics', [$this, 'metrics']);
+        $router->get($v1 . '/loops/{id}/live', [$this, 'live']);
         if ($this->executor !== null) {
             $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
             $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);
