@@ -549,6 +549,7 @@ final class OrchestratorAgent extends AbstractAgent
                 'activeProfile' => $this->activeProfile,
                 'sessionId' => $this->sessionId,
                 'mcp_runtime' => $this->mcpRuntime,
+                'storage' => $this->storage,
             ]) as $entry) {
                 $packageName = $entry['package'];
                 $toolkit = $entry['toolkit'];
