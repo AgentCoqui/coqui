@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - PHP 8.4, `declare(strict_types=1);`, 4-space indent, constructor injection.
-- **Parallel-launch isolation:** develop in a git worktree off `origin/main` (runs alongside the Live View + Headless efforts). From `/home/carmelo/Projects/CoquiBot/Core/coqui`: `git fetch origin && git worktree add -b feat/loop-custom-definitions-impl ../coqui-loop-defs origin/main && cd ../coqui-loop-defs && composer install`. Worktree `git status` starts clean; do not touch the primary checkout.
+- **Parallel-launch isolation:** develop in a git worktree off `origin/feat/loop-custom-definitions` (= `main` + this spec/plan, no code diff), so you have the plan locally and run alongside the Live View + Headless efforts. From `/home/carmelo/Projects/CoquiBot/Core/coqui`: `git fetch origin && git worktree add -b feat/loop-custom-definitions-impl ../coqui-loop-defs origin/feat/loop-custom-definitions && cd ../coqui-loop-defs && composer install`. Worktree `git status` starts clean; do not touch the primary checkout.
 - **Never `git add -A` / `git add .`** — stage only exact paths.
 - Every commit message ends with: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 - `composer test` and `composer analyse` both green before every commit.
