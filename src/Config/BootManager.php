@@ -12,7 +12,6 @@ use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Provider\ReactCliRuntime;
-use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\OpenClawConfig as CoquiOpenClawConfig;
 use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
@@ -48,7 +47,6 @@ final class BootManager
     private string $workspacePath;
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
-    private ?ChannelDiscovery $channelDiscovery = null;
     private ToolkitVisibilityRegistry $visibilityRegistry;
     private SkillDiscovery $skillDiscovery;
     private RoleDiscovery $roleDiscovery;
@@ -112,7 +110,6 @@ final class BootManager
         $this->initializeArtifacts($skipMaintenance);
         $this->discoverLoops();
         $this->discoverToolkits($io);
-        $this->discoverChannels($io);
         $this->seedPackageContent();
         $this->discoverSkills();
         $this->initializeMods();
@@ -189,15 +186,6 @@ final class BootManager
     public function discovery(): ToolkitDiscovery
     {
         return $this->discovery;
-    }
-
-    public function channelDiscovery(): ChannelDiscovery
-    {
-        if ($this->channelDiscovery === null) {
-            throw new \LogicException('Channel discovery is not available before boot completes.');
-        }
-
-        return $this->channelDiscovery;
     }
 
     /**
@@ -664,20 +652,6 @@ final class BootManager
 
         if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
             $io->writeln('Discovered new toolkits: ' . implode(', ', $newToolkits));
-        }
-    }
-
-    private function discoverChannels(OutputInterface|SymfonyStyle|null $io): void
-    {
-        $this->channelDiscovery = new ChannelDiscovery(
-            $this->workDir,
-            $this->workspacePath,
-            $this->credentialResolver,
-        );
-        $newDrivers = $this->channelDiscovery->discoverAll();
-
-        if (!empty($newDrivers) && $io !== null && $io->isVerbose()) {
-            $io->writeln('Discovered new channel drivers: ' . implode(', ', $newDrivers));
         }
     }
 

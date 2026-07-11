@@ -8,8 +8,6 @@ use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\SessionTitleJobManager;
-use CoquiBot\Coqui\Api\ChannelExecutionManager;
-use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
@@ -18,7 +16,6 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
-use CoquiBot\Coqui\Api\Handler\ChannelHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
@@ -47,7 +44,6 @@ use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
-use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
@@ -60,7 +56,6 @@ use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
-use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -226,7 +221,6 @@ final class ApiCommand extends Command
         // Schedule & webhook stores (created early for health endpoint)
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
-        $channelStore = new ChannelStore($storage->getPdo());
         $runtimeStateStore = new RuntimeStateStore($storage->getPdo());
         $lifecycle = new ApiLifecycleController(
             runtimeStateStore: $runtimeStateStore,
@@ -248,24 +242,6 @@ final class ApiCommand extends Command
         $notificationAutomationConfig = $notificationConfig['automation'];
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
-        $channelManager = new ChannelManager(
-            config: $boot->config(),
-            discovery: $boot->channelDiscovery(),
-            store: $channelStore,
-            configManager: $boot->configManager(),
-            runtimeContext: [
-                'workspacePath' => $boot->workspacePath(),
-                'projectRoot' => $workDir,
-                'credentialResolver' => $boot->credentialResolver(),
-            ],
-        );
-        $channelManager->reconcile();
-        $channelExecutionManager = new ChannelExecutionManager(
-            $boot->config(),
-            $channelStore,
-            $storage,
-            $boot->roleResolver(),
-        );
         // Workspace file watcher — polls directories for changes
         $watcher = new WorkspaceWatcher();
         $schedulesDir = $boot->workspacePath() . '/schedules';
@@ -319,7 +295,7 @@ final class ApiCommand extends Command
         }
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $lifecycle);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $lifecycle);
         $profileSessionLifecycle = new ProfileSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
@@ -350,7 +326,7 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $lifecycle);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -380,14 +356,6 @@ final class ApiCommand extends Command
         $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery(), $storage, $webhookDispatcher);
-        $channelHandler = new ChannelHandler(
-            $channelStore,
-            $channelManager,
-            new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery(), $storage),
-            $boot->channelDiscovery(),
-            $boot->profileDiscovery(),
-            $lifecycle,
-        );
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
@@ -397,7 +365,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -450,10 +418,9 @@ final class ApiCommand extends Command
         $context = ['socket' => ['so_reuseaddr' => true]];
         $socket = new SocketServer($listenAddress, $context);
 
-        $lifecycle->configureRestartHandler(function (string $reason) use ($output, $socket, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
-            Loop::addTimer(0.15, function () use ($reason, $output, $socket, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
+        $lifecycle->configureRestartHandler(function (string $reason) use ($output, $socket, $taskManager, $titleJobManager, $turnManager): void {
+            Loop::addTimer(0.15, function () use ($reason, $output, $socket, $taskManager, $titleJobManager, $turnManager): void {
                 $output->writeln(sprintf('<comment>Restart requested: %s</comment>', $reason));
-                $channelManager->shutdown();
                 $turnManager->shutdown();
                 $titleJobManager->shutdown();
                 $taskManager->shutdown();
@@ -465,14 +432,13 @@ final class ApiCommand extends Command
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
         // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
-        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $titleJobManager, $turnManager): void {
             $output->writeln('');
             if ($signal === 2) {
                 $output->writeln('');
                 $output->writeln(' <info>[INFO] Shutting down Coqui.</info>');
                 $output->writeln('');
             }
-            $channelManager->shutdown();
             $turnManager->shutdown();
             $titleJobManager->shutdown();
             $taskManager->shutdown();
@@ -562,14 +528,6 @@ final class ApiCommand extends Command
             });
         }
 
-        Loop::addPeriodicTimer(5.0, static function () use ($channelManager): void {
-            $channelManager->tick();
-        });
-
-        Loop::addPeriodicTimer(2.0, static function () use ($channelExecutionManager): void {
-            $channelExecutionManager->tick();
-        });
-
         return Command::SUCCESS;
     }
 
@@ -601,7 +559,6 @@ final class ApiCommand extends Command
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
-        ChannelHandler $channel,
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
         ?SessionProjectHandler $sessionProject,
@@ -735,9 +692,6 @@ final class ApiCommand extends Command
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
-
-        // Channels
-        $channel->register($router);
 
         // Loops
         $loop?->register($router);

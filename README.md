@@ -58,7 +58,6 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
-- 📨 [**Channels**](docs/FEATURES.md#channels) — Signal-backed external messaging with API-managed inbound and outbound delivery
 - 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
 - 🔁 [**Loops**](docs/FEATURES.md#loops) — fully automated multi-iteration workflows chaining roles in sequence
 - 🧩 [**Cognitive Flexibility**](docs/FEATURES.md#cognitive-flexibility) — creative muse and philosopher roles, diverge-converge loops, sketch/hypothesis artifacts
@@ -519,7 +518,6 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
-| [Channels](docs/CHANNELS.md) | Signal channel setup, linking, and end-to-end testing |
 | [API](docs/API.md) | Canonical HTTP API reference and client integration guide |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
 | [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |

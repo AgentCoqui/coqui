@@ -53,21 +53,6 @@ final class CoquiDefaults
     /** SQLite page cache size in KiB for toolkit-scoped databases (smaller; many small DBs). */
     public const int SQLITE_TOOLKIT_CACHE_SIZE_KB = -4000;
 
-    /** Default policy for unknown identities arriving through channels (config: channels.defaults.unknownUserPolicy). */
-    public const string CHANNEL_UNKNOWN_USER_POLICY = 'deny';
-
-    /** Default execution policy for channel-origin turns (config: channels.defaults.executionPolicy). */
-    public const string CHANNEL_EXECUTION_POLICY = 'channel_untrusted';
-
-    /** Default per-instance inbound rate limit for channels (config: channels.defaults.inboundRateLimit). */
-    public const int CHANNEL_INBOUND_RATE_LIMIT = 60;
-
-    /** Default outbound worker concurrency for channels (config: channels.defaults.outboundConcurrency). */
-    public const int CHANNEL_OUTBOUND_CONCURRENCY = 4;
-
-    /** Default cadence for channel health reconciliation (config: channels.defaults.healthCheckIntervalSeconds). */
-    public const int CHANNEL_HEALTH_CHECK_INTERVAL_SECONDS = 30;
-
     /** Default recent turns preserved during on-demand summarization (config: agents.defaults.context.keepRecentTurns). */
     public const int KEEP_RECENT_TURNS = 24;
 

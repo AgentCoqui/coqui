@@ -27,8 +27,6 @@ coqui -w
 
 Most config changes require a restart to take effect. Coqui normally loads configuration once at boot and constructs internal components from it. A restart ensures every component is freshly initialized with the new values.
 
-Exception: channel instance mutations made through the dedicated channel API endpoints are reconciled live into the running API server after the config file is saved. REPL edits, manual edits, and all other config changes still require restart.
-
 **After editing config, restart using one of these methods:**
 
 | Change Source | How Restart Happens |
@@ -151,78 +149,9 @@ The simplest valid config only needs a primary model:
         "tasks": {
             "maxConcurrent": 6
         }
-    },
-    "channels": {
-        "defaults": {
-            "unknownUserPolicy": "deny",
-            "executionPolicy": "interactive",
-            "inboundRateLimit": 30,
-            "outboundConcurrency": 2,
-            "healthCheckIntervalSeconds": 30
-        },
-        "instances": {
-            "signal-primary": {
-                "driver": "signal",
-                "enabled": true,
-                "displayName": "Signal Primary",
-                "defaultProfile": "caelum",
-                "settings": {
-                    "account": "+15551234567",
-                    "binary": "signal-cli",
-                    "ignoreAttachments": true,
-                    "sendReadReceipts": false,
-                    "receiveMode": "on-start"
-                },
-                "allowedScopes": ["family-group"],
-                "security": {
-                    "linkRequired": true
-                }
-            }
-        }
     }
 }
 ```
-
-## Channels (`channels`)
-
-Channels define external response transports owned by the API server.
-
-### `channels.defaults`
-
-| Key | Type | Required | Description |
-| --- | ---- | -------- | ----------- |
-| `unknownUserPolicy` | string | no | Default handling for unlinked remote users |
-| `executionPolicy` | string | no | Default execution mode for inbound channel work |
-| `defaultProfile` | string | no | Default profile to use when an instance does not override it |
-| `inboundRateLimit` | int | no | Per-instance inbound rate limit used by channel runtimes |
-| `outboundConcurrency` | int | no | Max concurrent outbound deliveries per instance |
-| `healthCheckIntervalSeconds` | int | no | Target runtime health update cadence |
-
-### `channels.instances`
-
-Instances may be declared as a keyed object or a list. Each instance supports these fields:
-
-| Key | Type | Required | Description |
-| --- | ---- | -------- | ----------- |
-| `driver` | string | yes | Driver identifier such as `signal`, `telegram`, or `discord` |
-| `enabled` | bool | no | Whether the instance should start in the API server |
-| `displayName` | string | no | Human-readable operator label |
-| `defaultProfile` | string | no | Profile used for inbound conversations and proactive sends |
-| `settings` | object | no | Driver-specific settings block |
-| `allowedScopes` | string[] | no | Allowed remote group/scope identifiers |
-| `security` | object | no | Instance-specific security policy |
-
-Signal currently has a concrete built-in runtime backed by `signal-cli` JSON-RPC notifications. Supported `settings` keys for the Signal driver are:
-
-| Key | Type | Required | Description |
-| --- | ---- | -------- | ----------- |
-| `account` | string | yes | Signal account identifier passed to `signal-cli -a` |
-| `binary` | string | no | Override the `signal-cli` executable path |
-| `ignoreAttachments` | bool | no | Ignore attachment downloads while receiving |
-| `sendReadReceipts` | bool | no | Enable automatic read receipts |
-| `receiveMode` | string | no | Currently only `on-start` is supported |
-
-See [CHANNELS.md](CHANNELS.md) for the Signal installation, account registration or linking flow, manual transport tests, and the first end-to-end Coqui test procedure.
 
 ## Agent Defaults (`agents.defaults`)
 

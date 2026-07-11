@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
@@ -33,6 +32,8 @@ test('getSession returns session data', function () {
     expect($session['model'])->toBe('anthropic/claude');
     expect($session['session_type'])->toBe('interactive');
     expect($session['session_origin'])->toBe('user');
+    expect($session)->not->toHaveKey('channel');
+    expect($session['session_origin'] ?? null)->not->toBe('channel');
 });
 
 test('group sessions expose explicit session type alongside compatibility fields', function () {
@@ -283,27 +284,6 @@ test('getSurfacedSession excludes hidden sessions', function () {
     expect($this->storage->getSurfacedSession($hiddenId))->toBeNull();
 });
 
-test('session origin is derived as channel for channel-linked sessions', function () {
-    $sessionId = $this->storage->createSession('orchestrator', 'model');
-    $channelStore = new ChannelStore($this->storage->getPdo());
-    $channelStore->upsertConfiguredInstance([
-        'name' => 'signal-primary',
-        'driver' => 'signal',
-        'display_name' => 'Signal Primary',
-        'default_profile' => 'caelum',
-        'bound_session_id' => $sessionId,
-        'settings' => ['account' => '+15551234567'],
-        'allowed_scopes' => [],
-        'security' => ['linkRequired' => true],
-    ], ['direct_messages' => true]);
-
-    $session = $this->storage->getSession($sessionId);
-
-    expect($session)->not->toBeNull();
-    expect($session['channel_bound'])->toBeTrue();
-    expect($session['session_origin'])->toBe('channel');
-});
-
 test('reopening storage repairs legacy visible background task sessions', function () {
     $sessionId = $this->storage->createSession('learner', 'legacy-model');
     $this->storage->createTask($sessionId, 'Legacy background task', 'learner');
@@ -317,33 +297,6 @@ test('reopening storage repairs legacy visible background task sessions', functi
     expect($session['visibility'])->toBe('hidden');
     expect($session['session_origin'])->toBe('background');
     expect($this->storage->getSurfacedSession($sessionId))->toBeNull();
-});
-
-test('reopening storage preserves visible channel sessions with task records', function () {
-    $sessionId = $this->storage->createSession('orchestrator', 'channel:signal');
-    $channelStore = new ChannelStore($this->storage->getPdo());
-    $channelStore->upsertConfiguredInstance([
-        'name' => 'signal-primary',
-        'driver' => 'signal',
-        'display_name' => 'Signal Primary',
-        'default_profile' => 'caelum',
-        'bound_session_id' => $sessionId,
-        'settings' => ['account' => '+15551234567'],
-        'allowed_scopes' => [],
-        'security' => ['linkRequired' => true],
-    ], ['direct_messages' => true]);
-    $this->storage->createTask($sessionId, 'Channel reply task', 'orchestrator');
-
-    unset($this->storage);
-    $this->storage = new SessionStorage($this->dbPath);
-
-    $session = $this->storage->getSession($sessionId);
-
-    expect($session)->not->toBeNull();
-    expect($session['visibility'])->toBe('visible');
-    expect($session['channel_bound'])->toBeTrue();
-    expect($session['session_origin'])->toBe('channel');
-    expect($this->storage->getSurfacedSession($sessionId))->not->toBeNull();
 });
 
 test('updateTokenCount updates session tokens', function () {
@@ -722,23 +675,9 @@ test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function
     expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
 });
 
-test('listSessions hides hidden worker sessions and exposes channel metadata', function () {
-    $visibleSessionId = $this->storage->createSession('orchestrator', 'channel:signal', 'caelum');
+test('listSessions hides hidden worker sessions', function () {
+    $visibleSessionId = $this->storage->createSession('orchestrator', 'model-visible', 'caelum');
     $hiddenSessionId = $this->storage->createSession('orchestrator', 'model-hidden', visibility: 'hidden');
-    $channelStore = new \CoquiBot\Coqui\Storage\ChannelStore($this->storage->getPdo());
-
-    $channelStore->upsertConfiguredInstance([
-        'name' => 'signal-primary',
-        'driver' => 'signal',
-        'enabled' => true,
-        'display_name' => 'Signal Primary',
-        'default_profile' => 'caelum',
-        'bound_session_id' => $visibleSessionId,
-        'settings' => ['account' => '+15551234567'],
-        'allowed_scopes' => [],
-        'security' => [],
-        'source' => 'config',
-    ]);
 
     $sessions = $this->storage->listSessions();
     $sessionIds = array_column($sessions, 'id');
@@ -747,37 +686,7 @@ test('listSessions hides hidden worker sessions and exposes channel metadata', f
     expect($sessionIds)->toContain($visibleSessionId);
     expect($sessionIds)->not->toContain($hiddenSessionId);
     expect($visibleSession)->not->toBeNull();
-    expect($visibleSession['channel_bound'])->toBeTrue();
-    expect($visibleSession['channel']['driver'])->toBe('signal');
-});
-
-test('latest interactive helpers ignore channel bound sessions', function () {
-    $ordinarySessionId = $this->storage->createSession('orchestrator', 'model-ordinary', 'caelum');
-    $channelSessionId = $this->storage->createSession('orchestrator', 'channel:signal', 'caelum');
-    $channelStore = new \CoquiBot\Coqui\Storage\ChannelStore($this->storage->getPdo());
-
-    $channelStore->upsertConfiguredInstance([
-        'name' => 'signal-primary',
-        'driver' => 'signal',
-        'enabled' => true,
-        'display_name' => 'Signal Primary',
-        'default_profile' => 'caelum',
-        'bound_session_id' => $channelSessionId,
-        'settings' => ['account' => '+15551234567'],
-        'allowed_scopes' => [],
-        'security' => [],
-        'source' => 'config',
-    ]);
-
-    $this->storage->getPdo()
-        ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
-        ->execute(['updated_at' => '2026-01-01T00:00:00+00:00', 'id' => $ordinarySessionId]);
-    $this->storage->getPdo()
-        ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
-        ->execute(['updated_at' => '2026-01-05T00:00:00+00:00', 'id' => $channelSessionId]);
-
-    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($ordinarySessionId);
-    expect($this->storage->getLatestInteractiveSessionId())->toBe($ordinarySessionId);
+    expect($visibleSession)->not->toHaveKey('channel');
 });
 
 test('isSessionWritable returns false once a session is closed', function () {

@@ -320,62 +320,6 @@ final class OpenClawConfig implements ConfigInterface
         ];
     }
 
-    /**
-     * Get normalized channel configuration.
-     *
-     * @return array{
-     *     defaults: array<string, mixed>,
-     *     instances: array<string, mixed>
-     * }
-     */
-    public function getChannelConfig(): array
-    {
-        $channels = $this->get('channels', []);
-        $defaults = is_array($channels) && isset($channels['defaults']) && is_array($channels['defaults'])
-            ? $channels['defaults']
-            : [];
-        $instances = is_array($channels) && isset($channels['instances']) && is_array($channels['instances'])
-            ? $channels['instances']
-            : [];
-
-        $normalizedDefaults = [
-            'unknownUserPolicy' => is_string($defaults['unknownUserPolicy'] ?? null)
-                ? $defaults['unknownUserPolicy']
-                : CoquiDefaults::CHANNEL_UNKNOWN_USER_POLICY,
-            'executionPolicy' => is_string($defaults['executionPolicy'] ?? null)
-                ? $defaults['executionPolicy']
-                : CoquiDefaults::CHANNEL_EXECUTION_POLICY,
-            'inboundRateLimit' => is_int($defaults['inboundRateLimit'] ?? null) && $defaults['inboundRateLimit'] > 0
-                ? $defaults['inboundRateLimit']
-                : CoquiDefaults::CHANNEL_INBOUND_RATE_LIMIT,
-            'outboundConcurrency' => is_int($defaults['outboundConcurrency'] ?? null) && $defaults['outboundConcurrency'] > 0
-                ? $defaults['outboundConcurrency']
-                : CoquiDefaults::CHANNEL_OUTBOUND_CONCURRENCY,
-            'healthCheckIntervalSeconds' => is_int($defaults['healthCheckIntervalSeconds'] ?? null) && $defaults['healthCheckIntervalSeconds'] > 0
-                ? $defaults['healthCheckIntervalSeconds']
-                : CoquiDefaults::CHANNEL_HEALTH_CHECK_INTERVAL_SECONDS,
-        ];
-
-        if (isset($defaults['defaultProfile']) && is_string($defaults['defaultProfile']) && trim($defaults['defaultProfile']) !== '') {
-            $normalizedDefaults['defaultProfile'] = trim($defaults['defaultProfile']);
-        }
-
-        foreach ($instances as $name => $instance) {
-            if (!is_array($instance)) {
-                continue;
-            }
-
-            if (isset($instance['boundSessionId']) && is_string($instance['boundSessionId']) && trim($instance['boundSessionId']) !== '') {
-                $instances[$name]['boundSessionId'] = trim($instance['boundSessionId']);
-            }
-        }
-
-        return [
-            'defaults' => $normalizedDefaults,
-            'instances' => $instances,
-        ];
-    }
-
     private function buildAliasMap(): void
     {
         $models = $this->get('agents.defaults.models', []);
