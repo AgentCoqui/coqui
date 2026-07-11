@@ -3548,6 +3548,100 @@ Return aggregate counts and timing summaries for a loop.
 
 **Response `404`** — loop not found.
 
+#### `GET /api/v1/loops/{id}/live`
+
+Return a rich, poll-friendly snapshot of an in-flight loop: where it is, what
+it is running right now, how much it has consumed, a per-stage breakdown, and a
+newest-first feed of recent activity. This is a read-model composed from
+existing loop, task, turn, and event data — it makes no changes to the loop.
+
+Intended for dashboards and status pollers. It is poll-based; clients refresh on
+an interval. (Streaming is a future addition.)
+
+**Response `200`**
+
+```json
+{
+  "loop": {
+    "id": "abc123",
+    "definition_name": "harness",
+    "goal": "Implement a new caching layer",
+    "status": "running",
+    "project_id": null,
+    "work_scope_session_id": null,
+    "started_at": "2026-07-11T10:00:00Z",
+    "last_activity_at": "2026-07-11T10:03:00Z",
+    "completed_at": null,
+    "deadline": "2026-07-11T10:10:00Z"
+  },
+  "position": {
+    "current_iteration": 1,
+    "max_iterations": 4,
+    "current_stage_index": 1,
+    "current_stage_role": "reviewer",
+    "stages_per_iteration": 2
+  },
+  "current_stage": {
+    "stage_id": "stage789",
+    "iteration_number": 1,
+    "stage_index": 1,
+    "role": "reviewer",
+    "model": "claude-sonnet-5",
+    "status": "running",
+    "task_id": "task456",
+    "session_id": "sess456",
+    "started_at": "2026-07-11T10:02:30Z",
+    "last_heartbeat_at": "2026-07-11T10:03:00Z",
+    "latest_activity": {
+      "type": "tool_call",
+      "summary": "Called read",
+      "timestamp": "2026-07-11T10:03:00Z"
+    }
+  },
+  "budget": {
+    "tokens": { "prompt": 100, "completion": 50, "total": 150 },
+    "iterations": { "used": 1, "max": 4 },
+    "time": {
+      "elapsed_seconds": 180,
+      "deadline": "2026-07-11T10:10:00Z",
+      "remaining_seconds": 420
+    }
+  },
+  "stages": [
+    {
+      "iteration_number": 1,
+      "stage_index": 0,
+      "role": "plan",
+      "model": "claude-sonnet-5",
+      "status": "completed",
+      "tokens": { "prompt": 100, "completion": 50, "total": 150 },
+      "duration_ms": 1200,
+      "tools_used": ["grep", "read"],
+      "result_summary": "planned",
+      "started_at": "2026-07-11T10:00:05Z",
+      "completed_at": "2026-07-11T10:02:25Z",
+      "task_id": "task123"
+    }
+  ],
+  "recent_events": [
+    {
+      "timestamp": "2026-07-11T10:03:00Z",
+      "stage_id": "stage789",
+      "role": "reviewer",
+      "type": "tool_call",
+      "summary": "Called read"
+    }
+  ]
+}
+```
+
+`current_stage` is `null` when no stage is currently running. Fields that have
+no data yet are `null` (e.g. `model` and zeroed `tokens` for a stage whose first
+turn has not completed). `time.remaining_seconds` is `null` when the loop has no
+deadline.
+
+**Response `404`** — loop not found.
+
 #### `GET /api/v1/loops/{id}`
 
 Get detailed loop status including current iteration and stage information.

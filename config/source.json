@@ -970,6 +970,33 @@
             ]
         },
         {
+            "path": "src/Contract/LoopLiveEvent.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveEvent",
+            "layer": "contract",
+            "description": "Immutable value object for one entry in a loop's recent-activity feed, used by LoopLiveViewBuilder and the GET /api/v1/loops/{id}/live endpoint. Captures timestamp, stage id, role, event type, and a human summary.",
+            "methods": [
+                "toArray(): array - serialize the event to a snake_case array"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopLiveStage.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveStage",
+            "layer": "contract",
+            "description": "Immutable value object for one stage's rolled-up execution data in the loop live view: iteration/stage index, role, model, status, prompt/completion/total tokens, duration, tools used, result summary, timestamps, and task id. Built by LoopLiveViewBuilder.",
+            "methods": [
+                "toArray(): array - serialize the stage with nested tokens block"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopLiveSnapshot.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopLiveSnapshot",
+            "layer": "contract",
+            "description": "Immutable top-level snapshot returned by LoopLiveViewBuilder and serialized by GET /api/v1/loops/{id}/live. Groups loop meta, position, current running stage, consumption budget, per-stage LoopLiveStage list, and a newest-first LoopLiveEvent feed.",
+            "methods": [
+                "toArray(): array - serialize the snapshot with nested stages and events"
+            ]
+        },
+        {
             "path": "src/Contract/IterationOutcome.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
             "layer": "contract",
@@ -3065,12 +3092,22 @@
             ]
         },
         {
+            "path": "src/Api/LoopLiveViewBuilder.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopLiveViewBuilder",
+            "layer": "agent",
+            "description": "Pure read-model that assembles a rich, poll-friendly snapshot of an in-flight loop for GET /api/v1/loops/{id}/live. Composes existing store methods (LoopStore::getLoop/listIterations/listStages, SessionStorage::getTask/getTurns/getTaskEvents) over the loop -> stage(task) -> session -> turns chain to produce per-stage model/token rollups, a consumption budget (tokens, iterations, elapsed/remaining time against an injectable now), the current running stage with heartbeat and latest activity, and a newest-first recent-event feed. No schema, storage-query, or loop-execution changes; returns null for an unknown loop.",
+            "methods": [
+                "build(string, ?string): ?LoopLiveSnapshot — build the live snapshot for a loop id (optional injected now), null if unknown"
+            ]
+        },
+        {
             "path": "src/Api/Handler/LoopHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
             "layer": "agent",
-            "description": "REST API endpoints for loop CRUD and control. 10 endpoints: list, create, definitions, get, delete, pause, resume, stop, iterations, iteration. Self-registers routes via register(Router).",
+            "description": "REST API endpoints for loop CRUD and control. Endpoints: list, create, definitions, get, history, metrics, live, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. Self-registers routes via register(Router).",
             "methods": [
                 "register(Router): void — register all loop API routes",
+                "live(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/live (rich live snapshot via LoopLiveViewBuilder)",
                 "list(ServerRequestInterface): Response — GET /api/v1/loops",
                 "create(ServerRequestInterface): Response — POST /api/v1/loops",
                 "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions",

@@ -219,6 +219,15 @@ loop_status(id: "loop123")
 
 Returns: current iteration/stage, status, elapsed time, and stage results.
 
+### Observing a Running Loop
+
+For a live, poll-friendly view of an in-flight loop, use
+`GET /api/v1/loops/{id}/live`. It returns the loop's current stage and model, its
+consumption budget (tokens, iterations, elapsed/remaining time), a per-stage
+breakdown, and a newest-first feed of recent activity — everything a dashboard or
+status poller needs in one call. It is a pure read-model over existing loop, task,
+turn, and event data. See [API.md](API.md) for the full response shape.
+
 ### Pause and Resume
 
 ```
@@ -256,6 +265,7 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `GET` | `/api/v1/loops/{id}` | Get loop details |
 | `GET` | `/api/v1/loops/{id}/history` | Get full loop iteration history |
 | `GET` | `/api/v1/loops/{id}/metrics` | Get aggregate loop metrics |
+| `GET` | `/api/v1/loops/{id}/live` | Get rich live snapshot (current stage, model, budget, events) |
 | `PATCH` | `/api/v1/loops/{id}` | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Pause loop |
