@@ -3153,109 +3153,109 @@
                     "heading": "Built-in Tools",
                     "level": 2,
                     "line_start": 341,
-                    "line_end": 361
+                    "line_end": 360
                 },
                 {
                     "heading": "Extending Coqui",
                     "level": 2,
-                    "line_start": 362,
-                    "line_end": 369
+                    "line_start": 361,
+                    "line_end": 368
                 },
                 {
                     "heading": "Performance",
                     "level": 2,
-                    "line_start": 370,
-                    "line_end": 381
+                    "line_start": 369,
+                    "line_end": 380
                 },
                 {
                     "heading": "OPcache & JIT",
                     "level": 3,
-                    "line_start": 382,
-                    "line_end": 403
+                    "line_start": 381,
+                    "line_end": 402
                 },
                 {
                     "heading": "Benchmarking",
                     "level": 3,
-                    "line_start": 404,
-                    "line_end": 413
+                    "line_start": 403,
+                    "line_end": 412
                 },
                 {
                     "heading": "SQLite Tuning",
                     "level": 3,
-                    "line_start": 414,
-                    "line_end": 417
+                    "line_start": 413,
+                    "line_end": 416
                 },
                 {
                     "heading": "Docker",
                     "level": 2,
-                    "line_start": 418,
-                    "line_end": 425
+                    "line_start": 417,
+                    "line_end": 424
                 },
                 {
                     "heading": "Quick Start (Docker)",
                     "level": 3,
-                    "line_start": 426,
-                    "line_end": 441
+                    "line_start": 425,
+                    "line_end": 440
                 },
                 {
                     "heading": "Profiling UI (Docker)",
                     "level": 3,
-                    "line_start": 442,
-                    "line_end": 458
+                    "line_start": 441,
+                    "line_end": 457
                 },
                 {
                     "heading": "Connect to Ollama",
                     "level": 3,
-                    "line_start": 459,
-                    "line_end": 466
+                    "line_start": 458,
+                    "line_end": 465
                 },
                 {
                     "heading": "Toolkit Discovery In Docker",
                     "level": 3,
-                    "line_start": 467,
-                    "line_end": 470
+                    "line_start": 466,
+                    "line_end": 469
                 },
                 {
                     "heading": "Useful Commands",
                     "level": 3,
-                    "line_start": 471,
-                    "line_end": 488
+                    "line_start": 470,
+                    "line_end": 487
                 },
                 {
                     "heading": "Configuration",
                     "level": 3,
-                    "line_start": 489,
-                    "line_end": 500
+                    "line_start": 488,
+                    "line_end": 499
                 },
                 {
                     "heading": "File Overview",
                     "level": 3,
-                    "line_start": 501,
-                    "line_end": 511
+                    "line_start": 500,
+                    "line_end": 510
                 },
                 {
                     "heading": "Documentation",
                     "level": 2,
-                    "line_start": 512,
-                    "line_end": 529
+                    "line_start": 511,
+                    "line_end": 528
                 },
                 {
                     "heading": "Community",
                     "level": 2,
-                    "line_start": 530,
-                    "line_end": 536
+                    "line_start": 529,
+                    "line_end": 535
                 },
                 {
                     "heading": "Contributing",
                     "level": 2,
-                    "line_start": 537,
-                    "line_end": 550
+                    "line_start": 536,
+                    "line_end": 549
                 },
                 {
                     "heading": "License",
                     "level": 2,
-                    "line_start": 551,
-                    "line_end": 553
+                    "line_start": 550,
+                    "line_end": 552
                 }
             ]
         }
