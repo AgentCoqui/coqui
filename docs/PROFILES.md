@@ -9,6 +9,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - The profile's `soul.md` replaces the default soul prompt, shaping the agent's personality, tone, and values.
 - Optional `soul.md` frontmatter can define a profile-level default model.
 - Optional `backstory.md` provides persistent identity context (origin, milestones, narrative) loaded after soul.md.
+- Optional `context/*.md` notes provide supplementary context loaded after backstory.
 - Optional `preferences.json` defines behavioral settings, prompt policy, and prompt labels.
 - Optional prompt overrides (`base.md`, `security.md`, `done.md`, `tools/*.md`) replace or supplement defaults.
 - Optional role overrides in `profiles/{name}/roles/*.md` replace workspace role files for that profile only.
@@ -19,7 +20,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Coqui enforces a single active interactive session per profile. If duplicate active sessions are found for a profile during startup or `/profile` switching, Coqui keeps the newest one and archives/closes the older duplicates.
 - Starting `/new` while a profile is active warns that the current profiled conversation will be summarized, have memories extracted, and then be archived/closed before the fresh profiled session begins.
 
-> **Leaner prompts:** The default (no-profile) soul and base prompts are deliberately lean — identity, values, and workflow, without tone/voice or emotional-calibration guidance. A profile's `soul.md` *replaces* that default, so a verbose profile soul reintroduces persona text. For the leanest possible prompt, keep the profile `soul.md` short, omit `backstory.md`, or stub `soul`/`backstory` via `preferences.json` `prompt_sections` (see below).
+> **Leaner prompts:** The default (no-profile) soul and base prompts are deliberately lean — identity, values, and workflow, without tone/voice or emotional-calibration guidance. A profile's `soul.md` *replaces* that default, so a verbose profile soul reintroduces persona text. For the leanest possible prompt, keep the profile `soul.md` short, omit `backstory.md`/`context/`, or stub `soul`/`backstory`/`context` via `preferences.json` `prompt_sections` (see below).
 
 ## File Structure
 
@@ -28,7 +29,9 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 └── profiles/
     ├── caelum/
     │   ├── soul.md              # Required: core identity prompt
-    │   ├── backstory.md         # Optional: persistent identity context
+    │   ├── backstory.md         # Optional: persistent identity context (hand/agent-authored)
+    │   ├── context/             # Optional: supplementary notes, loaded after backstory
+    │   │   └── github.md        # Optional: e.g. GitHub activity notes
     │   ├── preferences.json     # Optional: behavioral settings and prompt policy
     │   └── samples/
     │       └── responses/       # Optional: example responses for fidelity
@@ -90,15 +93,34 @@ When present, the profile role file takes precedence over the workspace role fil
 
 Optional persistent identity context loaded after `soul.md` in the system prompt. Use this for origin stories, milestone events, evolving narrative, and continuity details that ground the profile's identity without modifying the core soul.
 
-`backstory.md` can be written manually or **generated automatically** from a `backstory/` source directory. See [Backstory Generator](#backstory-generator) below.
+`backstory.md` is a plain, hand- or agent-authored markdown file. Core does not generate or ingest it from source files; see [Breaking Changes](#breaking-changes) below.
 
-Content is rendered between soul and the memory block in the prompt composition order:
+Content is rendered between soul and the context block in the prompt composition order:
 
 ```text
-soul → backstory → memories → preferences → body → deferred → project
+soul → backstory → context → memories → preferences → body → deferred → project
 ```
 
 Headings in `backstory.md` are downshifted one level (e.g., `#` becomes `##`) to maintain prompt hierarchy.
+
+### context/
+
+Optional supplementary notes loaded after `backstory.md` in the pinned identity tier, before memories. Use this for smaller, independently maintained notes (e.g., `context/github.md` for GitHub activity, `context/preferences.md` for observed preferences) that you don't want mixed into the main backstory narrative.
+
+```text
+profiles/caelum/
+├── soul.md
+├── backstory.md
+└── context/
+    ├── 01-notes.md
+    └── github.md
+```
+
+- All `.md` files directly under `context/` are read and concatenated into one pinned `## Context` markdown block (each file becomes a `### {filename}` subsection).
+- Files are sorted with the same numbered-first natural sort used elsewhere: numeric-prefixed files first (natural order), then the rest alphabetically.
+- Gated by `prompts.prompt_sections.context` in `preferences.json` (`true`, `false`, or `"stub"`).
+- The `## Context` heading is renamable via `prompts.labels.context` in `preferences.json` (default `## Context`).
+- `context/` is persona-owned: there is no workspace or default fallback directory — only `profiles/{name}/context/` is read.
 
 ### preferences.json
 
@@ -130,7 +152,8 @@ Additional ready-to-copy examples live in `examples/preferences/`, including a s
       "deny": ["muse"]
     },
     "labels": {
-      "backstory": "Lore"
+      "backstory": "Lore",
+      "context": "Field Notes"
     }
   }
 }
@@ -143,9 +166,9 @@ Additional ready-to-copy examples live in `examples/preferences/`, including a s
 Supported `prompts` fields:
 
 - **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, and `background_tasks`. These gates now affect real runtime capability exposure, not just prompt text. For example, disabling `projects` removes project tooling and active project prompt context.
-- **prompt_sections**: Optional per-section policy. Recognized sections are `soul`, `backstory`, `base`, `memory`, `preferences`, `tools`, `security`, `done`, `deferred_toolkits`, and `project_context`. Values may be `true`, `false`, or `"stub"`, except `security`, which is pinned and must remain `true`. `project` and `deferred` are accepted as aliases for `project_context` and `deferred_toolkits`. When `tools` is set to `"stub"`, Coqui also condenses non-core runtime tool and toolkit schemas so prompt text and actual tool exposure stay aligned.
+- **prompt_sections**: Optional per-section policy. Recognized sections are `soul`, `backstory`, `context`, `base`, `memory`, `preferences`, `tools`, `security`, `done`, `deferred_toolkits`, and `project_context`. Values may be `true`, `false`, or `"stub"`, except `security`, which is pinned and must remain `true`. `project` and `deferred` are accepted as aliases for `project_context` and `deferred_toolkits`. When `tools` is set to `"stub"`, Coqui also condenses non-core runtime tool and toolkit schemas so prompt text and actual tool exposure stay aligned.
 - **roles**: Optional `allow` and `deny` arrays for profile-specific role restrictions. Role names are normalized to lowercase, overlapping entries are reported as invalid, and the restrictions are enforced in REPL role switching, API session/task creation, background task execution, and child-agent delegation.
-- **labels**: Optional display labels for generated prompt content. `labels.backstory` changes the generated `backstory.md` heading from `## Backstory` to a profile-specific heading such as `## Lore`.
+- **labels**: Optional display labels for pinned identity content. `labels.backstory` changes the `backstory.md` heading from `## Backstory` to a profile-specific heading such as `## Lore`. `labels.context` changes the `context/*.md` heading from `## Context` to a profile-specific heading such as `## Field Notes`.
 
 Validation rules:
 
@@ -154,6 +177,7 @@ Validation rules:
 - Profile-level `security.md` overrides must not be empty.
 - `prompts.roles.allow` must include `orchestrator`, and `prompts.roles.deny` cannot include it.
 - `labels.backstory` must be a non-empty string.
+- `labels.context` must be a non-empty string.
 
 Inspection surfaces such as `/prompt` and `GET /api/v1/toolkits?profile=name` expose the effective parsed profile policy so you can confirm which sections were stubbed, which feature families were disabled, and which role restrictions are active.
 
@@ -163,92 +187,19 @@ Optional directory containing example responses as `.md` files. These are discov
 
 Files are sorted alphabetically. Only `.md` files are included.
 
-## Backstory Generator
+## Breaking Changes
 
-The backstory generator assembles `backstory.md` automatically from a `backstory/` source directory inside the profile. This lets you maintain backstory content as individual files — organized by topic, timeline, or any structure — and have them combined into a single prompt-ready document.
+**The backstory generator moved out of core.** Coqui core no longer ships source-file ingestion for `backstory.md`. Previously, a `backstory/` source directory (with `.txt`, `.md`, `.json`, `.yaml`, `.csv`, `.sql`, OpenDocument, OOXML, `.xml`, `.rtf`, code files, and optionally `.docx`/`.pdf`/`.html` via the `coqui-toolkit-backstory-formats` mod) was discovered, extracted, and assembled into `backstory.md` automatically, with change detection (`.backstory-manifest.json`) and startup auto-regeneration, plus `/backstory`, `/backstory generate`, and `/backstory failed` REPL commands and matching HTTP routes.
 
-### Source Directory Layout
-
-```text
-profiles/caelum/
-├── soul.md
-├── backstory.md          ← generated output
-├── .backstory-manifest.json  ← change-detection manifest
-└── backstory/            ← source files
-    ├── 01-origin.md
-    ├── 02-milestones.csv
-    ├── 03-values.yaml
-    ├── personality/
-    │   ├── 01-traits.txt
-    │   └── 02-quirks.json
-    └── timeline.md
-```
-
-### Supported File Types
-
-| Extension | Treatment |
-| --- | --- |
-| `.txt` | Included as plain text with UTF-8, UTF-16, and common legacy encodings normalized to UTF-8 |
-| `.md`, `.mdx` | Passed through as-is after text normalization |
-| `.json` | Wrapped in a ` ```json ` code fence (validates JSON) |
-| `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
-| `.csv`, `.tsv` | Converted to a markdown table |
-| `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
-| `.odt` | Optionally converted into markdown with paragraph, heading, and list structure preserved when ZIP support is available |
-| `.ods` | Optionally converted into markdown tables per sheet, preserving multiline cells and merged-cell readability when ZIP support is available |
-| `.odp` | Optionally converted into per-slide markdown sections with slide-title fallbacks when ZIP support is available |
-| `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
-| `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections with speaker notes appended when ZIP support is available |
-| `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` — requires the `coqui-toolkit-backstory-formats` mod |
-| `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
-| `.rtf` | Converted to plain text with conservative RTF control-word stripping |
-| Common code files | Wrapped in fenced code blocks with language hints and never executed |
-| `.pdf` | Text extracted via `smalot/pdfparser` — requires the `coqui-toolkit-backstory-formats` mod |
-| `.docx`, `.docm` | Text extracted via `phpoffice/phpword` — requires the `coqui-toolkit-backstory-formats` mod |
-
-Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.css`, `.scss`, `.less`, and similar formats.
-
-> **Word, PDF, and HTML** (`.docx`, `.docm`, `.pdf`, `.html`, `.htm`) are provided by the optional
-> `coqui-toolkit-backstory-formats` mod (it carries the `phpoffice/phpword`, `smalot/pdfparser`, and
-> `league/html-to-markdown` dependencies). Install it with `/mods install coquibot/coqui-toolkit-backstory-formats`.
-> Without the mod, these formats are listed as unsupported in `/backstory failed`.
-
-HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
-
-`.odt`, `.ods`, and `.odp` support are also optional and depend on PHP ZIP support. When available, Coqui reads OpenDocument `content.xml` data only. It does not execute embedded scripts, macros, formulas, or active content.
-
-`.xlsx` and `.xlsm` support are optional and depend on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas or execute macros.
-
-`.pptx` and `.pptm` support are also optional and depend on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order, appends speaker notes when present, and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
-
-Unsupported files inside `backstory/` are skipped under a strict allowlist model. Coqui records them in `.backstory-manifest.json` and surfaces them in `/backstory` and `/backstory failed` so users can see what was ignored and why.
-
-### Sort Order
-
-Files are sorted using a **numbered-first natural sort**:
-
-1. Files with numeric prefixes (e.g., `01-intro.txt`) sort first, in natural order
-2. Unnumbered files follow alphabetically
-3. Files at each directory level appear before subdirectory contents
-4. Hidden files and directories (starting with `.`) are skipped
-
-### Change Detection
-
-A `.backstory-manifest.json` file tracks SHA-256 hashes of all discovered source files, including skipped unsupported files. Generation is skipped when the content hash matches, making startup fast even with hundreds of source files while still noticing newly added unsupported inputs.
-
-### Auto-Regeneration
-
-At startup, Coqui checks if the active profile's backstory needs regeneration. If source files have changed since the last build, `backstory.md` is regenerated automatically before the first turn.
-
-### Backstory Commands
+All of that — `backstory/` ingestion, the extractor pipeline, `/backstory` and its subcommands, startup auto-regeneration, and the backstory HTTP routes — has moved to the optional **`coqui-toolkit-backstory`** package. Install it to keep source-file ingestion:
 
 ```bash
-/backstory              # Show backstory generation status and file summary
-/backstory generate     # Force regeneration regardless of change detection
-/backstory failed       # Show files that failed extraction or were skipped as unsupported
+/mods install coquibot/coqui-toolkit-backstory
 ```
 
-The `/prompt` command also includes a backstory summary line when a manifest exists.
+`coqui-toolkit-backstory` absorbs the old `coqui-toolkit-backstory-formats` mod (which only added `.docx`/`.pdf`/`.html` extractors). If you previously installed `coqui-toolkit-backstory-formats`, install `coqui-toolkit-backstory` instead — it is not a dependency you need alongside it.
+
+Core now treats `backstory.md` as a plain, optional markdown file: write it by hand or have an agent write it. There is no generator, no manifest, and no automatic regeneration in core. The new `context/*.md` tier (see above) is core's lightweight alternative for supplementary, independently maintained notes.
 
 ## Memory Profile Filtering
 
@@ -389,13 +340,13 @@ You (caelum, coder) [my-project]:
 - **Scoped session reuse**: Each profile keeps its own last-active interactive session stream, while unprofiled usage keeps a separate unprofiled stream. This lets users move between identities without losing their session history for each scope.
 - **Profile-scoped memories**: Memories saved during a profiled session are tagged with that profile. Each profile sees its own memories plus shared (untagged) ones. This prevents one profile's learned patterns from leaking into another's context.
 - **Profile ≠ Role**: Profiles affect the soul/identity layer. Roles affect the capability/access layer. Both can be combined.
-- **Layered identity files**: soul.md defines who the profile is; backstory.md provides narrative continuity; preferences.json tunes behavior. Keeping these separate lets each evolve independently.
+- **Layered identity files**: soul.md defines who the profile is; backstory.md provides narrative continuity; context/*.md carries smaller supplementary notes; preferences.json tunes behavior. Keeping these separate lets each evolve independently.
 
 ## Creating a Profile
 
 1. Create a directory: `mkdir -p ~/.coqui/.workspace/profiles/my-profile`
 2. Write a `soul.md` file defining the personality
-3. Optionally add `backstory.md`, `preferences.json`, and `samples/responses/*.md`
+3. Optionally add `backstory.md`, `context/*.md`, `preferences.json`, and `samples/responses/*.md`
 4. Use `/profiles` to verify discovery
 5. Use `/profile my-profile` to activate
 
