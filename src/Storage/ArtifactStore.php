@@ -315,6 +315,31 @@ final class ArtifactStore
     }
 
     /**
+     * Recent artifacts for the pinned prompt index.
+     *
+     * Scope is session→project (spec): when a project is loaded, return the
+     * project's most-recently-updated artifacts *across all sessions* (artifacts
+     * are shared, not session-private); otherwise fall back to the session's own.
+     * Never filtered by creator — provenance is display-only.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listRecent(string $sessionId, ?string $projectId = null, int $limit = 10): array
+    {
+        if ($projectId !== null && $projectId !== '') {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?',
+            );
+            $stmt->execute([$projectId, $limit]);
+
+            /** @var list<array<string, mixed>> */
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        return $this->list($sessionId, limit: $limit);
+    }
+
+    /**
      * Delete an artifact: remove its file, then its index row.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
@@ -338,6 +363,20 @@ final class ArtifactStore
         }
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Whether the session owns any project-linked artifacts (which block
+     * non-forced session deletion and must be detached first).
+     */
+    public function hasProjectLinkedArtifacts(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM artifacts WHERE session_id = ? AND project_id IS NOT NULL AND project_id != '' LIMIT 1",
+        );
+        $stmt->execute([$sessionId]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /**
@@ -390,7 +429,7 @@ final class ArtifactStore
 
         $count = 0;
         $update = $this->db->prepare(
-            "UPDATE artifacts SET path = ?, canonical_path = ?, content_hash = ?, storage_mode = 'filesystem', content = '', updated_at = ? WHERE id = ?",
+            "UPDATE artifacts SET path = ?, canonical_path = ?, filepath = COALESCE(filepath, ?), content_hash = ?, storage_mode = 'filesystem', content = '', updated_at = ? WHERE id = ?",
         );
 
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -401,7 +440,7 @@ final class ArtifactStore
                 isset($row['language']) ? (string) $row['language'] : null,
             );
             $hash = $this->fileService->write($path, (string) $row['content']);
-            $update->execute([$path, $path, $hash, Clock::nowUtc(), $row['id']]);
+            $update->execute([$path, $path, $path, $hash, Clock::nowUtc(), $row['id']]);
             $count++;
         }
 

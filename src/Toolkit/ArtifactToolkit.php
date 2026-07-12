@@ -68,7 +68,7 @@ final class ArtifactToolkit implements ToolkitInterface
      */
     public function recentArtifactsIndex(): string
     {
-        $artifacts = $this->store->list(
+        $artifacts = $this->store->listRecent(
             $this->sessionId,
             projectId: $this->defaultProjectId,
             limit: self::INDEX_LIMIT,

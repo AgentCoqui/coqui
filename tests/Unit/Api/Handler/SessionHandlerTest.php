@@ -881,6 +881,38 @@ test('session delete cleans up session-only artifact files', function () {
     }
 });
 
+test('session delete is rejected (409) without mutation when project-linked artifacts exist', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
+        $handler = new SessionHandler(
+            $fixture['storage'],
+            $fixture['roleResolver'],
+            $fixture['profileDiscovery'],
+            artifactStore: $artifactStore,
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionOnly = $artifactStore->create($sessionId, 'Ephemeral', 'x', 'document');
+        $projectLinked = $artifactStore->create($sessionId, 'Keeper', 'y', 'plan', projectId: 'proj-keep');
+
+        $response = $handler->delete(
+            new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId),
+            $sessionId,
+        );
+
+        // Rejected cleanly, and nothing was mutated — the session-only artifact survives too.
+        expect($response->getStatusCode())->toBe(409)
+            ->and(json_decode((string) $response->getBody(), true)['code'])->toBe('conflict')
+            ->and($artifactStore->get($sessionOnly, $sessionId))->not->toBeNull()
+            ->and($artifactStore->get($projectLinked, $sessionId))->not->toBeNull()
+            ->and($fixture['storage']->getSession($sessionId))->not->toBeNull();
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
 test('session handler summary returns aggregate counts and latest turn data', function () {
     $fixture = createApiSessionHandlerFixture();
 

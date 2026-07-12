@@ -294,8 +294,17 @@ final readonly class SessionHandler
             return $session;
         }
 
+        // Project-linked artifacts persist and block session deletion — reject up
+        // front so nothing is mutated on the rejected path.
+        if ($this->artifactStore?->hasProjectLinkedArtifacts($id)) {
+            return Router::errorResponse(
+                ApiErrorCode::CONFLICT,
+                'Session has project-linked artifacts. Detach them from the project first.',
+            );
+        }
+
         // Ownership-based cleanup: remove session-only artifact files (their rows
-        // cascade-delete with the session). Project-linked artifacts persist.
+        // cascade-delete with the session).
         $this->artifactStore?->cleanupSessionArtifacts($id);
 
         $this->storage->deleteSession($id);

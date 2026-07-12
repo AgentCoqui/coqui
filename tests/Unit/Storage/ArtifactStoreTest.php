@@ -138,6 +138,37 @@ test('cleanupSessionArtifacts removes session-only artifacts and keeps project-l
         ->and(file_exists($this->workspace . '/' . $projectPath))->toBeTrue();
 });
 
+// --- Recent index scoping ---
+
+test('listRecent returns project artifacts across sessions when a project is loaded', function (): void {
+    $other = $this->storage->createSession('orchestrator', 'test/model');
+    $this->store->create($this->sessionId, 'Mine', 'a', 'plan', projectId: 'p1');
+    $this->store->create($other, 'Theirs', 'b', 'plan', projectId: 'p1');
+    $this->store->create($this->sessionId, 'Unrelated', 'c', 'document'); // no project
+
+    $recent = $this->store->listRecent($this->sessionId, projectId: 'p1', limit: 10);
+
+    expect($recent)->toHaveCount(2)
+        ->and(array_column($recent, 'title'))->toContain('Mine')
+        ->and(array_column($recent, 'title'))->toContain('Theirs');
+});
+
+test('listRecent falls back to the session when no project is loaded', function (): void {
+    $other = $this->storage->createSession('orchestrator', 'test/model');
+    $this->store->create($this->sessionId, 'Mine', 'a', 'document');
+    $this->store->create($other, 'Theirs', 'b', 'document');
+
+    $recent = $this->store->listRecent($this->sessionId, projectId: null, limit: 10);
+
+    expect($recent)->toHaveCount(1)->and($recent[0]['title'])->toBe('Mine');
+});
+
+test('hasProjectLinkedArtifacts reflects project ownership', function (): void {
+    expect($this->store->hasProjectLinkedArtifacts($this->sessionId))->toBeFalse();
+    $this->store->create($this->sessionId, 'Doc', 'x', 'document', projectId: 'p1');
+    expect($this->store->hasProjectLinkedArtifacts($this->sessionId))->toBeTrue();
+});
+
 // --- Legacy migration ---
 
 test('migrateLegacyContent moves inline content to files and preserves the row', function (): void {
