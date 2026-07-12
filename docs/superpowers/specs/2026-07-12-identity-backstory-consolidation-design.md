@@ -111,14 +111,14 @@ soul → backstory → context → memories → preferences → body → deferre
 - `PromptLoader::buildBackstoryContent()` (`PromptLoader.php:251`) — reads `backstory.md`. Add a sibling `buildContextContent()` that discovers + concatenates `context/*.md`, wired into body/section composition (`PromptLoader.php:355` region).
 - `OrchestratorAgent` backstory composition + pinning (`OrchestratorAgent.php:944`, `957-959`, `1093-1104`; pinning rationales at `1702`/`1787`). Extend `buildProfileIdentityParts()` to also return context, and add a pinned context prompt section mirroring the backstory one.
 - `ConfigHandler` identity read/write (`ConfigHandler.php:528`, `555`, `599`) — writes `backstory.md` as a plain string, no assembler dependency. Stays; optionally extended to read/write `context/*.md` (nice-to-have, not required for Effort 1).
-- `preferences.json` `labels.backstory` heading label and `prompt_sections` gating for `backstory` (`PROFILES.md:146,148`). Add an analogous `context` section gate/label if cheap; otherwise reuse identity-tier behavior.
+- `preferences.json` `labels.backstory` heading label and `prompt_sections` gating for `backstory` (`PROFILES.md:146,148`). **Decision (resolved 2026-07-12): give `context` a first-class `prompt_sections` gate**, reusing the existing gate map (one more entry — no new system). This is the budget escape valve: `context` is the most budget-hungry identity block, so each persona must be able to stub/disable it under pressure without deleting files. The matching `labels.context` heading is a cheap follow-on, not required for correctness.
 
 **Move out of core → `coqui-toolkit-backstory` (the *generator*):**
 - `src/Backstory/*` — `BackstoryAssembler`, `BackstoryFileDiscovery`, `BackstoryManifest`, `BackstoryInspectionService`, `BackstorySourceInventory`, `BackstoryResult`, `BackstoryFileEntry`, `BackstoryUnsupportedFileEntry`, and `src/Backstory/Extractor/*` (all ~20 extractors incl. `Odp`/`Ods`/`Xlsx`/`Pptx`/`Rtf`/`Sql`/`Xml` and the `ExtractorFactory`/discovery).
 - `src/Api/Handler/BackstoryHandler.php` — source-dir CRUD + regen endpoints.
 - `src/Repl/Handler/BackstoryHandler.php` + `/backstory` command wiring in `SlashCommandRouter.php` (`:12`, `:64`, `:122`, `:278`, `:310`, `:325`, `:410`). The `/backstory` command **self-registers from the toolkit** via the documented toolkit-extensibility mechanism (`docs/TOOLKIT-EXTENSIBILITY.md`).
 - Startup auto-regen hook `RunCommand.php:731-739` (`BackstoryAssembler::needsRegeneration` / `generate`). Becomes a toolkit-provided boot hook or an on-demand command; core no longer auto-regenerates.
-- The `/prompt` backstory summary line (`SlashCommandRouter.php:278`) — core drops the file-count/token summary (inspection is gone); it may show a plain "backstory.md present" line, or the toolkit re-adds the rich summary.
+- The `/prompt` backstory summary line (`SlashCommandRouter.php:278`). **Decision (resolved 2026-07-12): core reports its own composition** — a plain, honest line of what core actually loaded (`soul.md` / `backstory.md` / `context` present + token counts, which core already computes for budgeting). Core does *not* inspect the generator; the rich **source-level** summary (which sources fed `backstory.md`, extraction failures, `/backstory failed`) re-appears only via the toolkit. Transparent and free — core reports the composed prompt it holds.
 
 **Toolkit package (`coqui-toolkit-backstory`):**
 - Absorbs the existing `coqui-toolkit-backstory-formats` mod and its dependencies (`phpoffice/phpword`, `smalot/pdfparser`, `league/html-to-markdown`) plus the extractors that were core-resident (ODS/ODP/XLSX/PPTX/RTF/SQL/XML/CSV/JSON/YAML/code).
@@ -134,7 +134,7 @@ Moving the generator removes ~28 files in `src/Backstory/*` (~130 KB: ~35 KB non
 - Core: a persona with `soul.md` + `backstory.md` + `context/*.md` renders all three in the pinned identity tier, in order, with headings downshifted and numbered-first sort applied to context.
 - Core: context section is emitted at the pinned (non-`Volatile`) priority and survives a simulated budget squeeze.
 - Core: a persona with no `context/` dir renders soul + backstory only (no error).
-- Core: `prompt_sections` gate/stub for `backstory` (and `context` if added) still works.
+- Core: `prompt_sections` gate/stub for `backstory` and `context` both work.
 - Toolkit: with the toolkit installed, `backstory/` sources generate `backstory.md`; core then loads it unchanged.
 - Regression: core no longer references `BackstoryAssembler` (`grep` for `Backstory` in `src/` outside the read path returns nothing after the move).
 - `composer test` / targeted `./vendor/bin/pest` + `./vendor/bin/phpstan analyse`.
