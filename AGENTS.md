@@ -202,6 +202,10 @@ Update it when you:
 - significantly change a class responsibility,
 - add a new important external dependency that agents interact with.
 
+## Generated: `config/documentation.json`
+
+`config/documentation.json` is a **generated** index (produced by `scripts/generate-documentation-index.php` from the doc headings). It is intentionally **not tracked in git** — never hand-edit or commit it. It is regenerated automatically in the release and Docker builds, so shipped artifacts always carry a current index. Run `composer regen-docs` to refresh it locally. Keeping it out of version control stops parallel doc branches from colliding on a machine-generated file.
+
 ## Practical Change Checklist
 
 Before finishing a change:

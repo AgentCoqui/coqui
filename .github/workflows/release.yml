@@ -90,6 +90,13 @@ jobs:
           mkdir -p BUILD/coqui
           git archive HEAD | tar -x -C BUILD/coqui
 
+      - name: Generate documentation index
+        run: |
+          # scripts/ is export-ignored from the archive, so generate in the
+          # checkout (which has scripts/ + docs/) and copy into the export.
+          php scripts/generate-documentation-index.php
+          cp config/documentation.json BUILD/coqui/config/documentation.json
+
       - name: Write build version file
         working-directory: BUILD/coqui
         run: printf '%s\n' "${{ steps.version.outputs.version }}" > config/version.txt

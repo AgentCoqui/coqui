@@ -63,6 +63,7 @@
   },
   "scripts": {
     "generate:model-defaults": "@php scripts/generate-model-defaults.php --write",
+    "regen-docs": "@php scripts/generate-documentation-index.php",
     "test": "pest",
     "test:coverage": "@php scripts/test-coverage.php",
     "test:profile": "@php scripts/test-profile.php",
