@@ -14,7 +14,6 @@ use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
-use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
@@ -40,7 +39,6 @@ use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
@@ -335,11 +333,6 @@ final class ApiCommand extends Command
         $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($promptInspectionService);
-        $backstoryHandler = new BackstoryHandler(
-            new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()),
-            $boot->profileDiscovery(),
-            $boot->workspacePath(),
-        );
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
         $mcpRuntime = McpRuntime::fromWorkspace(
@@ -359,7 +352,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
@@ -553,7 +546,6 @@ final class ApiCommand extends Command
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
-        BackstoryHandler $backstory,
         BudgetHandler $budget,
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
@@ -621,11 +613,6 @@ final class ApiCommand extends Command
         $router->post($v1 . '/profiles', [$config, 'createProfile']);
         $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
         $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
-        $router->get($v1 . '/profiles/{name}/backstory', [$backstory, 'getProfile']);
-        $router->get($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'getEntry']);
-        $router->post($v1 . '/profiles/{name}/backstory/folders', [$backstory, 'createFolder']);
-        $router->put($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'putEntry']);
-        $router->delete($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'deleteEntry']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
@@ -658,7 +645,6 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
-        $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
         $router->get($v1 . '/server/commands', [$commands, 'get']);
 
