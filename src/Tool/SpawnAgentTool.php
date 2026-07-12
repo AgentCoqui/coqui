@@ -372,6 +372,15 @@ final class SpawnAgentTool implements ToolInterface
                 readOnly: $accessLevel !== 'full',
                 createdBy: $role,
             );
+
+            // Memory-on-promotion: a child that can create/update artifacts must
+            // also be able to record — and supersede — a durable memory pointer to
+            // a canonical one. Non-full children still get a create-capable artifact
+            // toolkit (readOnly only withholds delete), but did not receive the
+            // MemoryToolkit above (that is full-access only), so wire it in here.
+            if ($this->memoryStore !== null && $accessLevel !== 'full') {
+                $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activeProfile);
+            }
         }
 
         // Project toolkit — lightweight project (working-directory) management shared with child agents.

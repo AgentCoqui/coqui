@@ -42,6 +42,7 @@ When extraction is active, focus manual saves on nuanced insights the extractor 
 5. **Keep memories atomic.** One fact per memory. Tag meaningfully with project/technology names.
 6. **Set importance deliberately.** Critical preferences: 0.9+ (pinned, no decay). Project facts: 0.7–0.8. Context: 0.5–0.6.
 7. **Prune stale content.** Update or delete outdated memories.
+8. **Point at canonical artifacts.** When a deliverable is a canonical, reusable artifact (and it was edited more than once or the user asked to keep it), `memory_save` one high-signal pointer naming its path + subject, and `memory_forget` any prior pointer for that subject first. Store the *pointer*, never the artifact's body. See the Artifacts guidance ("Remember canonical artifacts").
 
 ### Phenomenological Observations
 
