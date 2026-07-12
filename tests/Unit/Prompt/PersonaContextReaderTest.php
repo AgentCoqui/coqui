@@ -4,6 +4,31 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Prompt\PersonaContextReader;
 
+afterEach(function () {
+    // Clean up temp directories created by tests
+    $cleanup = function (string $dir) use (&$cleanup): void {
+        foreach (scandir($dir) as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            is_dir($path) ? $cleanup($path) : unlink($path);
+        }
+        rmdir($dir);
+    };
+
+    // Remove all persona_* temp directories
+    $tempDir = sys_get_temp_dir();
+    foreach (scandir($tempDir) as $entry) {
+        if (strpos($entry, 'persona_') === 0) {
+            $path = $tempDir . '/' . $entry;
+            if (is_dir($path)) {
+                $cleanup($path);
+            }
+        }
+    }
+});
+
 it('returns null when no context dir exists', function () {
     $dir = sys_get_temp_dir() . '/persona_' . uniqid();
     mkdir($dir, 0777, true);

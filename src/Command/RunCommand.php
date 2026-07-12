@@ -35,7 +35,6 @@ use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
-use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
