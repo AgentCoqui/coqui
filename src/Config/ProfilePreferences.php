@@ -25,6 +25,7 @@ final readonly class ProfilePreferences
     private const array ALLOWED_PROMPT_SECTIONS = [
         'soul',
         'backstory',
+        'context',
         'base',
         'memory',
         'preferences',
@@ -36,7 +37,7 @@ final readonly class ProfilePreferences
     ];
     private const array ALLOWED_PROMPT_SECTION_MODES = [true, false, 'stub'];
     private const array ALLOWED_ROLE_FIELDS = ['allow', 'deny'];
-    private const array ALLOWED_LABELS = ['backstory'];
+    private const array ALLOWED_LABELS = ['backstory', 'context'];
 
     /**
      * @param array<string, string> $promptDirectives Communication directives rendered into the system prompt.
