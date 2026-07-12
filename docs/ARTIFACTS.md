@@ -54,6 +54,15 @@ There is no boot-time cleanup sweep and no `final`-deletes-on-restart footgun.
 | Session deleted, project-linked | Yes |
 | Project deleted | Artifact remains (no cascade) |
 
+### Memory-on-promotion
+
+The pinned index (below) ages out. So when an artifact is a **canonical, reusable deliverable**, the agent records a durable **memory pointer** to it via the existing `memory_save` tool — a high-signal, profile-scoped fact naming the artifact's `path` + subject (e.g. "`artifacts/plan/pricing-a1b2.md` is the canonical pricing model"). There is **no** `pinned` column and **no** artifact-schema change: the memory *is* the promotion.
+
+- **Gate** (both must hold): the artifact is canonical/reusable (a plan/design/config the work depends on, or one the user asked to keep) **and** a durability signal holds — it was edited more than once (`version` > 1) **or** the user said keep/remember. Drafts, one-off answers, sketches, and superseded versions are not remembered.
+- **Supersession**: before writing a new pointer for a subject that already has one, the agent calls `memory_forget` (semantic match on the subject) so the KB doesn't accrete stale pointers.
+- **Separation of concerns**: artifacts are work products, memory holds facts, skills hold procedures. The pointer is a fact *about* a work product — the artifact body is never copied into memory.
+- **Scope**: the pointer is per-profile (the active profile's judgment); the artifact stays shared. The agent-facing convention lives in `prompts/tools/artifacts.md`.
+
 ## Provenance (`created_by`)
 
 Each artifact records a display-only `created_by` label — the active profile/persona if present, else the role/agent identity (for `loop_output`, the loop/stage identity). It is shown in listings and the pinned index so an agent can judge relevance, but it is **never** used to filter: artifacts are shared, not profile-scoped. (Only *memories* are profile-scoped.)
@@ -62,7 +71,7 @@ Each artifact records a display-only `created_by` label — the active profile/p
 
 Artifacts are shared between agents through session-ID propagation:
 
-- **`spawn_agent`** — child agents receive `ArtifactToolkit` scoped to the parent's session, so all session artifacts are visible. Non-full-access children get read-only access (no delete).
+- **`spawn_agent`** — child agents receive `ArtifactToolkit` scoped to the parent's session, so all session artifacts are visible. Non-full-access children get read-only access (no delete) but can still create/update — so they also receive `MemoryToolkit` (memory-on-promotion: any artifact-creating child can record and supersede a memory pointer).
 - **`loop_start`** — loop stage agents share the work-scope session. After each stage the loop engine creates a `loop_output` artifact (a file) with the stage result; the reviewer reads it via `artifact_get(id)`.
 - **Background tasks** — tasks get their own session but can reference parent artifacts through the task prompt.
 

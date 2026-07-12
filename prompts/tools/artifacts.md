@@ -35,3 +35,24 @@ The `version` counter is a simple "times updated" signal shown in listings — *
 ### Retention
 
 Artifacts linked to a project persist. Session-only artifacts are cleaned up when their session is deleted.
+
+### Remember canonical artifacts (memory-on-promotion)
+
+The recent-artifacts index ages out. When an artifact is a **canonical, reusable deliverable**, record a durable **memory pointer** to it so the knowledge survives across sessions. The memory *is* the promotion — there is no separate flag or "pin" step.
+
+Keep the three durable kinds distinct: **artifacts** are work products, **memory** holds facts, **skills** hold procedures. The pointer is a *fact that points at a work product* — never copy the artifact's body into memory.
+
+**Gate — remember only when both hold:**
+
+1. **Canonical / reusable** — a plan, design, or config the ongoing work depends on, or one the user explicitly called out to keep. Not a draft, a one-off answer, an exploratory sketch, or a superseded version.
+2. **Durable signal** — it was edited more than once (`version` > 1) **or** the user said "keep"/"remember"/similar.
+
+**How to remember:** call `memory_save` with one high-signal pointer that names the artifact's **path** and **subject**. Prefer area `context`; set `importance` ≥ 0.9 only for anchors the work truly depends on. Example content:
+
+> `artifacts/plan/pricing-a1b2.md` is the canonical pricing model (supersedes the earlier draft).
+
+**Supersession (self-pruning):** before writing a new canonical pointer for a subject that already has one, call `memory_forget` with a query naming that subject, so the knowledge base doesn't accrete stale pointers to superseded artifacts. Then `memory_save` the new pointer.
+
+**Do not remember:** drafts, one-off answers, exploratory sketches, superseded versions, or facts already captured elsewhere in memory. One pointer per canonical subject — search first to avoid duplicates.
+
+The pointer is scoped to the active profile (its judgment about a shared artifact); the artifact itself stays shared. See the Memory section for `memory_save` / `memory_forget` parameters.
