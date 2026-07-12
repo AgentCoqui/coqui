@@ -153,6 +153,10 @@ final class OrchestratorAgent extends AbstractAgent
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
 
+    /** Artifact store + session used to render the pinned recent-artifacts index. */
+    private ?\CoquiBot\Coqui\Storage\ArtifactStore $artifactStore = null;
+    private ?string $artifactToolkitSessionId = null;
+
     /** @var array<int, array{name: string, description: string, package: string}> Deferred toolkit info for prompt injection */
     private array $deferredToolkitInfo = [];
 
@@ -450,13 +454,23 @@ final class OrchestratorAgent extends AbstractAgent
         $toolkitSessionId = $this->workScopeSessionId ?? $this->sessionId;
 
         if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('artifacts')) {
-            $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
+            $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore(
+                $this->storage->getPdo(),
+                new \CoquiBot\Coqui\Storage\ArtifactFileService($this->workspacePath),
+            );
+            $this->artifactStore = $artifactStore;
+            $this->artifactToolkitSessionId = $toolkitSessionId;
 
             $this->addSystemToolkit('ArtifactToolkit', 'Create and manage artifacts', new ArtifactToolkit(
                 $artifactStore,
                 $toolkitSessionId,
                 defaultProjectId: $this->defaultProjectId,
+                createdBy: $this->resolveArtifactCreatedBy(),
             ));
+            // The recent-artifacts guidance/index is emitted as a pinned section
+            // (buildArtifactPromptSection), so keep it out of the Volatile toolkit
+            // guidelines loop.
+            $this->excludeToolkitPromptSlug('artifacts');
         } else {
             $this->excludeToolkitPromptSlug('artifacts');
         }
@@ -1615,6 +1629,10 @@ final class OrchestratorAgent extends AbstractAgent
             $sections[] = $section;
         }
 
+        if (($artifacts = $this->buildArtifactPromptSection()) !== null) {
+            $sections[] = $artifacts;
+        }
+
         foreach ($this->buildInstructionPromptSections() as $section) {
             $sections[] = $section;
         }
@@ -1895,6 +1913,55 @@ final class OrchestratorAgent extends AbstractAgent
             decision: 'pinned_workflow',
             group: 'memory',
         )];
+    }
+
+    /**
+     * Resolve the display-only provenance label stamped on artifacts this agent
+     * creates: the active profile/persona if present, else the role identity.
+     */
+    private function resolveArtifactCreatedBy(): string
+    {
+        if ($this->activeProfile !== null && $this->activeProfile !== '') {
+            return $this->activeProfile;
+        }
+
+        return $this->activeRole ?? 'orchestrator';
+    }
+
+    /**
+     * Pinned recent-artifacts index, modeled on core-memory injection so it
+     * survives budget pressure. Pointers only, never bodies; scoped
+     * session→project; provenance shown but never used to filter.
+     */
+    private function buildArtifactPromptSection(): ?PromptSection
+    {
+        if ($this->artifactStore === null || $this->artifactToolkitSessionId === null) {
+            return null;
+        }
+
+        if (!$this->isProfileFeatureEnabled('artifacts')) {
+            return null;
+        }
+
+        $toolkit = new ArtifactToolkit(
+            $this->artifactStore,
+            $this->artifactToolkitSessionId,
+            defaultProjectId: $this->defaultProjectId,
+        );
+        $content = $toolkit->recentArtifactsIndex();
+        if ($content === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'context.artifacts',
+            title: 'Artifacts',
+            content: $content,
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'Artifact availability and recent pointers stay pinned so durable deliverables survive budget pressure.',
+            decision: 'pinned_workflow',
+            group: 'artifacts',
+        );
     }
 
     private function buildActiveProjectPromptSection(): ?PromptSection

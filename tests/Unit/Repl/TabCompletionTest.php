@@ -17,6 +17,7 @@ use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -52,7 +53,7 @@ function createTabCompletionFixture(): array
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
-    new ArtifactStore($storage->getPdo(), null, $projectStore);
+    new ArtifactStore($storage->getPdo(), new ArtifactFileService($workspacePath));
     $scheduleStore = new ScheduleStore($storage->getPdo());
     $loopStore = new LoopStore($storage->getPdo());
 

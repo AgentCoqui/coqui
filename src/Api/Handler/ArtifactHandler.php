@@ -19,15 +19,15 @@ use React\Http\Message\Response;
  *
  * GET    /api/v1/sessions/{id}/artifacts                  — list artifacts
  * GET    /api/v1/sessions/{id}/artifacts/{artifactId}     — get artifact
+ * POST   /api/v1/sessions/{id}/artifacts                  — create artifact
+ * PATCH  /api/v1/sessions/{id}/artifacts/{artifactId}     — update artifact
+ * DELETE /api/v1/sessions/{id}/artifacts/{artifactId}     — delete artifact
  *
- * Mutating operations (create, update, delete) are REPL-only.
+ * Full CRUD is exposed over the API — create, update, and delete are wired.
  */
 final readonly class ArtifactHandler
 {
     use DecodesRequestBody;
-
-    /** @var list<string> */
-    private const array ALLOWED_STAGES = ['draft', 'review', 'final'];
 
     public function __construct(
         private ArtifactStore $store,
@@ -47,12 +47,10 @@ final readonly class ArtifactHandler
 
         $params = $request->getQueryParams();
         $type = isset($params['type']) ? trim((string) $params['type']) : null;
-        $stage = isset($params['stage']) ? trim((string) $params['stage']) : null;
 
         $artifacts = $this->store->list(
             sessionId: $id,
             type: $type !== '' ? $type : null,
-            stage: $stage !== '' ? $stage : null,
         );
         $artifacts = array_map(fn(array $artifact): array => $this->normalizeArtifact($artifact), $artifacts);
 
@@ -94,20 +92,13 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'content is required');
         }
 
-        $type = trim((string) ($body['type'] ?? 'code'));
+        $type = trim((string) ($body['type'] ?? 'document'));
         if ($type === '') {
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'type cannot be empty');
         }
 
-        $stage = strtolower(trim((string) ($body['stage'] ?? 'draft')));
-        if (!in_array($stage, self::ALLOWED_STAGES, true)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'stage must be draft, review, or final');
-        }
-
         $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
-        $filepath = array_key_exists('filepath', $body) ? $this->nullableString($body['filepath']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
-        $persistent = array_key_exists('persistent', $body) ? filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN) : false;
 
         $linkValidation = $this->validateArtifactLinks($projectId);
         if ($linkValidation instanceof Response) {
@@ -125,11 +116,8 @@ final readonly class ArtifactHandler
             content: $body['content'],
             type: $type,
             language: $language,
-            filepath: $filepath,
-            stage: $stage,
-            metadata: $metadata,
             projectId: $projectId,
-            persistent: $persistent,
+            metadata: $metadata,
         );
 
         return $this->artifactDetailResponse($id, $artifactId, 201);
@@ -155,7 +143,7 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $allowedKeys = ['title', 'content', 'change_summary', 'stage', 'metadata', 'tags', 'summary', 'language', 'project_id', 'persistent'];
+        $allowedKeys = ['title', 'content', 'metadata', 'tags', 'summary', 'project_id'];
         $unknownKeys = array_values(array_filter(
             array_keys($body),
             static fn(string $key): bool => !in_array($key, $allowedKeys, true),
@@ -176,17 +164,6 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'title cannot be empty');
         }
 
-        $changeSummary = array_key_exists('change_summary', $body) ? $this->nullableString($body['change_summary']) : null;
-        if ($changeSummary !== null && !array_key_exists('content', $body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'change_summary requires content');
-        }
-
-        $stage = array_key_exists('stage', $body) ? strtolower(trim((string) $body['stage'])) : null;
-        if ($stage !== null && !in_array($stage, self::ALLOWED_STAGES, true)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'stage must be draft, review, or final');
-        }
-
-        $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
 
         $linkValidation = $this->validateArtifactLinks(array_key_exists('project_id', $body) ? $projectId : null, $artifact);
@@ -204,71 +181,25 @@ final readonly class ArtifactHandler
                 return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'content must be a string');
             }
 
-            $this->store->update(
-                $artifactId,
-                $body['content'],
-                $changeSummary,
-                $title,
-                $stage,
-                $id,
-            );
-        } else {
-            if ($stage !== null) {
-                $this->store->updateStage($artifactId, $stage, $id);
-            }
-
-            $patch = [];
-            if ($title !== null) {
-                $patch['title'] = $title;
-            }
-
-            if (array_key_exists('language', $body)) {
-                $patch['language'] = $language;
-            }
-
-            if ($metadata !== null || array_key_exists('metadata', $body) || array_key_exists('tags', $body) || array_key_exists('summary', $body)) {
-                $patch['metadata'] = $metadata;
-            }
-
-            if (array_key_exists('project_id', $body)) {
-                $patch['project_id'] = $projectId;
-            }
-
-            if (array_key_exists('persistent', $body)) {
-                $patch['persistent'] = filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN);
-            } elseif (array_key_exists('project_id', $body) && $projectId !== null) {
-                $patch['persistent'] = true;
-            }
-
-            if ($patch !== []) {
-                $this->store->patch($artifactId, $patch, $id);
-            }
+            $this->store->update($artifactId, $body['content'], $title, $id);
+            $title = null; // already applied by update()
         }
 
-        if (array_key_exists('content', $body)) {
-            $patch = [];
+        $patch = [];
+        if ($title !== null) {
+            $patch['title'] = $title;
+        }
 
-            if (array_key_exists('language', $body)) {
-                $patch['language'] = $language;
-            }
+        if ($metadata !== null || array_key_exists('metadata', $body) || array_key_exists('tags', $body) || array_key_exists('summary', $body)) {
+            $patch['metadata'] = $metadata;
+        }
 
-            if ($metadata !== null || array_key_exists('metadata', $body) || array_key_exists('tags', $body) || array_key_exists('summary', $body)) {
-                $patch['metadata'] = $metadata;
-            }
+        if (array_key_exists('project_id', $body)) {
+            $patch['project_id'] = $projectId;
+        }
 
-            if (array_key_exists('project_id', $body)) {
-                $patch['project_id'] = $projectId;
-            }
-
-            if (array_key_exists('persistent', $body)) {
-                $patch['persistent'] = filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN);
-            } elseif (array_key_exists('project_id', $body) && $projectId !== null) {
-                $patch['persistent'] = true;
-            }
-
-            if ($patch !== []) {
-                $this->store->patch($artifactId, $patch, $id);
-            }
+        if ($patch !== []) {
+            $this->store->patch($artifactId, $patch, $id);
         }
 
         return $this->artifactDetailResponse($id, $artifactId);

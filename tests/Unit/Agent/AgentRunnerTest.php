@@ -192,7 +192,7 @@ test('buildWorkflowContext includes artifact summaries', function () {
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $pdo = $fixture['storage']->getPdo();
-        $artifactStore = new ArtifactStore($pdo);
+        $artifactStore = artifactStoreForTest($pdo);
         $projectStore = new ProjectStore($pdo);
 
         $projectId = $projectStore->createProject('Testing Project', 'testing-project');
@@ -203,7 +203,6 @@ test('buildWorkflowContext includes artifact summaries', function () {
             title: 'Implementation Plan',
             content: 'Plan body',
             type: 'plan',
-            stage: 'review',
         );
 
         $runner = makeAgentRunnerFixture(
@@ -220,7 +219,7 @@ test('buildWorkflowContext includes artifact summaries', function () {
         $context = $method->invoke($runner, $sessionId);
 
         expect($context)->toContain('Artifacts:')
-            ->toContain('[plan/review] Implementation Plan');
+            ->toContain('[plan] Implementation Plan');
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }

@@ -16,7 +16,7 @@ beforeEach(function () {
 
     $this->loopStore = new LoopStore($pdo);
     $this->projectStore = new ProjectStore($pdo);
-    $this->artifactStore = new ArtifactStore($pdo);
+    $this->artifactStore = artifactStoreForTest($pdo);
     $this->executor = new LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $this->projectStore,
@@ -107,8 +107,12 @@ test('reconcile completes a finished stage and creates a loop output artifact', 
     expect($updatedStage['status'])->toBe('completed');
     expect($updatedStage['artifact_id'])->not->toBeNull();
     expect($artifacts)->toHaveCount(1);
-    expect($artifacts[0]['content'])->toBe('Completed implementation output');
-    expect($artifacts[0]['stage'])->toBe('final');
+
+    // loop_output is a file now — content is read via get(), not list().
+    $stored = $this->artifactStore->get($artifacts[0]['id'], $this->parentSessionId);
+    expect($stored['content'])->toBe('Completed implementation output')
+        ->and($stored['type'])->toBe('loop_output')
+        ->and($stored['path'])->toStartWith('artifacts/loop_output/');
 });
 
 test('reconcile marks the stage failed when the linked task fails', function () {

@@ -13,7 +13,7 @@ function createArtifactHandlerFixture(): array
     $dbPath = sys_get_temp_dir() . '/coqui-artifact-handler-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
-    $artifactStore = new ArtifactStore($storage->getPdo(), null, $projectStore);
+    $artifactStore = artifactStoreForTest($storage->getPdo());
 
     return [
         'dbPath' => $dbPath,
@@ -67,9 +67,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
                 json_encode([
                     'title' => 'API Contract v2',
                     'content' => 'Expanded contract draft',
-                    'change_summary' => 'Added CRUD endpoint coverage',
-                    'stage' => 'review',
-                    'language' => 'markdown',
                     'tags' => ['api', 'flutter', 'crud'],
                     'summary' => 'Expanded app contract draft',
                 ]) ?: '',
@@ -88,11 +85,56 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
         expect($updateResponse->getStatusCode())->toBe(200);
         expect($updateBody['title'])->toBe('API Contract v2');
         expect($updateBody['content'])->toBe('Expanded contract draft');
-        expect($updateBody['stage'])->toBe('review');
-        expect($updateBody['language'])->toBe('markdown');
         expect($updateBody['metadata']['tags'])->toBe(['api', 'flutter', 'crud']);
         expect($updateBody['metadata']['summary'])->toBe('Expanded app contract draft');
         expect((int) $updateBody['version'])->toBe(2);
+    } finally {
+        cleanupArtifactHandlerFixture($fixture);
+    }
+});
+
+test('artifact handler rejects a stage field in the PATCH body', function () {
+    $fixture = createArtifactHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $artifactId = $fixture['artifactStore']->create($sessionId, 'Doc', 'body', 'document');
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['stage' => 'final']) ?: '',
+            ),
+            $sessionId,
+            $artifactId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('stage');
+    } finally {
+        cleanupArtifactHandlerFixture($fixture);
+    }
+});
+
+test('artifact handler ignores a ?stage= list filter', function () {
+    $fixture = createArtifactHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['artifactStore']->create($sessionId, 'One', 'a', 'document');
+        $fixture['artifactStore']->create($sessionId, 'Two', 'b', 'plan');
+
+        $response = $fixture['handler']->list(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/artifacts?stage=draft'),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['count'])->toBe(2);
     } finally {
         cleanupArtifactHandlerFixture($fixture);
     }

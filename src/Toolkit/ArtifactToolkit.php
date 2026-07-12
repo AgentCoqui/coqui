@@ -8,37 +8,36 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
-use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
-use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for managing structured artifacts.
  *
- * Artifacts are staged outputs (code, documents, configs) that persist
- * across turns within a session. Filesystem-backed types live as files
- * under the project's artifacts/ directory (the file is the source of
- * truth; history comes from the user's VCS); DB-only types store content
- * inline. The toolkit provides CRUD operations and stage transitions.
+ * Artifacts are plain files on disk under `artifacts/<type>/…`; the DB is a
+ * lightweight index. The file is the source of truth and history comes from
+ * the user's own VCS. The toolkit provides simple CRUD — create, update
+ * (full rewrite), get, list, delete — with no stage lifecycle or bulk ops.
  *
  * Tools:
- * - artifact_create: Create a new artifact
- * - artifact_update: Update content
- * - artifact_get: Retrieve an artifact by ID
- * - artifact_list: List session artifacts with optional filters
- * - artifact_stage: Transition one or many artifacts to a new stage
- * - artifact_delete: Delete one or many artifacts (irreversible)
+ * - artifact_create: Create a new artifact (writes a file, returns id + path)
+ * - artifact_update: Full-rewrite an artifact's content (bumps version)
+ * - artifact_get: Retrieve an artifact by ID (content read from its file)
+ * - artifact_list: List session/project artifacts with optional filters
+ * - artifact_delete: Delete an artifact and its file (withheld from read-only roles)
  */
 final class ArtifactToolkit implements ToolkitInterface
 {
+    /** Recent-artifacts index cap. */
+    private const int INDEX_LIMIT = 10;
+
     public function __construct(
         private readonly ArtifactStore $store,
         private readonly string $sessionId,
         private readonly bool $readOnly = false,
         private readonly ?string $defaultProjectId = null,
+        private readonly ?string $createdBy = null,
     ) {}
 
     public function tools(): array
@@ -48,7 +47,6 @@ final class ArtifactToolkit implements ToolkitInterface
             $this->updateTool(),
             $this->getTool(),
             $this->listTool(),
-            $this->stageTool(),
         ];
 
         if (!$this->readOnly) {
@@ -60,63 +58,72 @@ final class ArtifactToolkit implements ToolkitInterface
 
     public function guidelines(): string
     {
-        $artifacts = $this->store->list($this->sessionId, limit: 10);
-        $count = count($artifacts);
+        return $this->recentArtifactsIndex();
+    }
 
-        if ($count === 0) {
-            return <<<'GUIDELINES'
-            <ARTIFACT-GUIDELINES>
-            You can create **artifacts** to track structured outputs (code files, documents, configs).
-            Artifacts support staging: draft → review → final. Use `artifact_create` when producing
-            significant code or content that the user may want to iterate on.
-            </ARTIFACT-GUIDELINES>
-            GUIDELINES;
+    /**
+     * Pinned recent-artifacts index: when-to-use guidance plus a capped list of
+     * pointers (title, id, type, path, provenance). Content is pointers only,
+     * never bodies. Scoped session→project; never filtered by creator.
+     */
+    public function recentArtifactsIndex(): string
+    {
+        $artifacts = $this->store->list(
+            $this->sessionId,
+            projectId: $this->defaultProjectId,
+            limit: self::INDEX_LIMIT,
+        );
+
+        $when = <<<'WHEN'
+        Create an artifact when the output is (1) **substantial** — more than ~15 lines
+        or a complete file/document; (2) **durable** — the user would keep, re-open,
+        share, or iterate on it; (3) **self-contained** — it stands on its own without
+        the surrounding chat. Do NOT create one for one-off answers, short snippets,
+        explanations, or commentary about an existing artifact. If unsure, prefer a file
+        the user can open on disk over an ephemeral message. Artifacts are plain files
+        under `artifacts/<path>` — inspectable, greppable, and versioned by the user's
+        own git; reference one by path instead of re-pasting it to save context budget.
+        To change one, `artifact_update` its id (full rewrite, reuses the same file);
+        only `artifact_create` for a genuinely new deliverable.
+        WHEN;
+
+        if ($artifacts === []) {
+            return "<ARTIFACTS>\n{$when}\n</ARTIFACTS>";
         }
 
         $lines = [];
         foreach ($artifacts as $a) {
+            $by = ((string) ($a['created_by'] ?? '')) !== '' ? " — by {$a['created_by']}" : '';
             $lines[] = sprintf(
-                '- **%s** (id: %s) [%s, %s] v%d',
+                '- **%s** (%s) [%s] %s%s',
                 $a['title'],
                 $a['id'],
                 $a['type'],
-                $a['stage'],
-                $a['version'],
+                (string) ($a['path'] ?? ''),
+                $by,
             );
         }
         $listing = implode("\n", $lines);
 
-        return <<<GUIDELINES
-        <ARTIFACT-GUIDELINES>
-        This session has **{$count} artifact(s)**. Use `artifact_get` to retrieve content, `artifact_update` to revise.
-        Stages: draft → review → final.
-
-        Current artifacts:
-        {$listing}
-        </ARTIFACT-GUIDELINES>
-        GUIDELINES;
+        return "<ARTIFACTS>\n{$when}\n\nRecent artifacts in scope (read/grep by path):\n{$listing}\n</ARTIFACTS>";
     }
 
     private function createTool(): ToolInterface
     {
         return new Tool(
             name: 'artifact_create',
-            description: 'Create a new artifact (code, document, config). Filesystem-backed types are written to the project artifacts/ directory. Returns the artifact ID for future reference.',
+            description: 'Create a new artifact — a plain file written under artifacts/<type>/. Use for substantial, durable, self-contained deliverables (not one-off answers or snippets). Returns the artifact id and its file path.',
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
-                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
-                new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
-                new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
-                new StringParameter('project_id', 'Link artifact to a project (makes it persistent across sessions)', required: false),
+                new EnumParameter('type', 'Artifact type (default document)', ['plan', 'document', 'code', 'config'], required: false),
+                new StringParameter('language', 'Language hint for code/config artifacts (e.g. php, python, json) — sets the file extension', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $title = trim($args['title'] ?? '');
                 $content = $args['content'] ?? '';
-                $type = $args['type'] ?? 'code';
-                $language = isset($args['language']) ? trim($args['language']) : null;
-                $filepath = isset($args['filepath']) ? trim($args['filepath']) : null;
-                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : $this->defaultProjectId;
+                $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : 'document';
+                $language = isset($args['language']) && trim((string) $args['language']) !== '' ? trim((string) $args['language']) : null;
 
                 if ($title === '') {
                     return ToolResult::error('Title is required.');
@@ -128,16 +135,18 @@ final class ArtifactToolkit implements ToolkitInterface
                     content: $content,
                     type: $type,
                     language: $language,
-                    filepath: $filepath,
-                    projectId: $projectId,
+                    projectId: $this->defaultProjectId,
+                    createdBy: $this->createdBy,
                 );
+
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
 
                 return ToolResult::json([
                     'id' => $id,
                     'title' => $title,
                     'type' => $type,
-                    'stage' => 'draft',
                     'version' => 1,
+                    'path' => $artifact['path'] ?? null,
                 ]);
             },
         );
@@ -147,11 +156,10 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_update',
-            description: 'Update an artifact\'s content. Filesystem-backed artifacts are written to their canonical file; the version counter is bumped.',
+            description: 'Full-rewrite an artifact\'s content (reuses the same file and path; bumps the version counter). Use this to change an existing artifact rather than creating a new one.',
             parameters: [
                 new StringParameter('id', 'Artifact ID (from artifact_create or artifact_list)', required: true),
-                new StringParameter('content', 'The updated full content', required: true),
-                new StringParameter('change_summary', 'Brief description of what changed', required: false),
+                new StringParameter('content', 'The updated full content (complete rewrite)', required: true),
                 new StringParameter('title', 'New title (if renaming)', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -165,8 +173,7 @@ final class ArtifactToolkit implements ToolkitInterface
                 $updated = $this->store->update(
                     id: $id,
                     content: $content,
-                    changeSummary: isset($args['change_summary']) ? trim($args['change_summary']) : null,
-                    title: isset($args['title']) ? trim($args['title']) : null,
+                    title: isset($args['title']) && trim((string) $args['title']) !== '' ? trim((string) $args['title']) : null,
                     sessionId: $this->sessionId,
                 );
 
@@ -180,7 +187,7 @@ final class ArtifactToolkit implements ToolkitInterface
                     'id' => $id,
                     'title' => $artifact['title'] ?? '',
                     'version' => $artifact['version'] ?? 0,
-                    'stage' => $artifact['stage'] ?? '',
+                    'path' => $artifact['path'] ?? null,
                     'updated' => true,
                 ]);
             },
@@ -191,7 +198,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_get',
-            description: 'Retrieve an artifact by ID, including its current content and metadata.',
+            description: 'Retrieve an artifact by ID, including its current content (read from its file) and metadata.',
             parameters: [
                 new StringParameter('id', 'Artifact ID', required: true),
             ],
@@ -216,23 +223,20 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_list',
-            description: 'List artifacts in the current session, optionally filtered by type, stage, project, or creation time.',
+            description: 'List artifacts in the current session, optionally filtered by type, project, or creation time.',
             parameters: [
-                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
-                new EnumParameter('stage', 'Filter by stage', ['draft', 'review', 'final'], required: false),
+                new EnumParameter('type', 'Filter by artifact type', ['plan', 'document', 'code', 'config', 'loop_output'], required: false),
                 new StringParameter('project_id', 'Filter by project ID — useful in loop contexts to see only relevant artifacts', required: false),
                 new StringParameter('created_after', 'Only return artifacts created after this ISO 8601 timestamp (e.g. 2026-04-03T12:00:00Z)', required: false),
             ],
             callback: function (array $args): ToolResult {
-                $type = isset($args['type']) ? trim($args['type']) : null;
-                $stage = isset($args['stage']) ? trim($args['stage']) : null;
-                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : null;
-                $createdAfter = isset($args['created_after']) && trim($args['created_after']) !== '' ? trim($args['created_after']) : null;
+                $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : null;
+                $projectId = isset($args['project_id']) && trim((string) $args['project_id']) !== '' ? trim((string) $args['project_id']) : null;
+                $createdAfter = isset($args['created_after']) && trim((string) $args['created_after']) !== '' ? trim((string) $args['created_after']) : null;
 
                 $artifacts = $this->store->list(
                     sessionId: $this->sessionId,
-                    type: $type !== '' ? $type : null,
-                    stage: $stage !== '' ? $stage : null,
+                    type: $type,
                     projectId: $projectId,
                     createdAfter: $createdAfter,
                 );
@@ -241,16 +245,13 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::success('No artifacts found matching the given filters.');
                 }
 
-                $summary = array_map(fn(array $a) => [
+                $summary = array_map(static fn(array $a): array => [
                     'id' => $a['id'],
                     'title' => $a['title'],
                     'type' => $a['type'],
-                    'stage' => $a['stage'],
                     'version' => $a['version'],
-                    'language' => $a['language'],
-                    'filepath' => $a['filepath'],
-                    'storage_mode' => $a['storage_mode'] ?? 'database',
-                    'canonical_path' => $a['canonical_path'] ?? null,
+                    'path' => $a['path'] ?? null,
+                    'created_by' => $a['created_by'] ?? null,
                     'project_id' => $a['project_id'] ?? null,
                     'updated_at' => $a['updated_at'],
                     'created_at' => $a['created_at'],
@@ -264,189 +265,37 @@ final class ArtifactToolkit implements ToolkitInterface
         );
     }
 
-    private function stageTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'artifact_stage',
-            description: 'Transition one or many artifacts to a new stage: draft → review → final. Provide id for single mode, or ids/all/filters for bulk mode.',
-            parameters: [
-                new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
-                new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),
-                new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
-                new EnumParameter('current_stage', 'Filter by current stage (bulk mode)', ['draft', 'review', 'final'], required: false),
-                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
-                new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
-                new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
-                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
-            ],
-            callback: function (array $args): ToolResult {
-                $id = trim($args['id'] ?? '');
-                $stage = trim($args['stage'] ?? '');
-
-                if ($stage === '') {
-                    return ToolResult::error('stage is required.');
-                }
-
-                // Single-artifact mode
-                if ($id !== '') {
-                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    if ($artifact === null) {
-                        return ToolResult::error("Artifact not found: {$id}");
-                    }
-
-                    $updated = $this->store->updateStage($id, $stage, sessionId: $this->sessionId);
-                    if (!$updated) {
-                        return ToolResult::error("Failed to update stage for artifact {$id}");
-                    }
-
-                    return ToolResult::json([
-                        'id' => $id,
-                        'title' => $artifact['title'],
-                        'previous_stage' => $artifact['stage'],
-                        'new_stage' => $stage,
-                    ]);
-                }
-
-                // Bulk mode
-                [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args, stageFilterKey: 'current_stage');
-
-                if ($error !== null) {
-                    return ToolResult::error($error);
-                }
-
-                if ($matchedIds === []) {
-                    return ToolResult::json([
-                        'updated' => 0,
-                        'target_stage' => $stage,
-                        'failed_ids' => $failedIds,
-                    ]);
-                }
-
-                $updated = $this->store->bulkUpdateStage($matchedIds, $stage, $this->sessionId);
-
-                return ToolResult::json([
-                    'updated' => $updated,
-                    'target_stage' => $stage,
-                    'failed_ids' => $failedIds,
-                ]);
-            },
-        );
-    }
-
     private function deleteTool(): ToolInterface
     {
         return new Tool(
             name: 'artifact_delete',
-            description: 'Delete one or many artifacts (and their canonical files, if filesystem-backed). Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
+            description: 'Delete an artifact and its file. Irreversible.',
             parameters: [
-                new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
-                new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),
-                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
-                new EnumParameter('stage', 'Filter by stage (bulk mode)', ['draft', 'review', 'final'], required: false),
-                new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
-                new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
-                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
+                new StringParameter('id', 'Artifact ID', required: true),
             ],
             callback: function (array $args): ToolResult {
                 $id = trim($args['id'] ?? '');
 
-                // Single-artifact mode
-                if ($id !== '') {
-                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    if ($artifact === null) {
-                        return ToolResult::error("Artifact not found: {$id}");
-                    }
-
-                    $deleted = $this->store->delete($id, sessionId: $this->sessionId);
-                    if (!$deleted) {
-                        return ToolResult::error("Failed to delete artifact {$id}");
-                    }
-
-                    return ToolResult::json([
-                        'id' => $id,
-                        'title' => $artifact['title'],
-                        'deleted' => true,
-                    ]);
+                if ($id === '') {
+                    return ToolResult::error('Artifact ID is required.');
                 }
 
-                // Bulk mode
-                [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args);
-
-                if ($error !== null) {
-                    return ToolResult::error($error);
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
+                if ($artifact === null) {
+                    return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                $deleted = $this->store->bulkDelete($matchedIds, $this->sessionId);
+                $deleted = $this->store->delete($id, sessionId: $this->sessionId);
+                if (!$deleted) {
+                    return ToolResult::error("Failed to delete artifact {$id}");
+                }
 
                 return ToolResult::json([
-                    'deleted' => $deleted,
-                    'failed_ids' => $failedIds,
+                    'id' => $id,
+                    'title' => $artifact['title'],
+                    'deleted' => true,
                 ]);
             },
         );
-    }
-
-    /**
-     * @param array<string, mixed> $args
-     * @return array{0: list<string>, 1: list<string>, 2: ?string}
-     */
-    private function resolveArtifactTargets(array $args, string $stageFilterKey = 'stage'): array
-    {
-        $hasIds = array_key_exists('ids', $args);
-        $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : null;
-        $stage = isset($args[$stageFilterKey]) && trim((string) $args[$stageFilterKey]) !== '' ? trim((string) $args[$stageFilterKey]) : null;
-        $projectId = isset($args['project_id']) && trim((string) $args['project_id']) !== '' ? trim((string) $args['project_id']) : null;
-        $createdAfter = isset($args['created_after']) && trim((string) $args['created_after']) !== '' ? trim((string) $args['created_after']) : null;
-        $all = (bool) ($args['all'] ?? false);
-
-        if ($hasIds) {
-            $decoded = JsonHelper::decodeJsonList($args['ids']);
-            if ($decoded === null || $decoded === []) {
-                return [[], [], 'ids must be a non-empty array of artifact IDs.'];
-            }
-            if (count($decoded) > 200) {
-                return [[], [], 'Maximum 200 artifact IDs per bulk operation.'];
-            }
-
-            $matched = [];
-            $failed = [];
-            foreach ($decoded as $id) {
-                $artifactId = trim((string) $id);
-                if ($artifactId === '') {
-                    continue;
-                }
-
-                $artifact = $this->store->get($artifactId, sessionId: $this->sessionId);
-                if ($artifact === null) {
-                    $failed[] = $artifactId;
-                    continue;
-                }
-
-                $matched[] = $artifactId;
-            }
-
-            return [array_values(array_unique($matched)), $failed, null];
-        }
-
-        if (!$all && $type === null && $stage === null && $projectId === null && $createdAfter === null) {
-            return [[], [], 'Specify ids, all=true, or at least one filter to select artifacts.'];
-        }
-
-        $artifacts = $this->store->list(
-            sessionId: $this->sessionId,
-            type: $type,
-            stage: $stage,
-            limit: 5000,
-            projectId: $projectId,
-            createdAfter: $createdAfter,
-        );
-
-        /** @var list<string> $matched */
-        $matched = array_map(
-            static fn(array $artifact): string => (string) $artifact['id'],
-            $artifacts,
-        );
-
-        return [$matched, [], null];
     }
 }

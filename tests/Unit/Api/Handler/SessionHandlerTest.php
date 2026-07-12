@@ -853,7 +853,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        $artifactStore = new ArtifactStore($fixture['storage']->getPdo());
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
 
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
         $fixture['storage']->addMessage($sessionId, 'user', 'Summarize this session');
@@ -881,7 +881,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         );
         $fixture['storage']->updateTaskStatus($taskId, 'completed', ['result' => 'done']);
 
-        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', stage: 'final', persistent: true);
+        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', projectId: 'proj-notes');
 
         $response = $fixture['handler']->summary(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/summary'), $sessionId);
         $body = json_decode((string) $response->getBody(), true);
@@ -896,7 +896,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         expect($body['counts']['tasks']['by_status']['completed'])->toBe(1);
         expect($body['counts']['artifacts']['total'])->toBe(1);
         expect($body['counts']['artifacts']['persistent'])->toBe(1);
-        expect($body['counts']['artifacts']['by_stage']['final'])->toBe(1);
+        expect($body['counts']['artifacts']['by_type']['document'])->toBe(1);
         expect($body['latest_turn']['id'])->toBe($turnId);
         expect($body['latest_turn']['tools_used'])->toBe(['read_file', 'apply_patch']);
         expect($body['latest_activity_at'])->not->toBeNull();

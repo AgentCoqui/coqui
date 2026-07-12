@@ -32,6 +32,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
@@ -360,12 +361,16 @@ final class SpawnAgentTool implements ToolInterface
         // Artifact toolkit — share parent session's artifacts with child agents.
         // Non-full access levels get read-only artifact access (no delete).
         if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('artifacts')) {
-            $artifactStore = new ArtifactStore($this->storage->getPdo());
+            $artifactStore = new ArtifactStore(
+                $this->storage->getPdo(),
+                new ArtifactFileService($this->workspacePath),
+            );
 
             $toolkits[] = new ArtifactToolkit(
                 $artifactStore,
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
+                createdBy: $role,
             );
         }
 

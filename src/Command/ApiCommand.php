@@ -52,6 +52,7 @@ use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
 use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -225,7 +226,10 @@ final class ApiCommand extends Command
         );
         $lifecycle->markBooted();
 
-        $artifactStore = new ArtifactStore($storage->getPdo());
+        $artifactStore = new ArtifactStore(
+            $storage->getPdo(),
+            new ArtifactFileService($boot->workspacePath()),
+        );
 
         // Loop + Schedule managers (autonomous execution engines)
         $loopStore = $boot->loopStore();

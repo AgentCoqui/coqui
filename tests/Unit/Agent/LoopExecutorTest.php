@@ -22,7 +22,7 @@ beforeEach(function () {
 
     $this->loopStore = new LoopStore($pdo);
     $this->projectStore = new ProjectStore($pdo);
-    $this->artifactStore = new ArtifactStore($pdo);
+    $this->artifactStore = artifactStoreForTest($pdo);
 
     $this->config = OpenClawConfig::fromArray([
         'agents' => [

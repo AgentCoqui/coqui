@@ -546,7 +546,7 @@ test('loop_start passes parameters to executor', function () {
     // Build toolkit with executor
     $pdo = $this->storage->getPdo();
     $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
-    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $artifactStore = artifactStoreForTest($pdo);
     $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
         'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
     ]);
@@ -680,7 +680,7 @@ test('loop_definitions shows parameter info', function () {
 test('loop_start passes sessionId from toolkit to executor', function () {
     $pdo = $this->storage->getPdo();
     $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
-    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $artifactStore = artifactStoreForTest($pdo);
     $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
         'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
     ]);
@@ -725,7 +725,7 @@ test('loop_start passes sessionId from toolkit to executor', function () {
 test('loop_start without sessionId stores null in loop record', function () {
     $pdo = $this->storage->getPdo();
     $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
-    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $artifactStore = artifactStoreForTest($pdo);
     $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
         'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
     ]);
@@ -769,7 +769,7 @@ test('loop_start without sessionId stores null in loop record', function () {
 test('prepareNextStage propagates sessionId into LoopStageResult', function () {
     $pdo = $this->storage->getPdo();
     $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
-    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $artifactStore = artifactStoreForTest($pdo);
     $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
         'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
     ]);

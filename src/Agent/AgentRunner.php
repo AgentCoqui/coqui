@@ -2039,9 +2039,9 @@ final class AgentRunner
                     $lines = ['Artifacts:'];
                     foreach (array_slice($artifacts, 0, 5) as $artifact) {
                         $type = $artifact['type'] ?? 'unknown';
-                        $stage = $artifact['stage'] ?? 'draft';
                         $title = $artifact['title'] ?? 'Untitled';
-                        $lines[] = "  - [{$type}/{$stage}] {$title}";
+                        $path = $artifact['path'] ?? '';
+                        $lines[] = $path !== '' ? "  - [{$type}] {$title} — {$path}" : "  - [{$type}] {$title}";
                     }
                     if (count($artifacts) > 5) {
                         $lines[] = '  - ... and ' . (count($artifacts) - 5) . ' more';

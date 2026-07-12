@@ -17,6 +17,13 @@ uses()->afterEach(function (): void {
 			cleanupTestTree($dir);
 		}
 	}
+
+	foreach ($GLOBALS['__coqui_artifact_test_workspaces'] ?? [] as $dir) {
+		if (is_string($dir) && is_dir($dir)) {
+			cleanupTestTree($dir);
+		}
+	}
+	$GLOBALS['__coqui_artifact_test_workspaces'] = [];
 })->in('Unit');
 
 function toolFromToolkit(ToolkitInterface $toolkit, string $name): ToolInterface
@@ -54,6 +61,22 @@ function releaseTestObjectProperties(object $context): void
 	}
 
 	gc_collect_cycles();
+}
+
+/**
+ * Build a file-backed ArtifactStore for tests, rooted at a unique temp workspace.
+ * The workspace path is registered on $GLOBALS so afterEach can clean it up.
+ */
+function artifactStoreForTest(PDO $pdo): CoquiBot\Coqui\Storage\ArtifactStore
+{
+	$workspace = sys_get_temp_dir() . '/coqui-artifact-ws-' . bin2hex(random_bytes(6));
+	@mkdir($workspace, 0775, true);
+	$GLOBALS['__coqui_artifact_test_workspaces'][] = $workspace;
+
+	return new CoquiBot\Coqui\Storage\ArtifactStore(
+		$pdo,
+		new CoquiBot\Coqui\Storage\ArtifactFileService($workspace),
+	);
 }
 
 function cleanupSqliteTestDb(string $dbPath): void
