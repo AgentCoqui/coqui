@@ -272,6 +272,34 @@ final readonly class PromptLoader
     }
 
     /**
+     * Build the persona context block from context/*.md.
+     *
+     * Persona-owned: read only from the active profile dir (no fallback).
+     * Returns null when disabled, stubbed-empty, or no context files exist.
+     */
+    public function buildContextContent(): ?string
+    {
+        if (!$this->shouldIncludePromptSection('context')) {
+            return null;
+        }
+
+        if ($this->isPromptSectionStubbed('context')) {
+            return $this->buildStubContent('context');
+        }
+
+        if ($this->profilePath === null) {
+            return null;
+        }
+
+        $content = (new PersonaContextReader())->read($this->profilePath);
+        if ($content === null) {
+            return null;
+        }
+
+        return $this->substitutePlaceholders($content);
+    }
+
+    /**
      * Build the body content (everything except soul.md and backstory.md).
      *
      * Returns base.md + tool sections + security.md + done.md composed
@@ -357,6 +385,11 @@ final readonly class PromptLoader
             $sections[] = $backstory;
         }
 
+        $context = $this->buildContextContent();
+        if ($context !== null) {
+            $sections[] = $context;
+        }
+
         $body = $this->buildBodyContent();
         if ($body !== '') {
             $sections[] = $body;
@@ -410,6 +443,23 @@ final readonly class PromptLoader
                             'source' => $backstoryPath,
                         ];
                     }
+                }
+            }
+        }
+
+        // Context — supplementary persona notes (persona dir only)
+        if ($this->shouldIncludePromptSection('context')) {
+            if ($this->isPromptSectionStubbed('context')) {
+                $sections[] = $this->buildStubSectionEntry('context', 'Context', 'context');
+            } elseif ($this->profilePath !== null) {
+                $contextContent = (new PersonaContextReader())->read($this->profilePath);
+                if ($contextContent !== null) {
+                    $sections[] = [
+                        'id' => 'context',
+                        'title' => 'Context',
+                        'content' => $this->substitutePlaceholders($contextContent),
+                        'source' => rtrim($this->profilePath, '/') . '/context',
+                    ];
                 }
             }
         }
