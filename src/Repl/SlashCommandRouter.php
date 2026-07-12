@@ -23,7 +23,6 @@ use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
-use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\ImagePreviewState;
 use CoquiBot\Coqui\Support\PromptInspectionService;
@@ -61,7 +60,6 @@ final class SlashCommandRouter
         private readonly ConfigHandler $config,
         private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
-        private readonly WebhookHandler $webhook,
         private readonly LoopHandler $loop,
         private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
@@ -123,7 +121,6 @@ final class SlashCommandRouter
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
-            '/webhooks' => $this->handleWebhooks($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
@@ -418,12 +415,6 @@ final class SlashCommandRouter
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->schedule->handle($io, $arg);
-        return RouteResult::continue();
-    }
-
-    private function handleWebhooks(SymfonyStyle $io, string $arg): RouteResult
-    {
-        $this->webhook->handle($io, $arg);
         return RouteResult::continue();
     }
 

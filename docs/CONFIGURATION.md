@@ -330,7 +330,7 @@ Maximum iterations any single background task can run. This is a per-task safety
 }
 ```
 
-This cap applies to all background tasks: loop iterations, webhook-triggered tasks, schedule-triggered tasks, and API-created tasks.
+This cap applies to all background tasks: loop iterations, schedule-triggered tasks, and API-created tasks.
 
 ### `childBackgroundTasks` (removed)
 

@@ -162,7 +162,6 @@ Stage agents intentionally do **not** receive:
 
 - `LoopToolkit` — prevents infinite loop recursion
 - `ScheduleToolkit` — prevents unbounded schedule creation
-- `WebhookToolkit` — prevents uncontrolled webhook registration
 
 This is an architectural constraint, not configuration — these toolkits are only constructed by `OrchestratorAgent` and never passed to loop stages.
 

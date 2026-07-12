@@ -185,13 +185,6 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/loops pause <id\|all>` | Advanced automation control: pause running loop(s) |
 | `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
 | `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
-| `/webhooks` | List webhook subscriptions with status and trigger counts for monitoring |
-| `/webhooks status <name\|id>` | Show webhook configuration, secret mask, and trigger state |
-| `/webhooks deliveries <name\|id>` | Show recent delivery logs for one webhook |
-| `/webhooks enable <name\|id>` | Advanced operator control: enable a webhook subscription |
-| `/webhooks disable <name\|id>` | Advanced operator control: disable a webhook subscription |
-| `/webhooks delete <name\|id>` | Advanced operator control: delete a webhook subscription |
-| `/webhooks rotate <name\|id>` | Advanced operator control: rotate a webhook signing secret |
 | `/hints` | Toggle command hints in the input area |
 | `/multiline` | Toggle multiline compose mode (double-Enter submits, bracketed paste auto-detected) |
 | `/multiline on` | Enable multiline compose mode |

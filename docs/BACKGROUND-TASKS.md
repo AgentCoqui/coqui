@@ -1,6 +1,6 @@
 # Background Tasks
 
-Background tasks are the execution substrate that runs a single unit of agent work in an isolated child process while the main conversation stays responsive. They are **not** something the orchestrator agent creates directly — the LLM has no background-task tools. Instead, background tasks are the shared engine that **loops, schedules, webhooks, and the `/tasks` HTTP API** all run on.
+Background tasks are the execution substrate that runs a single unit of agent work in an isolated child process while the main conversation stays responsive. They are **not** something the orchestrator agent creates directly — the LLM has no background-task tools. Instead, background tasks are the shared engine that **loops, schedules, and the `/tasks` HTTP API** all run on.
 
 > **Agent-driven async work goes through loops.** To run work asynchronously alongside the conversation, the agent starts a goal-driven loop: `loop_start(definition: "goal-driven", goal: "…")`. Each loop iteration is executed as a background task on this substrate. See [LOOPS.md](LOOPS.md).
 
@@ -60,7 +60,6 @@ There is no agent-facing tool for creating raw background tasks. Task records ar
 
 - **Loops** — each loop stage/iteration is scheduled as a background task by `LoopManager`. This is how an agent runs ad-hoc async work: `loop_start(definition: "goal-driven", goal: "…")`.
 - **Schedules** — a cron-style schedule tick creates a task for its next run (`ScheduleManager`).
-- **Webhooks** — an inbound HTTP event can spawn a task (`WebhookToolkit`).
 - **The HTTP API** — external integrations create tasks via `POST /api/v1/tasks`.
 
 In every case the API server is the sole executor: the ReactPHP event loop manages child processes and SSE event streams. Producers write task records; the API server consumes and executes them.
@@ -83,7 +82,7 @@ coqui
 
 ### Via REPL Slash Commands
 
-The REPL provides operator commands for inspecting and cancelling tasks (loops, schedules, and webhooks all surface here):
+The REPL provides operator commands for inspecting and cancelling tasks (loops and schedules all surface here):
 
 | Command | Description |
 |---------|-------------|
