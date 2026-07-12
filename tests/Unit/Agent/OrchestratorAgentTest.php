@@ -450,9 +450,10 @@ test('instructions include profile preferences and scoped core memories', functi
 
 test('role prompt section breakdown includes profile identity backstory and preferences', function () {
     $profilePath = $this->workspace . '/profiles/caelum';
-    mkdir($profilePath, 0755, true);
+    mkdir($profilePath . '/context', 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
 
     $preferencesPath = $profilePath . '/preferences.json';
     file_put_contents($preferencesPath, json_encode([
@@ -485,6 +486,7 @@ test('role prompt section breakdown includes profile identity backstory and pref
 
     expect($ids)->toContain('prompt.soul');
     expect($ids)->toContain('prompt.backstory');
+    expect($ids)->toContain('prompt.context');
     expect($ids)->toContain('prompt.preferences');
     expect($ids)->toContain('role.coder');
 });

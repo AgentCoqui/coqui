@@ -955,12 +955,13 @@ final class OrchestratorAgent extends AbstractAgent
         // Specialized roles replace that stack with role markdown instead of
         // layering on top of soul, which keeps role switching predictable.
         //
-        // Composition order: soul → backstory → memories → body → deferred → project.
+        // Composition order: soul → backstory → context → memories → body → deferred → project.
         // Soul defines identity and must come first for primacy attention.
         // Backstory provides continuity markers and relational anchors.
+        // Context provides supplementary persona notes, pinned right after backstory.
         // Memories provide background knowledge immediately after identity.
         // Body contains operational instructions, tools, security, and done.
-        [$soul, $backstory, $body] = $this->resolvePrimaryInstructionParts();
+        [$soul, $backstory, $context, $body] = $this->resolvePrimaryInstructionParts();
 
         $parts = [];
 
@@ -970,6 +971,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($backstory !== null && trim($backstory) !== '') {
             $parts[] = $this->downshiftHeadings($backstory);
+        }
+
+        if ($context !== null && trim($context) !== '') {
+            $parts[] = $this->downshiftHeadings($context);
         }
 
         $memoryBlock = $this->buildMemoryBlock();
@@ -1045,46 +1050,47 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
-     * Resolve the primary instruction content split into soul, backstory, and body.
+     * Resolve the primary instruction content split into soul, backstory, context, and body.
      *
      * Soul is the core identity section (profile soul.md or default soul.md).
      * Backstory is the identity context (continuity markers, relational anchors).
+     * Context is supplementary persona notes (context/*.md), pinned right after backstory.
      * Body is everything else (operational instructions, tools, security, done
      * for the orchestrator path, or role markdown for specialized roles).
      *
-     * @return array{?string, ?string, string} [soul, backstory, body]
+     * @return array{?string, ?string, ?string, string} [soul, backstory, context, body]
      */
     private function resolvePrimaryInstructionParts(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
 
         if ($roleInstructions !== null) {
-            // Role path: soul and backstory come from the profile,
+            // Role path: soul, backstory, and context come from the profile,
             // body is the role's own markdown.
-            [$soul, $backstory] = $this->buildProfileIdentityParts();
+            [$soul, $backstory, $context] = $this->buildProfileIdentityParts();
 
-            return [$soul, $backstory, $roleInstructions];
+            return [$soul, $backstory, $context, $roleInstructions];
         }
 
-        // Orchestrator path: soul, backstory, and body from the prompt stack.
+        // Orchestrator path: soul, backstory, context, and body from the prompt stack.
         $prompt = $this->buildOrchestratorPrompt();
 
-        return [$prompt->renderSoul(), $prompt->renderBackstory(), $prompt->renderBody()];
+        return [$prompt->renderSoul(), $prompt->renderBackstory(), $prompt->renderContext(), $prompt->renderBody()];
     }
 
     /**
      * Build identity parts from the active profile for the role path.
      *
      * When a profile is active and a specialized role replaces the orchestrator
-     * prompt stack, this provides soul and backstory so the agent retains its
-     * personality and continuity context under any role.
+     * prompt stack, this provides soul, backstory, and context so the agent
+     * retains its personality and continuity context under any role.
      *
-     * @return array{?string, ?string} [soul, backstory]
+     * @return array{?string, ?string, ?string} [soul, backstory, context]
      */
     private function buildProfileIdentityParts(): array
     {
         if ($this->activeProfilePath === null) {
-            return [null, null];
+            return [null, null, null];
         }
 
         $parser = new \CoquiBot\Coqui\Config\ProfileParser();
@@ -1117,7 +1123,20 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        return [$soul, $backstory];
+        // Context — supplementary persona notes (context/*.md)
+        $context = null;
+        if ($this->isProfilePromptSectionEnabled('context')) {
+            if ($this->isProfilePromptSectionStubbed('context')) {
+                $context = $this->buildProfilePromptSectionStub('context');
+            } else {
+                $ctx = (new \CoquiBot\Coqui\Prompt\PersonaContextReader())->read($this->activeProfilePath, $this->profilePreferences?->getContextLabel() ?? 'Context');
+                if ($ctx !== null && trim($ctx) !== '') {
+                    $context = $ctx;
+                }
+            }
+        }
+
+        return [$soul, $backstory, $context];
     }
 
     private function isProfilePromptSectionEnabled(string $section, bool $default = true): bool
@@ -1157,6 +1176,7 @@ final class OrchestratorAgent extends AbstractAgent
         return match ($section) {
             'soul' => '# Soul' . "\n\n" . 'Core identity instructions are intentionally condensed for this profile.',
             'backstory' => '## Backstory' . "\n\n" . 'Narrative continuity is intentionally condensed for this profile.',
+            'context' => '## Context' . "\n\n" . 'Supplementary persona context is intentionally condensed for this profile.',
             'preferences' => '## Preferences' . "\n\n" . 'Profile-specific communication preferences are intentionally condensed for this profile.',
             'memory' => '## BACKGROUND KNOWLEDGE (Core Memories)' . "\n\n" . 'Core memories are available but intentionally condensed for this profile.',
             'project_context' => '## ACTIVE PROJECT' . "\n\n" . 'Project context is available but intentionally condensed for this profile.',
@@ -1170,9 +1190,9 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function buildProfileIdentityPreamble(): ?string
     {
-        [$soul, $backstory] = $this->buildProfileIdentityParts();
+        [$soul, $backstory, $context] = $this->buildProfileIdentityParts();
 
-        $parts = array_filter([$soul, $backstory], fn(?string $s) => $s !== null && trim($s) !== '');
+        $parts = array_filter([$soul, $backstory, $context], fn(?string $s) => $s !== null && trim($s) !== '');
 
         return $parts !== [] ? implode("\n\n", $parts) : null;
     }
@@ -1679,7 +1699,7 @@ final class OrchestratorAgent extends AbstractAgent
                 throw new \LogicException('Active role must be set when role instructions are resolved.');
             }
 
-            [$soul, $backstory] = $this->buildProfileIdentityParts();
+            [$soul, $backstory, $context] = $this->buildProfileIdentityParts();
             if ($soul !== null && trim($soul) !== '') {
                 $sections[] = new PromptSection(
                     id: 'prompt.soul',
@@ -1703,6 +1723,19 @@ final class OrchestratorAgent extends AbstractAgent
                     decision: 'pinned_critical',
                     group: 'identity',
                     source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/backstory.md' : null,
+                );
+            }
+
+            if ($context !== null && trim($context) !== '') {
+                $sections[] = new PromptSection(
+                    id: 'prompt.context',
+                    title: 'Context',
+                    content: $context,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'Supplementary persona context is part of identity and stays pinned with soul and backstory.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                    source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/context' : null,
                 );
             }
 
@@ -1755,7 +1788,7 @@ final class OrchestratorAgent extends AbstractAgent
         if (($preferences = $this->buildProfilePreferencesPromptSection()) !== null) {
             $insertAt = 0;
             foreach ($sections as $index => $section) {
-                if (in_array($section->id, ['prompt.soul', 'prompt.backstory'], true)) {
+                if (in_array($section->id, ['prompt.soul', 'prompt.backstory', 'prompt.context'], true)) {
                     $insertAt = $index + 1;
                 }
             }
@@ -1785,6 +1818,16 @@ final class OrchestratorAgent extends AbstractAgent
                 content: $content,
                 priority: PromptSectionPriority::Critical,
                 rationale: 'Backstory preserves profile continuity and narrative context, so it stays pinned with identity material.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            'context' => new PromptSection(
+                id: 'prompt.context',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Supplementary persona context is part of identity and stays pinned with soul and backstory.',
                 decision: 'pinned_critical',
                 group: 'identity',
                 source: $source,
