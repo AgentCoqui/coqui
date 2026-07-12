@@ -18,6 +18,7 @@ use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Exception\SessionTypeException;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\InteractiveSessionService;
@@ -47,6 +48,7 @@ final readonly class SessionHandler
         private ProfileDiscovery $profileDiscovery,
         private ?ProfileSessionLifecycleManager $lifecycleManager = null,
         private ?GroupSessionService $groupSessionService = null,
+        private ?ArtifactStore $artifactStore = null,
     ) {}
 
     /**
@@ -291,6 +293,19 @@ final readonly class SessionHandler
         if ($session instanceof Response) {
             return $session;
         }
+
+        // Project-linked artifacts persist and block session deletion — reject up
+        // front so nothing is mutated on the rejected path.
+        if ($this->artifactStore?->hasProjectLinkedArtifacts($id)) {
+            return Router::errorResponse(
+                ApiErrorCode::CONFLICT,
+                'Session has project-linked artifacts. Detach them from the project first.',
+            );
+        }
+
+        // Ownership-based cleanup: remove session-only artifact files (their rows
+        // cascade-delete with the session).
+        $this->artifactStore?->cleanupSessionArtifacts($id);
 
         $this->storage->deleteSession($id);
 

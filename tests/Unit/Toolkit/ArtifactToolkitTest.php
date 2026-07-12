@@ -3,29 +3,25 @@
 declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
-use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 
-beforeEach(function () {
+beforeEach(function (): void {
     $this->dbPath = sys_get_temp_dir() . '/coqui-toolkit-test-' . bin2hex(random_bytes(8)) . '.db';
     $this->storage = new SessionStorage($this->dbPath);
     $this->sessionId = $this->storage->createSession('orchestrator', 'test/model');
-    $this->store = new ArtifactStore($this->storage->getPdo());
-    $this->toolkit = new ArtifactToolkit($this->store, $this->sessionId);
+    $this->store = artifactStoreForTest($this->storage->getPdo());
+    $this->toolkit = new ArtifactToolkit($this->store, $this->sessionId, createdBy: 'alice');
 });
 
-afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+afterEach(function (): void {
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
-test('provides exactly 6 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(6);
-});
+// --- Tool surface ---
 
-test('tool names are correct', function () {
+test('full-access toolkit exposes exactly create/update/get/list/delete', function (): void {
     $names = array_map(
         fn($t) => $t->toFunctionSchema()['function']['name'],
         $this->toolkit->tools(),
@@ -36,270 +32,123 @@ test('tool names are correct', function () {
         'artifact_update',
         'artifact_get',
         'artifact_list',
-        'artifact_stage',
         'artifact_delete',
     ]);
 });
 
-test('guidelines shows empty state when no artifacts', function () {
-    $guidelines = $this->toolkit->guidelines();
+test('read-only toolkit omits delete', function (): void {
+    $readOnly = new ArtifactToolkit($this->store, $this->sessionId, readOnly: true);
+    $names = array_map(
+        fn($t) => $t->toFunctionSchema()['function']['name'],
+        $readOnly->tools(),
+    );
 
-    expect($guidelines)->toContain('ARTIFACT-GUIDELINES');
-    expect($guidelines)->toContain('artifact_create');
+    expect($names)->toBe(['artifact_create', 'artifact_update', 'artifact_get', 'artifact_list'])
+        ->and($names)->not->toContain('artifact_delete');
 });
 
-test('guidelines lists existing artifacts', function () {
-    $this->store->create($this->sessionId, 'Auth Service', 'code here', type: 'code');
+test('no stage or bulk tools remain', function (): void {
+    $names = array_map(
+        fn($t) => $t->toFunctionSchema()['function']['name'],
+        $this->toolkit->tools(),
+    );
 
-    $guidelines = $this->toolkit->guidelines();
-
-    expect($guidelines)->toContain('Auth Service');
-    expect($guidelines)->toContain('artifact_get');
-    expect($guidelines)->toContain('1 artifact(s)');
+    expect($names)->not->toContain('artifact_stage');
 });
 
-test('artifact_create tool creates artifact', function () {
+// --- Create ---
+
+test('artifact_create writes a file, returns its path, and stamps created_by', function (): void {
     $tool = toolFromToolkit($this->toolkit, 'artifact_create');
 
     $result = $tool->execute([
-        'title' => 'My Script',
-        'content' => 'echo "hi"',
-        'type' => 'code',
-        'language' => 'php',
+        'title' => 'My Doc',
+        'content' => "line 1\nline 2\n",
+        'type' => 'document',
     ]);
 
     $data = assertStructuredToolResult($result);
-    expect($data['title'])->toBe('My Script');
-    expect($data['version'])->toBe(1);
-    expect($data['stage'])->toBe('draft');
+
+    expect($data['id'])->toBeString()
+        ->and($data['path'])->toStartWith('artifacts/document/')
+        ->and($data['version'])->toBe(1);
+
+    $stored = $this->store->get($data['id'], $this->sessionId);
+    expect($stored['created_by'])->toBe('alice')
+        ->and($stored['content'])->toBe("line 1\nline 2\n");
 });
 
-test('artifact_create tool rejects empty title', function () {
+test('artifact_create rejects an empty title', function (): void {
     $tool = toolFromToolkit($this->toolkit, 'artifact_create');
-
-    $result = $tool->execute(['title' => '', 'content' => 'x']);
-
-    expect($result->status)->toBe(ToolResultStatus::Error);
-    expect($result->content)->toContain('Title is required');
-});
-
-test('artifact_update tool updates content', function () {
-    $id = $this->store->create($this->sessionId, 'Doc', 'v1');
-
-    $tool = toolFromToolkit($this->toolkit, 'artifact_update');
-
-    $result = $tool->execute([
-        'id' => $id,
-        'content' => 'v2',
-        'change_summary' => 'Revised',
-    ]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['version'])->toBe(2);
-});
-
-test('artifact_update tool errors on missing id', function () {
-    $tool = toolFromToolkit($this->toolkit, 'artifact_update');
-
-    $result = $tool->execute(['id' => 'nonexistent', 'content' => 'x']);
+    $result = $tool->execute(['title' => '  ', 'content' => 'x']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
-test('artifact_get tool retrieves artifact', function () {
-    $id = $this->store->create($this->sessionId, 'Fetched', 'body');
+// --- Update ---
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_get');
+test('artifact_update rewrites content and bumps version', function (): void {
+    $create = toolFromToolkit($this->toolkit, 'artifact_create')->execute(['title' => 'Doc', 'content' => 'v1']);
+    $id = assertStructuredToolResult($create)['id'];
 
-    $result = $tool->execute(['id' => $id]);
-
+    $result = toolFromToolkit($this->toolkit, 'artifact_update')->execute(['id' => $id, 'content' => 'v2']);
     $data = assertStructuredToolResult($result);
-    expect($data['title'])->toBe('Fetched');
-    expect($data['content'])->toBe('body');
+
+    expect($data['version'])->toBe(2)
+        ->and($this->store->get($id, $this->sessionId)['content'])->toBe('v2');
 });
 
-test('artifact_get tool returns the current content', function () {
-    $id = $this->store->create($this->sessionId, 'Versioned', 'original');
-    $this->store->update($id, 'updated');
+// --- Get / List / Delete ---
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_get');
+test('artifact_get returns content read from the file', function (): void {
+    $id = assertStructuredToolResult(
+        toolFromToolkit($this->toolkit, 'artifact_create')->execute(['title' => 'Doc', 'content' => 'body']),
+    )['id'];
 
-    $result = $tool->execute(['id' => $id]);
+    $data = assertStructuredToolResult(toolFromToolkit($this->toolkit, 'artifact_get')->execute(['id' => $id]));
 
-    $data = assertStructuredToolResult($result);
-    expect($data['content'])->toBe('updated');
-    expect($data['version'])->toBe(2);
+    expect($data['content'])->toBe('body')->and($data['path'])->toStartWith('artifacts/document/');
 });
 
-test('artifact_list tool returns artifacts', function () {
-    $this->store->create($this->sessionId, 'A', 'content a');
-    $this->store->create($this->sessionId, 'B', 'content b');
+test('artifact_delete removes the artifact', function (): void {
+    $id = assertStructuredToolResult(
+        toolFromToolkit($this->toolkit, 'artifact_create')->execute(['title' => 'Doc', 'content' => 'x']),
+    )['id'];
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_list');
+    $result = toolFromToolkit($this->toolkit, 'artifact_delete')->execute(['id' => $id]);
 
-    $result = $tool->execute([]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['count'])->toBe(2);
+    expect(assertStructuredToolResult($result)['deleted'])->toBeTrue()
+        ->and($this->store->get($id, $this->sessionId))->toBeNull();
 });
 
-test('artifact_list tool returns message when empty', function () {
-    $tool = toolFromToolkit($this->toolkit, 'artifact_list');
+// --- Pinned recent-artifacts index ---
 
-    $result = $tool->execute([]);
+test('recentArtifactsIndex shows when-to-use guidance and no list when empty', function (): void {
+    $index = $this->toolkit->recentArtifactsIndex();
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->content)->toContain('No artifacts found');
+    expect($index)->toContain('<ARTIFACTS>')
+        ->and($index)->toContain('substantial')
+        ->and($index)->not->toContain('Recent artifacts in scope');
 });
 
-test('artifact_stage tool transitions stage', function () {
-    $id = $this->store->create($this->sessionId, 'Staged', 'content');
+test('recentArtifactsIndex lists pointers with path and provenance, capped, not creator-filtered', function (): void {
+    // Two different creators; the index must show both.
+    $alice = new ArtifactToolkit($this->store, $this->sessionId, createdBy: 'alice');
+    $bob = new ArtifactToolkit($this->store, $this->sessionId, createdBy: 'bob');
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
+    for ($i = 0; $i < 8; $i++) {
+        toolFromToolkit($alice, 'artifact_create')->execute(['title' => "Alice {$i}", 'content' => 'x']);
+    }
+    for ($i = 0; $i < 8; $i++) {
+        toolFromToolkit($bob, 'artifact_create')->execute(['title' => "Bob {$i}", 'content' => 'y']);
+    }
 
-    $result = $tool->execute(['id' => $id, 'stage' => 'review']);
+    $index = $alice->recentArtifactsIndex();
 
-    $data = assertStructuredToolResult($result);
-    expect($data['previous_stage'])->toBe('draft');
-    expect($data['new_stage'])->toBe('review');
-});
-
-test('artifact_stage tool errors on missing artifact', function () {
-    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
-
-    $result = $tool->execute(['id' => 'nonexistent', 'stage' => 'final']);
-
-    expect($result->status)->toBe(ToolResultStatus::Error);
-});
-
-// --- ReadOnly Mode ---
-
-test('default toolkit provides 6 tools including delete', function () {
-    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-
-    $names = array_map(
-        fn($t) => $t->toFunctionSchema()['function']['name'],
-        $toolkit->tools(),
-    );
-
-    expect($names)->toContain('artifact_delete');
-    expect($names)->toHaveCount(6);
-});
-
-test('readonly toolkit provides 5 tools without delete', function () {
-    $toolkit = new ArtifactToolkit($this->store, $this->sessionId, readOnly: true);
-
-    $names = array_map(
-        fn($t) => $t->toFunctionSchema()['function']['name'],
-        $toolkit->tools(),
-    );
-
-    expect($names)->not->toContain('artifact_delete');
-    expect($names)->toHaveCount(5);
-});
-
-test('readonly toolkit still allows create, update, get, list, stage', function () {
-    $toolkit = new ArtifactToolkit($this->store, $this->sessionId, readOnly: true);
-
-    $names = array_map(
-        fn($t) => $t->toFunctionSchema()['function']['name'],
-        $toolkit->tools(),
-    );
-
-    expect($names)->toBe([
-        'artifact_create',
-        'artifact_update',
-        'artifact_get',
-        'artifact_list',
-        'artifact_stage',
-    ]);
-});
-
-test('artifact_delete tool deletes artifact', function () {
-    $id = $this->store->create($this->sessionId, 'Deletable', 'content');
-
-    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = toolFromToolkit($toolkit, 'artifact_delete');
-
-    $result = $deleteTool->execute(['id' => $id]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['deleted'])->toBeTrue();
-    expect($this->store->get($id))->toBeNull();
-});
-
-test('artifact_delete tool errors on missing artifact', function () {
-    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = toolFromToolkit($toolkit, 'artifact_delete');
-
-    $result = $deleteTool->execute(['id' => 'nonexistent']);
-
-    expect($result->status)->toBe(ToolResultStatus::Error);
-});
-
-test('artifact_bulk_stage updates artifacts by explicit ids and returns structured json hints', function () {
-    $id1 = $this->store->create($this->sessionId, 'One', 'content');
-    $id2 = $this->store->create($this->sessionId, 'Two', 'content');
-
-    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
-
-    $result = $tool->execute([
-        'ids' => [$id1, $id2],
-        'stage' => 'review',
-    ]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['updated'])->toBe(2);
-    expect($this->store->get($id1)['stage'])->toBe('review');
-    expect($this->store->get($id2)['stage'])->toBe('review');
-});
-
-test('artifact_bulk_stage accepts native array ids', function () {
-    $id1 = $this->store->create($this->sessionId, 'One', 'content');
-    $id2 = $this->store->create($this->sessionId, 'Two', 'content');
-
-    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
-
-    $result = $tool->execute([
-        'ids' => [$id1, $id2],
-        'stage' => 'review',
-    ]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['updated'])->toBe(2);
-    expect($this->store->get($id1)['stage'])->toBe('review');
-    expect($this->store->get($id2)['stage'])->toBe('review');
-});
-
-test('artifact_bulk_delete deletes artifacts selected by filter', function () {
-    $this->store->create($this->sessionId, 'Draft One', 'content', type: 'code');
-    $this->store->create($this->sessionId, 'Draft Two', 'content', type: 'code');
-    $keepId = $this->store->create($this->sessionId, 'Document', 'content', type: 'document');
-
-    $tool = toolFromToolkit($this->toolkit, 'artifact_delete');
-
-    $result = $tool->execute([
-        'type' => 'code',
-    ]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['deleted'])->toBe(2);
-    expect($this->store->list($this->sessionId))->toHaveCount(1);
-    expect($this->store->get($keepId))->not->toBeNull();
-});
-
-test('artifact_bulk_delete accepts native array ids', function () {
-    $id1 = $this->store->create($this->sessionId, 'Delete One', 'content');
-    $id2 = $this->store->create($this->sessionId, 'Delete Two', 'content');
-
-    $tool = toolFromToolkit($this->toolkit, 'artifact_delete');
-
-    $result = $tool->execute([
-        'ids' => [$id1, $id2],
-    ]);
-
-    $data = assertStructuredToolResult($result);
-    expect($data['deleted'])->toBe(2);
-    expect($this->store->get($id1))->toBeNull();
-    expect($this->store->get($id2))->toBeNull();
+    // Capped at 10 pointer lines.
+    expect(substr_count($index, "\n- **"))->toBe(10)
+        ->and($index)->toContain('Recent artifacts in scope')
+        ->and($index)->toContain('artifacts/document/')
+        ->and($index)->toContain('by bob')   // not filtered to the loading creator
+        ->and($index)->toContain('by alice');
 });

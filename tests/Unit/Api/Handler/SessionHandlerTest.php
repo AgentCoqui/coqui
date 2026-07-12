@@ -78,6 +78,8 @@ MD);
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
+        'roleResolver' => $roleResolver,
+        'profileDiscovery' => $profileDiscovery,
         'handler' => new SessionHandler($storage, $roleResolver, $profileDiscovery, $lifecycleManager),
     ];
 }
@@ -849,11 +851,73 @@ test('session handler list filters sessions by profile scope', function () {
     }
 });
 
+test('session delete cleans up session-only artifact files', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
+        $handler = new SessionHandler(
+            $fixture['storage'],
+            $fixture['roleResolver'],
+            $fixture['profileDiscovery'],
+            artifactStore: $artifactStore,
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionOnly = $artifactStore->create($sessionId, 'Ephemeral', 'x', 'document');
+        $filePath = $artifactStore->get($sessionOnly, $sessionId)['path'];
+
+        $response = $handler->delete(
+            new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId),
+            $sessionId,
+        );
+
+        expect($response->getStatusCode())->toBe(200)
+            ->and($artifactStore->get($sessionOnly))->toBeNull();
+        // The workspace file is removed by ownership cleanup before the row cascade-deletes.
+        expect($filePath)->not->toBe('');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session delete is rejected (409) without mutation when project-linked artifacts exist', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
+        $handler = new SessionHandler(
+            $fixture['storage'],
+            $fixture['roleResolver'],
+            $fixture['profileDiscovery'],
+            artifactStore: $artifactStore,
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionOnly = $artifactStore->create($sessionId, 'Ephemeral', 'x', 'document');
+        $projectLinked = $artifactStore->create($sessionId, 'Keeper', 'y', 'plan', projectId: 'proj-keep');
+
+        $response = $handler->delete(
+            new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId),
+            $sessionId,
+        );
+
+        // Rejected cleanly, and nothing was mutated — the session-only artifact survives too.
+        expect($response->getStatusCode())->toBe(409)
+            ->and(json_decode((string) $response->getBody(), true)['code'])->toBe('conflict')
+            ->and($artifactStore->get($sessionOnly, $sessionId))->not->toBeNull()
+            ->and($artifactStore->get($projectLinked, $sessionId))->not->toBeNull()
+            ->and($fixture['storage']->getSession($sessionId))->not->toBeNull();
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
 test('session handler summary returns aggregate counts and latest turn data', function () {
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        $artifactStore = new ArtifactStore($fixture['storage']->getPdo());
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
 
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
         $fixture['storage']->addMessage($sessionId, 'user', 'Summarize this session');
@@ -881,7 +945,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         );
         $fixture['storage']->updateTaskStatus($taskId, 'completed', ['result' => 'done']);
 
-        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', stage: 'final', persistent: true);
+        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', projectId: 'proj-notes');
 
         $response = $fixture['handler']->summary(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/summary'), $sessionId);
         $body = json_decode((string) $response->getBody(), true);
@@ -896,7 +960,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
         expect($body['counts']['tasks']['by_status']['completed'])->toBe(1);
         expect($body['counts']['artifacts']['total'])->toBe(1);
         expect($body['counts']['artifacts']['persistent'])->toBe(1);
-        expect($body['counts']['artifacts']['by_stage']['final'])->toBe(1);
+        expect($body['counts']['artifacts']['by_type']['document'])->toBe(1);
         expect($body['latest_turn']['id'])->toBe($turnId);
         expect($body['latest_turn']['tools_used'])->toBe(['read_file', 'apply_patch']);
         expect($body['latest_activity_at'])->not->toBeNull();

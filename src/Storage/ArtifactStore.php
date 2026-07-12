@@ -10,35 +10,24 @@ use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
- * SQLite-backed artifact index.
+ * Files-only artifact index.
  *
- * Artifacts represent structured outputs created by agents: code files,
- * documents, configurations, etc. Each artifact tracks lineage (which
- * session/turn created it) and supports staging (draft → review → final).
+ * Every artifact's canonical content is a plain file on disk under
+ * `artifacts/<type>/<slug>-<shortid>.<ext>` (owned by {@see ArtifactFileService}).
+ * The DB row is a pure index — `id, session_id, project_id, created_by, title,
+ * type, path, content_hash, version, timestamps` — never the content itself.
+ * A monotonic `version` counter records how many times the artifact was
+ * rewritten; there is no per-version history (that lives in the user's VCS).
  *
- * For filesystem-backed types (plan, document, code, config) the canonical
- * content lives on disk under the project's artifacts/ directory and the DB
- * `content` column is left empty — the file is the source of truth and history
- * comes from the user's own VCS. Only DB-only types (loop_output, data, other)
- * store content inline. A monotonically increasing `version` counter is kept on
- * the row for display, but full per-version snapshots are not retained.
+ * Retention is ownership-based: project-linked artifacts persist; session-only
+ * artifacts are removed when their session is deleted.
  */
 final class ArtifactStore
 {
-    private PDO $db;
-    private ?ArtifactFileService $fileService;
-    private ?ProjectStore $projectStore;
-
-    /**
-     * @param PDO $db Shared PDO connection (from SessionStorage::getPdo())
-     * @param ArtifactFileService|null $fileService When provided, eligible artifacts write canonical content to disk.
-     * @param ProjectStore|null $projectStore When provided, resolves project directory for auto-generated paths.
-     */
-    public function __construct(PDO $db, ?ArtifactFileService $fileService = null, ?ProjectStore $projectStore = null)
-    {
-        $this->db = $db;
-        $this->fileService = $fileService;
-        $this->projectStore = $projectStore;
+    public function __construct(
+        private readonly PDO $db,
+        private readonly ArtifactFileService $fileService,
+    ) {
         $this->createTables();
     }
 
@@ -50,7 +39,7 @@ final class ArtifactStore
                 session_id TEXT NOT NULL,
                 turn_id TEXT,
                 title TEXT NOT NULL,
-                type TEXT NOT NULL DEFAULT 'code',
+                type TEXT NOT NULL DEFAULT 'document',
                 content TEXT NOT NULL DEFAULT '',
                 language TEXT,
                 filepath TEXT,
@@ -72,17 +61,20 @@ final class ArtifactStore
             CREATE INDEX IF NOT EXISTS idx_artifacts_session ON artifacts(session_id)
         SQL);
 
-        // Harness columns — added to existing installations via migration
-        $this->migrateAddColumn('artifacts', 'project_id', "TEXT");
-        // sprint_id is a dormant column retained from the removed sprint subsystem;
-        // it is never written or read. Kept because SQLite cannot cheaply drop columns.
-        $this->migrateAddColumn('artifacts', 'sprint_id', "TEXT");
-        $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
+        // Index / provenance columns — added to existing installations via migration.
+        $this->migrateAddColumn('artifacts', 'project_id', 'TEXT');
+        $this->migrateAddColumn('artifacts', 'path', 'TEXT');
+        $this->migrateAddColumn('artifacts', 'content_hash', 'TEXT');
+        $this->migrateAddColumn('artifacts', 'created_by', 'TEXT');
 
-        // Hybrid filesystem columns — track canonical file path and storage mode
+        // Dormant columns retained for back-compat. SQLite cannot cheaply drop
+        // columns, so `stage`, `persistent`, `storage_mode`, and `canonical_path`
+        // stay declared but are never read by current code. `persistent` and
+        // `filepath` are still written to mirror `project_id`/`path` for any
+        // external readers of the raw table.
+        $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('artifacts', 'storage_mode', "TEXT NOT NULL DEFAULT 'database'");
         $this->migrateAddColumn('artifacts', 'canonical_path', 'TEXT');
-        $this->migrateAddColumn('artifacts', 'content_hash', 'TEXT');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -91,38 +83,32 @@ final class ArtifactStore
     }
 
     /**
-     * Create a new artifact.
+     * Create a new artifact: write its content to a file and index the row.
      *
-     * Filesystem-backed types write their content to a canonical file and leave
-     * the DB `content` column empty (the file is authoritative). DB-only types
-     * store content inline.
-     *
-     * @param array<string, mixed> $metadata Optional structured metadata.
+     * @param array<string, mixed>|null $metadata Optional structured metadata.
      */
     public function create(
         string $sessionId,
         string $title,
         string $content,
-        string $type = 'code',
+        string $type = 'document',
         ?string $language = null,
-        ?string $filepath = null,
-        string $stage = 'draft',
+        ?string $projectId = null,
+        ?string $createdBy = null,
         ?string $turnId = null,
         ?array $metadata = null,
-        ?string $projectId = null,
-        bool $persistent = false,
     ): string {
         $id = IdGenerator::hex();
         $now = Clock::nowUtc();
+        $isProjectLinked = $projectId !== null && $projectId !== '';
 
-        // Auto-persist artifacts linked to projects — project-linked artifacts
-        // survive cleanupFinalized() so they remain available to later loop stages
-        // (e.g. reviewers) whose processes boot and run cleanup before reading them.
-        $isPersistent = $persistent || ($projectId !== null && $projectId !== '');
+        $path = $this->fileService->pathFor($type, $title, $id, $language);
+        $hash = $this->fileService->write($path, $content);
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, persistent, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts
+                (id, session_id, turn_id, title, type, content, language, filepath, path, content_hash, created_by, version, metadata, project_id, persistent, storage_mode, canonical_path, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 1, ?, ?, ?, 'filesystem', ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -130,99 +116,78 @@ final class ArtifactStore
             $turnId,
             $title,
             $type,
-            $content,
             $language,
-            $filepath,
-            $stage,
+            $path,
+            $path,
+            $hash,
+            $createdBy,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
-            $isPersistent ? 1 : 0,
+            $isProjectLinked ? 1 : 0,
+            $path,
             $now,
             $now,
         ]);
-        // Filesystem-backed: resolve canonical path, write file, and clear the DB
-        // content (the file becomes the source of truth).
-        if ($this->fileService !== null && $this->fileService->isFilesystemBacked($type, $filepath, $projectId)) {
-            $projectDir = $this->resolveProjectDirectory($projectId);
-            $canonicalPath = $this->fileService->resolveCanonicalPath($id, $type, $title, $filepath, $projectId, $projectDir);
-
-            if ($canonicalPath !== null && $this->fileService->writeContent($canonicalPath, $content)) {
-                $contentHash = $this->fileService->computeContentHash($content);
-                $this->db->prepare(
-                    "UPDATE artifacts SET storage_mode = ?, canonical_path = ?, content_hash = ?, content = '', filepath = COALESCE(filepath, ?) WHERE id = ?",
-                )->execute(['filesystem', $canonicalPath, $contentHash, $canonicalPath, $id]);
-            }
-        }
 
         return $id;
     }
 
     /**
-     * Update an artifact's content, bumping the version.
+     * Full-rewrite update: overwrite the file and bump the version counter.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
     public function update(
         string $id,
         string $content,
-        ?string $changeSummary = null,
         ?string $title = null,
-        ?string $stage = null,
         ?string $sessionId = null,
     ): bool {
-        $artifact = $this->getRaw($id, $sessionId);
-        if ($artifact === null) {
+        $row = $this->fetchRow($id, $sessionId);
+        if ($row === null) {
             return false;
         }
 
-        $newVersion = (int) $artifact['version'] + 1;
-        $now = Clock::nowUtc();
+        $path = (string) ($row['path'] ?? '');
+        if ($path === '') {
+            // Safety net for any pre-migration row missing a path.
+            $path = $this->fileService->pathFor(
+                (string) $row['type'],
+                (string) $row['title'],
+                $id,
+                isset($row['language']) ? (string) $row['language'] : null,
+            );
+        }
 
-        $canonicalPath = $artifact['canonical_path'] ?? null;
-        $isFilesystemBacked = $this->fileService !== null
-            && is_string($canonicalPath) && $canonicalPath !== ''
-            && ($artifact['storage_mode'] ?? 'database') === 'filesystem';
+        $hash = $this->fileService->write($path, $content);
+        $newVersion = ((int) $row['version']) + 1;
 
-        // Filesystem-backed artifacts keep the DB content empty (the file is the
-        // source of truth); DB-only artifacts store content inline.
-        $sets = ['content = ?', 'version = ?', 'updated_at = ?'];
-        $params = [$isFilesystemBacked ? '' : $content, $newVersion, $now];
+        $sets = ["content = ''", 'path = ?', 'canonical_path = ?', 'content_hash = ?', 'version = ?', 'updated_at = ?'];
+        $params = [$path, $path, $hash, $newVersion, Clock::nowUtc()];
 
         if ($title !== null) {
             $sets[] = 'title = ?';
             $params[] = $title;
         }
 
-        if ($stage !== null) {
-            $sets[] = 'stage = ?';
-            $params[] = $stage;
-        }
-
-        if ($isFilesystemBacked) {
-            $this->fileService->writeContent((string) $canonicalPath, $content);
-            $sets[] = 'content_hash = ?';
-            $params[] = $this->fileService->computeContentHash($content);
-        }
-
         $params[] = $id;
-        $sql = 'UPDATE artifacts SET ' . implode(', ', $sets) . ' WHERE id = ?';
-        $this->db->prepare($sql)->execute($params);
+        $this->db->prepare('UPDATE artifacts SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($params);
 
         return true;
     }
 
     /**
-     * Patch non-versioned artifact fields.
+     * Patch non-content index fields.
      *
-     * Supported keys: title, language, metadata, project_id, persistent.
+     * Supported keys: title, metadata, project_id.
      *
      * @param array<string, mixed> $patch
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
     public function patch(string $id, array $patch, ?string $sessionId = null): bool
     {
-        $artifact = $this->getRaw($id, $sessionId);
-        if ($artifact === null) {
+        $row = $this->fetchRow($id, $sessionId);
+        if ($row === null) {
             return false;
         }
 
@@ -232,15 +197,6 @@ final class ArtifactStore
         if (array_key_exists('title', $patch)) {
             $sets[] = 'title = ?';
             $params[] = $patch['title'];
-        }
-
-        if (array_key_exists('language', $patch)) {
-            if ($patch['language'] === null) {
-                $sets[] = 'language = NULL';
-            } else {
-                $sets[] = 'language = ?';
-                $params[] = $patch['language'];
-            }
         }
 
         if (array_key_exists('metadata', $patch)) {
@@ -253,17 +209,14 @@ final class ArtifactStore
         }
 
         if (array_key_exists('project_id', $patch)) {
-            if ($patch['project_id'] === null) {
+            if ($patch['project_id'] === null || $patch['project_id'] === '') {
                 $sets[] = 'project_id = NULL';
+                $sets[] = 'persistent = 0';
             } else {
                 $sets[] = 'project_id = ?';
                 $params[] = $patch['project_id'];
+                $sets[] = 'persistent = 1';
             }
-        }
-
-        if (array_key_exists('persistent', $patch)) {
-            $sets[] = 'persistent = ?';
-            $params[] = $patch['persistent'] ? 1 : 0;
         }
 
         if (count($sets) === 1) {
@@ -278,32 +231,23 @@ final class ArtifactStore
     }
 
     /**
-     * Get a single artifact by ID.
+     * Get a single artifact by ID, with content read from its file.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      * @return array<string, mixed>|null
      */
     public function get(string $id, ?string $sessionId = null): ?array
     {
-        if ($sessionId !== null) {
-            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ? AND session_id = ?');
-            $stmt->execute([$id, $sessionId]);
-        } else {
-            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ?');
-            $stmt->execute([$id]);
-        }
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($row === false) {
+        $row = $this->fetchRow($id, $sessionId);
+        if ($row === null) {
             return null;
         }
 
-        // For filesystem-backed artifacts, prefer the disk content over the DB snapshot
-        $canonicalPath = $row['canonical_path'] ?? null;
-        if ($this->fileService !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($row['storage_mode'] ?? 'database') === 'filesystem') {
-            $diskContent = $this->fileService->readContent($canonicalPath);
-            if ($diskContent !== null) {
-                $row['content'] = $diskContent;
+        $path = (string) ($row['path'] ?? '');
+        if ($path !== '') {
+            $disk = $this->fileService->read($path);
+            if ($disk !== null) {
+                $row['content'] = $disk;
             }
         }
 
@@ -311,13 +255,11 @@ final class ArtifactStore
     }
 
     /**
-     * Get a single artifact's raw DB row without the disk-content overlay.
-     *
-     * Used internally where we need to compare DB content against disk (e.g. drift sync).
+     * Fetch the raw index row (no file-content overlay).
      *
      * @return array<string, mixed>|null
      */
-    private function getRaw(string $id, ?string $sessionId = null): ?array
+    private function fetchRow(string $id, ?string $sessionId = null): ?array
     {
         if ($sessionId !== null) {
             $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ? AND session_id = ?');
@@ -332,14 +274,13 @@ final class ArtifactStore
     }
 
     /**
-     * List artifacts for a session, optionally filtered by type or stage.
+     * List artifacts for a session, optionally filtered by type/project/time.
      *
      * @return list<array<string, mixed>>
      */
     public function list(
         string $sessionId,
         ?string $type = null,
-        ?string $stage = null,
         int $limit = 50,
         ?string $projectId = null,
         ?string $createdAfter = null,
@@ -350,11 +291,6 @@ final class ArtifactStore
         if ($type !== null) {
             $where[] = 'type = ?';
             $params[] = $type;
-        }
-
-        if ($stage !== null) {
-            $where[] = 'stage = ?';
-            $params[] = $stage;
         }
 
         if ($projectId !== null) {
@@ -379,18 +315,42 @@ final class ArtifactStore
     }
 
     /**
-     * Delete an artifact and all its versions.
+     * Recent artifacts for the pinned prompt index.
+     *
+     * Scope is session→project (spec): when a project is loaded, return the
+     * project's most-recently-updated artifacts *across all sessions* (artifacts
+     * are shared, not session-private); otherwise fall back to the session's own.
+     * Never filtered by creator — provenance is display-only.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listRecent(string $sessionId, ?string $projectId = null, int $limit = 10): array
+    {
+        if ($projectId !== null && $projectId !== '') {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?',
+            );
+            $stmt->execute([$projectId, $limit]);
+
+            /** @var list<array<string, mixed>> */
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        return $this->list($sessionId, limit: $limit);
+    }
+
+    /**
+     * Delete an artifact: remove its file, then its index row.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
     public function delete(string $id, ?string $sessionId = null): bool
     {
-        // Delete canonical file first (before losing the DB record)
-        if ($this->fileService !== null) {
-            $artifact = $this->get($id, $sessionId);
-            $canonicalPath = $artifact['canonical_path'] ?? null;
-            if ($artifact !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
-                $this->fileService->deleteFile($canonicalPath);
+        $row = $this->fetchRow($id, $sessionId);
+        if ($row !== null) {
+            $path = (string) ($row['path'] ?? '');
+            if ($path !== '') {
+                $this->fileService->delete($path);
             }
         }
 
@@ -406,160 +366,84 @@ final class ArtifactStore
     }
 
     /**
-     * Delete multiple artifacts from a session.
-     *
-     * @param list<string> $ids
-     * @return int Number of artifacts deleted.
+     * Whether the session owns any project-linked artifacts (which block
+     * non-forced session deletion and must be detached first).
      */
-    public function bulkDelete(array $ids, string $sessionId): int
-    {
-        if ($ids === []) {
-            return 0;
-        }
-
-        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
-        $stmt = $this->db->prepare(
-            "DELETE FROM artifacts WHERE id IN ({$placeholders}) AND session_id = ?",
-        );
-        $stmt->execute([...$ids, $sessionId]);
-
-        return $stmt->rowCount();
-    }
-
-    /**
-     * Update only the stage of an artifact (e.g. draft → review → final).
-     *
-     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
-     */
-    public function updateStage(string $id, string $stage, ?string $sessionId = null): bool
-    {
-        // For filesystem-backed artifacts, sync disk content to DB before stage transition.
-        // This ensures post-finalization consumers see the latest content even if the
-        // file was edited externally.
-        // Uses getRaw() to avoid the disk-content overlay that get() applies.
-        if ($this->fileService !== null) {
-            $artifact = $this->getRaw($id, $sessionId);
-            $canonicalPath = $artifact['canonical_path'] ?? null;
-            if ($artifact !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
-                $diskContent = $this->fileService->readContent($canonicalPath);
-                if ($diskContent !== null && $diskContent !== ($artifact['content'] ?? '')) {
-                    $contentHash = $this->fileService->computeContentHash($diskContent);
-                    $this->db->prepare('UPDATE artifacts SET content = ?, content_hash = ? WHERE id = ?')->execute([$diskContent, $contentHash, $id]);
-                }
-            }
-        }
-
-        $now = Clock::nowUtc();
-
-        if ($sessionId !== null) {
-            $stmt = $this->db->prepare(
-                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ? AND session_id = ?',
-            );
-            $stmt->execute([$stage, $now, $id, $sessionId]);
-        } else {
-            $stmt = $this->db->prepare(
-                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ?',
-            );
-            $stmt->execute([$stage, $now, $id]);
-        }
-
-        return $stmt->rowCount() > 0;
-    }
-
-    /**
-     * Delete non-persistent artifacts in 'final' stage (they have been consumed by coders).
-     *
-     * Draft and review artifacts are preserved across sessions so in-progress
-     * planning work survives restarts. Version history is cascade-deleted by FK.
-     * Persistent artifacts (linked to projects) and loop_output artifacts are
-     * never cleaned up — loop_output artifacts are referenced by loop_stages.artifact_id
-     * and must survive for loop debugging and reviewer evidence.
-     *
-     * @return int Number of artifacts deleted.
-     */
-    public function cleanupFinalized(): int
-    {
-        // Delete canonical files for filesystem-backed artifacts before removing DB records
-        if ($this->fileService !== null) {
-            $filesToDelete = $this->db->query(
-                "SELECT canonical_path FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output' AND storage_mode = 'filesystem' AND canonical_path IS NOT NULL",
-            );
-            if ($filesToDelete !== false) {
-                while ($row = $filesToDelete->fetch(PDO::FETCH_ASSOC)) {
-                    $this->fileService->deleteFile((string) $row['canonical_path']);
-                }
-            }
-        }
-
-        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output'");
-        $stmt->execute();
-
-        return $stmt->rowCount();
-    }
-
-    /**
-     * Batch update stage for multiple artifacts in a session.
-     *
-     * @param list<string> $ids Artifact IDs to transition
-     * @return int Number of artifacts updated
-     */
-    public function bulkUpdateStage(array $ids, string $stage, string $sessionId): int
-    {
-        if ($ids === []) {
-            return 0;
-        }
-
-        $now = Clock::nowUtc();
-        $count = 0;
-
-        $this->db->beginTransaction();
-
-        try {
-            $stmt = $this->db->prepare(
-                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ? AND session_id = ?',
-            );
-
-            foreach ($ids as $id) {
-                $stmt->execute([$stage, $now, $id, $sessionId]);
-                $count += $stmt->rowCount();
-            }
-
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            $this->db->rollBack();
-
-            throw $e;
-        }
-
-        return $count;
-    }
-
-    /**
-     * Check if a session has any persistent (project-linked) artifacts.
-     */
-    public function hasPersistentArtifacts(string $sessionId): bool
+    public function hasProjectLinkedArtifacts(string $sessionId): bool
     {
         $stmt = $this->db->prepare(
-            'SELECT COUNT(*) FROM artifacts WHERE session_id = ? AND persistent = 1',
+            "SELECT 1 FROM artifacts WHERE session_id = ? AND project_id IS NOT NULL AND project_id != '' LIMIT 1",
         );
         $stmt->execute([$sessionId]);
 
-        return ((int) $stmt->fetchColumn()) > 0;
+        return $stmt->fetchColumn() !== false;
     }
 
     /**
-     * Resolve the project directory name, or null if no project store or project.
+     * Remove session-only artifacts (no project link) and their files.
+     * Project-linked artifacts persist. Called when a session is deleted.
+     *
+     * @return int Number of artifacts removed.
      */
-    private function resolveProjectDirectory(?string $projectId): ?string
+    public function cleanupSessionArtifacts(string $sessionId): int
     {
-        if ($projectId === null || $projectId === '' || $this->projectStore === null) {
-            return null;
+        $select = $this->db->prepare(
+            "SELECT path FROM artifacts WHERE session_id = ? AND (project_id IS NULL OR project_id = '')",
+        );
+        $select->execute([$sessionId]);
+
+        foreach ($select->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $path = (string) ($row['path'] ?? '');
+            if ($path !== '') {
+                $this->fileService->delete($path);
+            }
         }
 
-        try {
-            return $this->projectStore->getProjectDirectory($projectId);
-        } catch (\InvalidArgumentException) {
-            return null;
+        $delete = $this->db->prepare(
+            "DELETE FROM artifacts WHERE session_id = ? AND (project_id IS NULL OR project_id = '')",
+        );
+        $delete->execute([$sessionId]);
+
+        return $delete->rowCount();
+    }
+
+    /**
+     * One-time forward migration: move any inline-content row to a file.
+     *
+     * For every row that still carries inline `content` and has no `path`,
+     * write the content to a file per the current convention and blank the
+     * DB content. Rows referenced by `loop_stages.artifact_id` are migrated,
+     * never dropped.
+     *
+     * @return int Number of rows migrated.
+     */
+    public function migrateLegacyContent(): int
+    {
+        $stmt = $this->db->query(
+            "SELECT id, title, type, language, content FROM artifacts
+             WHERE content IS NOT NULL AND content != '' AND (path IS NULL OR path = '')",
+        );
+        if ($stmt === false) {
+            return 0;
         }
+
+        $count = 0;
+        $update = $this->db->prepare(
+            "UPDATE artifacts SET path = ?, canonical_path = ?, filepath = COALESCE(filepath, ?), content_hash = ?, storage_mode = 'filesystem', content = '', updated_at = ? WHERE id = ?",
+        );
+
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $path = $this->fileService->pathFor(
+                (string) $row['type'],
+                (string) $row['title'],
+                (string) $row['id'],
+                isset($row['language']) ? (string) $row['language'] : null,
+            );
+            $hash = $this->fileService->write($path, (string) $row['content']);
+            $update->execute([$path, $path, $path, $hash, Clock::nowUtc(), $row['id']]);
+            $count++;
+        }
+
+        return $count;
     }
 }

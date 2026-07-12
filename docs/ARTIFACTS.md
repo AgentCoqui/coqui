@@ -1,132 +1,98 @@
 # Artifacts
 
-Structured outputs that flow through a draft-review-final lifecycle, backed by files on disk.
+Durable deliverables saved as plain files on disk, with a lightweight database index.
 
 ## Overview
 
-Artifacts are session-scoped documents — plans, code snippets, configs, data — that persist across agent turns within a session. For filesystem-backed types (`plan`, `document`, `code`, `config`), the canonical content lives as a **file** under the project's `artifacts/` directory; the database holds a lightweight index (title, type, stage, path, hash) and the file is the source of truth, so content history comes from the user's own version control. DB-only types (`loop_output`, `data`, `other`) store their content inline in the database. Artifacts support stage transitions through a draft-review-final lifecycle and optional project linking for cross-session persistence.
+Artifacts are the outputs an agent produces that are worth keeping — plans, documents, code, configs. Every artifact's content is a **file on disk** under `artifacts/<type>/<slug>-<shortid>.<ext>`; the database row is a pure index (`id, session_id, project_id, created_by, title, type, path, content_hash, version, timestamps`). The file is the source of truth, so content history comes from the user's own version control (e.g. `git`). There is no hybrid file/DB engine and no draft→review→final stage machine — those were removed.
 
-## Creating Artifacts
+Referencing an artifact by its path instead of re-pasting its content reduces context-window pressure, which is the point of the subsystem.
+
+## When to create one
+
+Create an artifact when the output is **substantial** (more than ~15 lines or a complete file/document), **durable** (the user would keep, re-open, share, or iterate on it), and **self-contained** (it stands on its own without the surrounding chat). Do not create one for one-off answers, short snippets, explanations, or commentary about an existing artifact.
+
+## Creating
 
 ```
 artifact_create(
     title: "Authentication Implementation Plan",
     content: "## Overview\n...",
-    type: "plan",
-    project_id: "abc123"
+    type: "plan"
 )
 ```
 
 | Parameter | Required | Default | Description |
 | --- | --- | --- | --- |
-| `title` | yes | — | Descriptive name |
+| `title` | yes | — | Descriptive name (drives the file slug) |
 | `content` | yes | — | Markdown or code content |
-| `type` | no | `code` | `code`, `document`, `config`, `plan`, `data`, `other` |
-| `language` | no | — | Programming language (for code artifacts) |
-| `filepath` | no | — | Associated file path |
-| `project_id` | no | — | Link to a project |
+| `type` | no | `document` | `plan`, `document`, `code`, `config` |
+| `language` | no | — | Language hint for `code`/`config` — sets the file extension |
 
-Artifacts start at stage `draft` and version `1`.
+The tool returns the artifact `id` and its file `path`. Project linking is inherited from the active project of the session; there is no per-call `project_id`/`filepath`/`stage` matrix.
+
+Path convention: `artifacts/<type>/<slug>-<shortid>.<ext>`, where the extension derives from the type (`plan`/`document` → `.md`; `code` → the language's extension or `.txt`; `config` → `.json`/`.yaml`/`.txt`). The path is stable for the life of the artifact.
 
 ## Updating
 
-Each call to `artifact_update` rewrites the artifact's content and bumps a monotonic `version` counter (shown in listings). For filesystem-backed artifacts the content is written to the canonical file — full per-version snapshots are **not** retained; recover prior states from your version control (e.g. `git`) for files on disk.
+`artifact_update(id, content)` is a **full rewrite** — it overwrites the same file (reusing the path) and bumps a monotonic `version` counter shown in listings. The version counter is only a "times updated" signal; per-version snapshots are **not** retained. Optionally rename via `title`.
 
 ```
-artifact_update(id: "art123", content: "...", change_summary: "Added error handling section")
+artifact_update(id: "art123", content: "...")
 ```
 
-The optional `change_summary` parameter documents what changed for the human in the loop.
+## Retention (ownership-based)
 
-## Stage Lifecycle
+- **Project-linked artifacts persist.** An artifact created while a project is active is linked to that project and survives.
+- **Session-only artifacts are cleaned up when their session is deleted** — their files and index rows are removed.
 
-```
-draft → review → final
-```
+There is no boot-time cleanup sweep and no `final`-deletes-on-restart footgun.
 
-| Stage | Purpose |
+| Scenario | Artifact survives? |
 | --- | --- |
-| `draft` | Work in progress — content is being developed |
-| `review` | Submitted for evaluation — user or reviewer assesses |
-| `final` | Approved and locked |
-
-Transition via `artifact_stage(id, stage)`. Stages can move in any direction (e.g., `final` back to `draft` for revisions).
-
-## Persistence
-
-By default, artifacts are **session-scoped** — they're deleted when the session is deleted.
-
-When an artifact has a `project_id` set, it gains cross-session visibility. Persistent artifacts (`persistent: 1`) survive session cleanup.
-
-| Scenario | Artifact Survives? |
-| --- | --- |
-| Session deleted, no `project_id` | No |
-| Session deleted, `project_id` set, `persistent: 1` | Yes |
+| Session deleted, no project link | No |
+| Session deleted, project-linked | Yes |
 | Project deleted | Artifact remains (no cascade) |
 
-## Cross-Agent Sharing
+## Provenance (`created_by`)
 
-Artifacts are shared between agents through session ID propagation:
+Each artifact records a display-only `created_by` label — the active profile/persona if present, else the role/agent identity (for `loop_output`, the loop/stage identity). It is shown in listings and the pinned index so an agent can judge relevance, but it is **never** used to filter: artifacts are shared, not profile-scoped. (Only *memories* are profile-scoped.)
 
-- **`spawn_agent`** — child agents receive `ArtifactToolkit` with the parent's session ID, so all artifacts are visible.
-- **`loop_start`** — loop stage agents receive the orchestrator's session ID, giving them access to all session artifacts. After each stage, LoopRunner creates a `loop_output` artifact with the stage result.
+## Cross-agent sharing
+
+Artifacts are shared between agents through session-ID propagation:
+
+- **`spawn_agent`** — child agents receive `ArtifactToolkit` scoped to the parent's session, so all session artifacts are visible. Non-full-access children get read-only access (no delete).
+- **`loop_start`** — loop stage agents share the work-scope session. After each stage the loop engine creates a `loop_output` artifact (a file) with the stage result; the reviewer reads it via `artifact_get(id)`.
 - **Background tasks** — tasks get their own session but can reference parent artifacts through the task prompt.
 
-All agent types (regardless of access level) receive `ArtifactToolkit`. The `artifact_delete` tool is withheld from read-only roles.
+## Agent tools
 
-## Agent Tools
-
-| Tool | Read-Only | Description |
+| Tool | Read-only roles | Description |
 | --- | --- | --- |
-| `artifact_create` | yes | Create a new artifact |
-| `artifact_update` | yes | Update content (bumps the version counter) |
-| `artifact_get` | yes | Retrieve an artifact's current content and metadata |
-| `artifact_list` | yes | List session artifacts with filters |
-| `artifact_stage` | yes | Transition one or many artifacts (single id or bulk ids/filters) |
-| `artifact_delete` | no | Delete one or many artifacts (single id or bulk ids/filters) |
+| `artifact_create` | yes | Create a new artifact (writes a file, returns id + path) |
+| `artifact_update` | yes | Full-rewrite content (bumps the version counter) |
+| `artifact_get` | yes | Retrieve content (read from the file) and metadata |
+| `artifact_list` | yes | List artifacts with `type`/`project_id`/`created_after` filters |
+| `artifact_delete` | no | Delete an artifact and its file (single `id`) |
 
-## API Endpoints
+There are no stage or bulk-management tools.
+
+## API endpoints
 
 All routes under `/api/v1/sessions/{id}/artifacts`:
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `GET` | `/artifacts` | List with optional `?type=` and `?stage=` filters |
+| `GET` | `/artifacts` | List with an optional `?type=` filter |
 | `POST` | `/artifacts` | Create artifact |
 | `GET` | `/artifacts/{artifactId}` | Get artifact |
-| `PATCH` | `/artifacts/{artifactId}` | Update content, title, or stage |
+| `PATCH` | `/artifacts/{artifactId}` | Update content, title, metadata, or project link |
 | `DELETE` | `/artifacts/{artifactId}` | Delete artifact |
 
-## Dynamic Guidelines
+## Pinned recent-artifacts index
 
-`ArtifactToolkit` injects a summary of active artifacts into the system prompt on every iteration. This keeps the agent aware of existing artifacts without explicit lookups.
-
-## Typical Workflow
-
-1. **Plan role** creates a plan artifact:
-   ```
-   artifact_create(type: "plan", title: "Cache Layer Design", project_id: "...")
-   ```
-2. **User reviews**, plan agent iterates on content via `artifact_update`
-3. **Move to review**: `artifact_stage(id, "review")`
-4. **User approves**, plan agent finalizes: `artifact_stage(id, "final")`
-5. **Coder role** reads the finalized plan artifact and implements each step
-6. **Loop stages** (if using a harness loop) create `loop_output` artifacts after each stage
-
-## Bulk Management
-
-Artifacts can be managed in bulk for cleanup and organization workflows using the unified `artifact_stage` and `artifact_delete` tools:
-
-```
-artifact_stage(ids: '["art1", "art2"]', stage: "review")
-artifact_delete(stage: "draft")
-artifact_delete(project_id: "proj123")
-artifact_delete(all: true)
-```
-
-- Use explicit `ids` when you already know the target artifacts
-- Use filters when cleaning up by stage, type, or project context
-- Use `all: true` only when you want to wipe the full session artifact set
+Rather than pruning artifact guidance under budget pressure, the when-to-use guidance and a small **recent-artifacts index** are injected as a *pinned* prompt section (the same priority as core memories), so they survive context compaction. The index lists pointers only — `- **title** (id) [type] path — by <created_by>` — capped at ~10 most-recently-updated within scope (narrowed to the active project when one is loaded). It never inlines content; the agent reads or greps the file by path.
 
 ## Related
 

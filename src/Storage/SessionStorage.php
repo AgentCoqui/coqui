@@ -690,20 +690,20 @@ final class SessionStorage
             'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND persistent = 1',
             ['session_id' => $id],
         );
-        $artifactStages = [];
+        $artifactTypes = [];
         try {
             $artifactStmt = $this->db->prepare(<<<SQL
-                SELECT stage, COUNT(*) AS count
+                SELECT type, COUNT(*) AS count
                 FROM artifacts
                 WHERE session_id = :session_id
-                GROUP BY stage
+                GROUP BY type
             SQL);
             $artifactStmt->execute(['session_id' => $id]);
             foreach ($artifactStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $artifactStages[(string) ($row['stage'] ?? 'unknown')] = (int) ($row['count'] ?? 0);
+                $artifactTypes[(string) ($row['type'] ?? 'unknown')] = (int) ($row['count'] ?? 0);
             }
         } catch (PDOException) {
-            $artifactStages = [];
+            $artifactTypes = [];
         }
 
         $latestTurn = null;
@@ -750,7 +750,7 @@ final class SessionStorage
                 'artifacts' => [
                     'total' => $artifactTotal,
                     'persistent' => $artifactPersistent,
-                    'by_stage' => $artifactStages,
+                    'by_type' => $artifactTypes,
                 ],
             ],
             'latest_turn' => $latestTurn,
@@ -1820,13 +1820,13 @@ final class SessionStorage
         if (!$force) {
             try {
                 $stmt = $this->db->prepare(
-                    'SELECT COUNT(*) FROM artifacts WHERE session_id = :id AND persistent = 1',
+                    "SELECT COUNT(*) FROM artifacts WHERE session_id = :id AND project_id IS NOT NULL AND project_id != ''",
                 );
                 $stmt->execute(['id' => $id]);
 
                 if (((int) $stmt->fetchColumn()) > 0) {
                     throw new \RuntimeException(sprintf(
-                        'Session "%s" has persistent project artifacts. Use force=true or detach artifacts first.',
+                        'Session "%s" has project-linked artifacts. Use force=true or detach artifacts first.',
                         $id,
                     ));
                 }

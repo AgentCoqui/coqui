@@ -22,7 +22,6 @@ final class ExecutionPolicyFactory
 {
     /** Tool names that require user confirmation in interactive mode. */
     private const GATED_TOOLS = [
-        'artifact_bulk_delete' => ['*'],
         'artifact_delete' => ['*'],
         'batch_replace' => ['*'],
         'composer' => ['add', 'remove', 'update', 'install'],

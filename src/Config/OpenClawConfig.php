@@ -411,18 +411,4 @@ final class OpenClawConfig implements ConfigInterface
         return is_bool($value) ? $value : CoquiDefaults::CONVERSATION_HISTORY_IN_SYSTEM_PROMPT;
     }
 
-    /**
-     * Whether filesystem-backed artifacts are enabled.
-     *
-     * When true, eligible artifact types (plan, document, code, config)
-     * write canonical content to the workspace filesystem and treat disk
-     * as the source of truth. DB snapshots remain for version history
-     * and coordination. Opt-in via config: agents.defaults.artifacts.filesystemBacked
-     */
-    public function isArtifactFilesystemBacked(): bool
-    {
-        $value = $this->get('agents.defaults.artifacts.filesystemBacked');
-
-        return is_bool($value) ? $value : CoquiDefaults::ARTIFACT_FILESYSTEM_BACKED;
-    }
 }

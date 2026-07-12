@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -458,7 +459,7 @@ final class DoctorCommand extends Command
         $pdo = $storage->getPdo();
 
         $storeChecks = [
-            'artifact_store' => static fn(PDO $db): mixed => new ArtifactStore($db),
+            'artifact_store' => static fn(PDO $db): mixed => new ArtifactStore($db, new ArtifactFileService($workspacePath)),
             'project_store' => static fn(PDO $db): mixed => new ProjectStore($db),
             'loop_store' => static fn(PDO $db): mixed => new LoopStore($db),
             'schedule_store' => static fn(PDO $db): mixed => new ScheduleStore($db),

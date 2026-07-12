@@ -1,32 +1,37 @@
 ## Artifacts
 
-Artifacts are versioned, structured outputs that persist across turns within a session. Use artifacts for any significant deliverable: code files, documents, configurations, plans, or schemas.
+Artifacts are durable deliverables saved as **plain files on disk** under `artifacts/<type>/…`. The database keeps only a lightweight index; the file is the source of truth and history comes from the user's own git. Referencing an artifact by its path instead of re-pasting its content **saves context budget**.
+
+### When to create an artifact
+
+Create one when the output is:
+
+1. **Substantial** — more than ~15 lines, or a complete file/document.
+2. **Durable** — the user would keep, re-open, share, or iterate on it.
+3. **Self-contained** — it stands on its own without the surrounding chat.
+
+Do **not** create an artifact for one-off answers, short snippets, explanations, or commentary about an existing artifact. If unsure, don't force it — but prefer a file the user can open on disk over an ephemeral message whenever the thing is a real deliverable.
+
+### Update, don't recreate
+
+To change an existing artifact, `artifact_update` its `id` — this reuses the same file and path and bumps a version counter. Updates are **full rewrites** (pass the complete new content; there is no line/patch editing). Only `artifact_create` for a genuinely new deliverable.
 
 ### Tools
 
-- `artifact_create` — Create a new artifact with a title, type, content, and optional language/filepath. Starts at stage `draft`, version 1.
-- `artifact_update` — Update an artifact's content. Each update auto-creates a version snapshot, incrementing the version number. Include a `change_summary` describing what changed.
-- `artifact_get` — Retrieve a specific artifact by ID, including its current content and metadata.
-- `artifact_list` — List artifacts in the current session, optionally filtered by type or stage.
-- `artifact_stage` — Transition one or many artifacts through stages: `draft` → `review` → `final`. Provide `id` for single mode, or `ids`/`all`/filters for bulk mode.
-- `artifact_delete` — Delete one or many artifacts and their version history. Provide `id` for single mode, or `ids`/`all`/filters for bulk mode.
+- `artifact_create` — Create a new artifact from a `title` and `content`. Optional `type` (`plan`, `document`, `code`, `config`; default `document`) and `language` (sets the file extension for code/config). Returns the `id` and file `path`.
+- `artifact_update` — Full-rewrite an artifact's `content` by `id` (optionally rename via `title`). Reuses the same file; bumps the version counter.
+- `artifact_get` — Retrieve an artifact by `id`, including its current content (read from the file) and metadata.
+- `artifact_list` — List artifacts in the current session, optionally filtered by `type`, `project_id`, or `created_after`.
+- `artifact_delete` — Delete an artifact and its file by `id`. Irreversible.
 
-### Artifact Types
+### Types
 
-Use descriptive types that match the content: `code`, `document`, `config`, `plan`, `schema`, `script`, `test`, `report`, `template`, `sketch`, `hypothesis`, or any custom type.
+`plan`, `document`, `code`, `config`. (`loop_output` is system-created by the loop engine and shows up in listings, but is not something you create directly.)
 
-- **`sketch`** — rough, unpolished idea capture. Intentionally informal and exploratory. No lifecycle pressure — sketches can stay in `draft` indefinitely. Use during brainstorming or early design when ideas are forming.
-- **`hypothesis`** — a testable idea with rationale. Capture what you believe, why you believe it, and what evidence would confirm or refute it. Promote to a `plan` artifact when a hypothesis is ready for implementation.
+### Versioning
 
-### Stage Lifecycle
+The `version` counter is a simple "times updated" signal shown in listings — **not** a history store. Prior versions are not retained by Coqui; recover them from the user's git if needed.
 
-- **draft** — Work in progress. Create artifacts here and iterate freely.
-- **review** — Content is ready for user review. Move here when you consider the artifact complete.
-- **final** — Approved and locked. Move here after user confirmation.
+### Retention
 
-### Guidelines
-
-1. **Create artifacts for significant outputs** — code, documents, configs, plans. Not for one-liners.
-2. **Update, don't recreate.** Version history preserves all prior states.
-3. **Set `language` and `filepath`** when applicable for proper context.
-4. **Advance stages deliberately.** Only `final` after user approval. Use bulk ops for cleanup workflows.
+Artifacts linked to a project persist. Session-only artifacts are cleaned up when their session is deleted.

@@ -388,8 +388,8 @@ final class LoopManager
             title: sprintf('Loop output: %s (iter %d, stage %d)', $role, $iterationNumber, $stageIndex),
             content: $output,
             type: 'loop_output',
-            stage: 'final',
             projectId: $projectId !== '' ? $projectId : null,
+            createdBy: sprintf('loop:%s stage:%d', $role, $stageIndex),
             metadata: [
                 'loop_id' => $loopId,
                 'stage_id' => (string) ($stage['id'] ?? ''),

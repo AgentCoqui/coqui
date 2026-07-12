@@ -547,11 +547,12 @@ final class BootManager
     }
 
     /**
-     * Initialize artifact store and optionally clean up finalized artifacts.
+     * Initialize the artifact store and run boot-time maintenance.
      *
-     * Maintenance cleanup (cleanupFinalized, cleanupOrphaned, cleanupStale, cleanupUnlinked)
-     * runs only in long-lived processes (REPL, API server). Ephemeral background task
-     * processes skip cleanup to avoid deleting artifacts that sibling tasks need to read.
+     * Maintenance (legacy content migration, notification pruning) runs only in
+     * long-lived processes (REPL, API server). Ephemeral background task
+     * processes skip it to avoid racing sibling tasks. Artifact retention is
+     * ownership-based (session cleanup on session delete), not a boot sweep.
      */
     private function initializeArtifacts(bool $skipMaintenance = false): void
     {
@@ -562,11 +563,8 @@ final class BootManager
 
         $this->projectStore = new ProjectStore($pdo);
 
-        $fileService = null;
-        if ($this->config->isArtifactFilesystemBacked()) {
-            $fileService = new ArtifactFileService($this->workspacePath);
-        }
-        $this->artifactStore = new ArtifactStore($pdo, $fileService, $this->projectStore);
+        $fileService = new ArtifactFileService($this->workspacePath);
+        $this->artifactStore = new ArtifactStore($pdo, $fileService);
         $this->loopStore = new LoopStore($pdo);
         $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
@@ -575,7 +573,8 @@ final class BootManager
         $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath, $toolProfileResolver->coreToolkits());
 
         if (!$skipMaintenance) {
-            $this->artifactStore->cleanupFinalized();
+            // Forward-migrate any pre-files-only inline-content rows to disk.
+            $this->artifactStore->migrateLegacyContent();
 
             $notifConfig = $this->config->getNotificationConfig();
             $this->notificationStore->prune(

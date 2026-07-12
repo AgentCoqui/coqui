@@ -161,9 +161,6 @@ final class CoquiDefaults
     /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
     public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
 
-    /** Whether filesystem-backed artifacts are enabled (config: agents.defaults.artifacts.filesystemBacked). */
-    public const bool ARTIFACT_FILESYSTEM_BACKED = false;
-
     /**
      * Tool schema token budget threshold for deferred loading.
      *
