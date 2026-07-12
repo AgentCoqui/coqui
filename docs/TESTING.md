@@ -11,7 +11,7 @@ The current suite is mostly SQLite-backed and filesystem-backed unit testing. Mo
 ## Test Layout
 
 - `tests/Unit/Agent/` — agent orchestration, loop execution, prompt budgeting, evaluators
-- `tests/Unit/Api/` — API managers, handlers, middleware, webhook processing
+- `tests/Unit/Api/` — API managers, handlers, middleware
 - `tests/Unit/Config/` — config parsing, guards, discovery, role/toolkit resolution
 - `tests/Unit/Storage/` — SQLite persistence and query behavior
 - `tests/Unit/Toolkit/` and `tests/Unit/Tool/` — tool and toolkit behavior

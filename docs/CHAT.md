@@ -268,7 +268,7 @@ The core chat assembly path is the same in both modes. The differences are mostl
 | Turn execution | Synchronous in the REPL process | Started by the API server and streamed through SSE |
 | Observer | `TerminalObserver` streams to stdout | `SseObserver` streams structured events |
 | Chat-context assembly | Same `AgentRunner` and `AbstractAgent` flow | Same `AgentRunner` and `AbstractAgent` flow |
-| Background execution | REPL can create tasks but does not execute them | API server executes tasks, loops, schedules, and webhooks |
+| Background execution | REPL can create tasks but does not execute them | API server executes tasks, loops, and schedules |
 
 For standard prompt turns, the ordering of system prompt, history, summary, preserved recent messages, and current input is the same in both modes.
 

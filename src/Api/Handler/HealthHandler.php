@@ -11,7 +11,6 @@ use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Support\AppVersion;
-use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\RuntimeIdentity;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -29,7 +28,6 @@ final readonly class HealthHandler
         private ?BackgroundTaskManager $taskManager = null,
         private ?LoopManager $loopManager = null,
         private ?ScheduleStore $scheduleStore = null,
-        private ?WebhookStore $webhookStore = null,
         private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
@@ -61,10 +59,6 @@ final readonly class HealthHandler
             $upcoming = $this->scheduleStore->getUpcoming(1);
             $stats['next_run_at'] = $upcoming !== [] ? ($upcoming[0]['next_run_at'] ?? null) : null;
             $data['schedules'] = $stats;
-        }
-
-        if ($this->webhookStore !== null) {
-            $data['webhooks'] = $this->webhookStore->getStats();
         }
 
         if ($this->lifecycle !== null) {

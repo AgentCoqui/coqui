@@ -55,7 +55,6 @@ test('server info and health share the same app version source', function () {
             databasePath: $fixture['dbPath'],
             taskManager: $fixture['taskManager'],
             scheduleStore: $fixture['scheduleStore'],
-            webhookStore: null,
         );
 
         $serverResponse = $serverHandler->info(new ServerRequest('GET', '/api/v1/server/info'));

@@ -847,280 +847,214 @@
                     "line_end": 3978
                 },
                 {
-                    "heading": "Webhooks",
-                    "level": 3,
-                    "line_start": 3979,
-                    "line_end": 3984
-                },
-                {
-                    "heading": "`POST /api/v1/webhooks/incoming/{name}`",
-                    "level": 4,
-                    "line_start": 3985,
-                    "line_end": 4010
-                },
-                {
-                    "heading": "`GET /api/v1/webhooks`",
-                    "level": 4,
-                    "line_start": 4011,
-                    "line_end": 4044
-                },
-                {
-                    "heading": "`POST /api/v1/webhooks`",
-                    "level": 4,
-                    "line_start": 4045,
-                    "line_end": 4078
-                },
-                {
-                    "heading": "`GET /api/v1/webhooks/{id}`",
-                    "level": 4,
-                    "line_start": 4079,
-                    "line_end": 4086
-                },
-                {
-                    "heading": "`PUT /api/v1/webhooks/{id}`",
-                    "level": 4,
-                    "line_start": 4087,
-                    "line_end": 4098
-                },
-                {
-                    "heading": "`DELETE /api/v1/webhooks/{id}`",
-                    "level": 4,
-                    "line_start": 4099,
-                    "line_end": 4112
-                },
-                {
-                    "heading": "`POST /api/v1/webhooks/{id}/rotate`",
-                    "level": 4,
-                    "line_start": 4113,
-                    "line_end": 4127
-                },
-                {
-                    "heading": "`GET /api/v1/webhooks/{id}/deliveries`",
-                    "level": 4,
-                    "line_start": 4128,
-                    "line_end": 4158
-                },
-                {
-                    "heading": "`GET /api/v1/webhooks/{id}/deliveries/{deliveryId}`",
-                    "level": 4,
-                    "line_start": 4159,
-                    "line_end": 4183
-                },
-                {
-                    "heading": "`POST /api/v1/webhooks/{id}/test`",
-                    "level": 4,
-                    "line_start": 4184,
-                    "line_end": 4222
-                },
-                {
                     "heading": "Toolkit Management",
                     "level": 2,
-                    "line_start": 4223,
-                    "line_end": 4234
+                    "line_start": 3979,
+                    "line_end": 3990
                 },
                 {
                     "heading": "Protected Tools",
                     "level": 3,
-                    "line_start": 4235,
-                    "line_end": 4247
+                    "line_start": 3991,
+                    "line_end": 4003
                 },
                 {
                     "heading": "`GET /api/v1/toolkits`",
                     "level": 4,
-                    "line_start": 4248,
-                    "line_end": 4303
+                    "line_start": 4004,
+                    "line_end": 4059
                 },
                 {
                     "heading": "`POST /api/v1/toolkits/visibility`",
                     "level": 4,
-                    "line_start": 4304,
-                    "line_end": 4353
+                    "line_start": 4060,
+                    "line_end": 4109
                 },
                 {
                     "heading": "MCP Servers",
                     "level": 3,
-                    "line_start": 4354,
-                    "line_end": 4363
+                    "line_start": 4110,
+                    "line_end": 4119
                 },
                 {
                     "heading": "`GET /api/v1/mcp/servers`",
                     "level": 4,
-                    "line_start": 4364,
-                    "line_end": 4367
+                    "line_start": 4120,
+                    "line_end": 4123
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers`",
                     "level": 4,
-                    "line_start": 4368,
-                    "line_end": 4384
+                    "line_start": 4124,
+                    "line_end": 4140
                 },
                 {
                     "heading": "`GET /api/v1/mcp/servers/{name}`",
                     "level": 4,
-                    "line_start": 4385,
-                    "line_end": 4388
+                    "line_start": 4141,
+                    "line_end": 4144
                 },
                 {
                     "heading": "`PATCH /api/v1/mcp/servers/{name}`",
                     "level": 4,
-                    "line_start": 4389,
-                    "line_end": 4403
+                    "line_start": 4145,
+                    "line_end": 4159
                 },
                 {
                     "heading": "`DELETE /api/v1/mcp/servers/{name}`",
                     "level": 4,
-                    "line_start": 4404,
-                    "line_end": 4407
+                    "line_start": 4160,
+                    "line_end": 4163
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/enable`",
                     "level": 4,
-                    "line_start": 4408,
-                    "line_end": 4411
+                    "line_start": 4164,
+                    "line_end": 4167
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/disable`",
                     "level": 4,
-                    "line_start": 4412,
-                    "line_end": 4415
+                    "line_start": 4168,
+                    "line_end": 4171
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/promote`",
                     "level": 4,
-                    "line_start": 4416,
-                    "line_end": 4419
+                    "line_start": 4172,
+                    "line_end": 4175
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/demote`",
                     "level": 4,
-                    "line_start": 4420,
-                    "line_end": 4423
+                    "line_start": 4176,
+                    "line_end": 4179
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/auto`",
                     "level": 4,
-                    "line_start": 4424,
-                    "line_end": 4427
+                    "line_start": 4180,
+                    "line_end": 4183
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/connect`",
                     "level": 4,
-                    "line_start": 4428,
-                    "line_end": 4431
+                    "line_start": 4184,
+                    "line_end": 4187
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/disconnect`",
                     "level": 4,
-                    "line_start": 4432,
-                    "line_end": 4435
+                    "line_start": 4188,
+                    "line_end": 4191
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/refresh`",
                     "level": 4,
-                    "line_start": 4436,
-                    "line_end": 4439
+                    "line_start": 4192,
+                    "line_end": 4195
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/test`",
                     "level": 4,
-                    "line_start": 4440,
-                    "line_end": 4443
+                    "line_start": 4196,
+                    "line_end": 4199
                 },
                 {
                     "heading": "`GET /api/v1/mcp/servers/{name}/tools`",
                     "level": 4,
-                    "line_start": 4444,
-                    "line_end": 4447
+                    "line_start": 4200,
+                    "line_end": 4203
                 },
                 {
                     "heading": "`GET /api/v1/mcp/tools/search?query=<term>&server=<optional-name>`",
                     "level": 4,
-                    "line_start": 4448,
-                    "line_end": 4451
+                    "line_start": 4204,
+                    "line_end": 4207
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/env`",
                     "level": 4,
-                    "line_start": 4452,
-                    "line_end": 4466
+                    "line_start": 4208,
+                    "line_end": 4222
                 },
                 {
                     "heading": "`POST /api/v1/mcp/servers/{name}/auth`",
                     "level": 4,
-                    "line_start": 4467,
-                    "line_end": 4485
+                    "line_start": 4223,
+                    "line_end": 4241
                 },
                 {
                     "heading": "`GET /api/v1/server/prompt`",
                     "level": 4,
-                    "line_start": 4486,
-                    "line_end": 4589
+                    "line_start": 4242,
+                    "line_end": 4345
                 },
                 {
                     "heading": "`GET /api/v1/server/commands`",
                     "level": 4,
-                    "line_start": 4590,
-                    "line_end": 4634
+                    "line_start": 4346,
+                    "line_end": 4390
                 },
                 {
                     "heading": "`GET /api/v1/server/backstory`",
                     "level": 4,
-                    "line_start": 4635,
-                    "line_end": 4738
+                    "line_start": 4391,
+                    "line_end": 4494
                 },
                 {
                     "heading": "Middleware",
                     "level": 2,
-                    "line_start": 4739,
-                    "line_end": 4740
+                    "line_start": 4495,
+                    "line_end": 4496
                 },
                 {
                     "heading": "Rate Limiting",
                     "level": 3,
-                    "line_start": 4741,
-                    "line_end": 4779
+                    "line_start": 4497,
+                    "line_end": 4535
                 },
                 {
                     "heading": "Request Size Limit",
                     "level": 3,
-                    "line_start": 4780,
-                    "line_end": 4792
+                    "line_start": 4536,
+                    "line_end": 4548
                 },
                 {
                     "heading": "Content-Type Enforcement",
                     "level": 3,
-                    "line_start": 4793,
-                    "line_end": 4803
+                    "line_start": 4549,
+                    "line_end": 4559
                 },
                 {
                     "heading": "CORS",
                     "level": 2,
-                    "line_start": 4804,
-                    "line_end": 4813
+                    "line_start": 4560,
+                    "line_end": 4569
                 },
                 {
                     "heading": "Safety",
                     "level": 2,
-                    "line_start": 4814,
-                    "line_end": 4821
+                    "line_start": 4570,
+                    "line_end": 4577
                 },
                 {
                     "heading": "Concurrency",
                     "level": 2,
-                    "line_start": 4822,
-                    "line_end": 4825
+                    "line_start": 4578,
+                    "line_end": 4581
                 },
                 {
                     "heading": "REPL Command Mapping",
                     "level": 2,
-                    "line_start": 4826,
-                    "line_end": 4898
+                    "line_start": 4582,
+                    "line_end": 4646
                 },
                 {
                     "heading": "Quick Reference",
                     "level": 2,
-                    "line_start": 4899,
-                    "line_end": 5025
+                    "line_start": 4647,
+                    "line_end": 4763
                 }
             ]
         },
@@ -1163,115 +1097,115 @@
                     "heading": "What Produces Background Tasks",
                     "level": 2,
                     "line_start": 57,
-                    "line_end": 67
+                    "line_end": 66
                 },
                 {
                     "heading": "Enabling Background Tasks",
                     "level": 2,
-                    "line_start": 68,
-                    "line_end": 75
+                    "line_start": 67,
+                    "line_end": 74
                 },
                 {
                     "heading": "Requirements",
                     "level": 3,
-                    "line_start": 76,
-                    "line_end": 81
+                    "line_start": 75,
+                    "line_end": 80
                 },
                 {
                     "heading": "Monitoring Background Tasks",
                     "level": 2,
-                    "line_start": 82,
-                    "line_end": 83
+                    "line_start": 81,
+                    "line_end": 82
                 },
                 {
                     "heading": "Via REPL Slash Commands",
                     "level": 3,
-                    "line_start": 84,
-                    "line_end": 95
+                    "line_start": 83,
+                    "line_end": 94
                 },
                 {
                     "heading": "Via the HTTP API",
                     "level": 3,
-                    "line_start": 96,
-                    "line_end": 99
+                    "line_start": 95,
+                    "line_end": 98
                 },
                 {
                     "heading": "Create a Task",
                     "level": 4,
-                    "line_start": 100,
-                    "line_end": 127
+                    "line_start": 99,
+                    "line_end": 126
                 },
                 {
                     "heading": "List Tasks",
                     "level": 4,
-                    "line_start": 128,
-                    "line_end": 139
+                    "line_start": 127,
+                    "line_end": 138
                 },
                 {
                     "heading": "Get Task Details",
                     "level": 4,
-                    "line_start": 140,
-                    "line_end": 146
+                    "line_start": 139,
+                    "line_end": 145
                 },
                 {
                     "heading": "Stream Task Events (SSE)",
                     "level": 4,
-                    "line_start": 147,
-                    "line_end": 181
+                    "line_start": 146,
+                    "line_end": 180
                 },
                 {
                     "heading": "Inject Input into a Running Task",
                     "level": 4,
-                    "line_start": 182,
-                    "line_end": 192
+                    "line_start": 181,
+                    "line_end": 191
                 },
                 {
                     "heading": "Cancel a Task",
                     "level": 4,
-                    "line_start": 193,
-                    "line_end": 201
+                    "line_start": 192,
+                    "line_end": 200
                 },
                 {
                     "heading": "API Reference",
                     "level": 2,
-                    "line_start": 202,
-                    "line_end": 212
+                    "line_start": 201,
+                    "line_end": 211
                 },
                 {
                     "heading": "Create Task Request Body",
                     "level": 3,
-                    "line_start": 213,
-                    "line_end": 222
+                    "line_start": 212,
+                    "line_end": 221
                 },
                 {
                     "heading": "Task Status Response",
                     "level": 3,
-                    "line_start": 223,
-                    "line_end": 241
+                    "line_start": 222,
+                    "line_end": 240
                 },
                 {
                     "heading": "Architecture",
                     "level": 2,
-                    "line_start": 242,
-                    "line_end": 265
+                    "line_start": 241,
+                    "line_end": 264
                 },
                 {
                     "heading": "Why Process Isolation?",
                     "level": 3,
-                    "line_start": 266,
-                    "line_end": 272
+                    "line_start": 265,
+                    "line_end": 271
                 },
                 {
                     "heading": "Event Retention",
                     "level": 3,
-                    "line_start": 273,
-                    "line_end": 280
+                    "line_start": 272,
+                    "line_end": 279
                 },
                 {
                     "heading": "Key Components",
                     "level": 3,
-                    "line_start": 281,
-                    "line_end": 291
+                    "line_start": 280,
+                    "line_end": 290
                 }
             ]
         },
@@ -1350,115 +1284,115 @@
                     "heading": "Scheduling & Automation",
                     "level": 3,
                     "line_start": 163,
-                    "line_end": 201
+                    "line_end": 194
                 },
                 {
                     "heading": "Context Management",
                     "level": 3,
-                    "line_start": 202,
-                    "line_end": 211
+                    "line_start": 195,
+                    "line_end": 204
                 },
                 {
                     "heading": "Marketplace",
                     "level": 3,
-                    "line_start": 212,
-                    "line_end": 217
+                    "line_start": 205,
+                    "line_end": 210
                 },
                 {
                     "heading": "CLI Commands",
                     "level": 2,
-                    "line_start": 218,
-                    "line_end": 221
+                    "line_start": 211,
+                    "line_end": 214
                 },
                 {
                     "heading": "`coqui`",
                     "level": 3,
-                    "line_start": 222,
-                    "line_end": 235
+                    "line_start": 215,
+                    "line_end": 228
                 },
                 {
                     "heading": "`coqui run`",
                     "level": 3,
-                    "line_start": 236,
-                    "line_end": 266
+                    "line_start": 229,
+                    "line_end": 259
                 },
                 {
                     "heading": "Headless Mode",
                     "level": 4,
-                    "line_start": 267,
-                    "line_end": 278
+                    "line_start": 260,
+                    "line_end": 271
                 },
                 {
                     "heading": "`coqui api`",
                     "level": 3,
-                    "line_start": 279,
-                    "line_end": 299
+                    "line_start": 272,
+                    "line_end": 292
                 },
                 {
                     "heading": "`coqui setup`",
                     "level": 3,
-                    "line_start": 300,
-                    "line_end": 313
+                    "line_start": 293,
+                    "line_end": 306
                 },
                 {
                     "heading": "`coqui doctor`",
                     "level": 3,
-                    "line_start": 314,
-                    "line_end": 331
+                    "line_start": 307,
+                    "line_end": 324
                 },
                 {
                     "heading": "`coqui benchmark`",
                     "level": 3,
-                    "line_start": 332,
-                    "line_end": 348
+                    "line_start": 325,
+                    "line_end": 341
                 },
                 {
                     "heading": "Launcher",
                     "level": 2,
-                    "line_start": 349,
-                    "line_end": 352
+                    "line_start": 342,
+                    "line_end": 345
                 },
                 {
                     "heading": "Modes",
                     "level": 3,
-                    "line_start": 353,
-                    "line_end": 364
+                    "line_start": 346,
+                    "line_end": 357
                 },
                 {
                     "heading": "Launcher Flags",
                     "level": 3,
-                    "line_start": 365,
-                    "line_end": 380
+                    "line_start": 358,
+                    "line_end": 373
                 },
                 {
                     "heading": "Exit Code Behavior",
                     "level": 3,
-                    "line_start": 381,
-                    "line_end": 388
+                    "line_start": 374,
+                    "line_end": 381
                 },
                 {
                     "heading": "Signal Handling",
                     "level": 2,
-                    "line_start": 389,
-                    "line_end": 390
+                    "line_start": 382,
+                    "line_end": 383
                 },
                 {
                     "heading": "At the REPL prompt",
                     "level": 3,
-                    "line_start": 391,
-                    "line_end": 399
+                    "line_start": 384,
+                    "line_end": 392
                 },
                 {
                     "heading": "During agent execution",
                     "level": 3,
-                    "line_start": 400,
-                    "line_end": 407
+                    "line_start": 393,
+                    "line_end": 400
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 408,
-                    "line_end": 413
+                    "line_start": 401,
+                    "line_end": 406
                 }
             ]
         },
@@ -1787,130 +1721,124 @@
                     "line_end": 162
                 },
                 {
-                    "heading": "<a id=\"webhooks\"></a> \ud83d\udd17 Webhooks",
-                    "level": 2,
-                    "line_start": 163,
-                    "line_end": 173
-                },
-                {
                     "heading": "<a id=\"background-tasks\"></a> \ud83c\udfd7\ufe0f Background Tasks",
                     "level": 2,
-                    "line_start": 174,
-                    "line_end": 185
+                    "line_start": 163,
+                    "line_end": 174
                 },
                 {
                     "heading": "<a id=\"loops\"></a> \ud83d\udd01 Loops",
                     "level": 2,
-                    "line_start": 186,
-                    "line_end": 199
+                    "line_start": 175,
+                    "line_end": 188
                 },
                 {
                     "heading": "<a id=\"vision-analysis\"></a> \ud83d\udc41\ufe0f Vision Analysis",
                     "level": 2,
-                    "line_start": 200,
-                    "line_end": 209
+                    "line_start": 189,
+                    "line_end": 198
                 },
                 {
                     "heading": "<a id=\"cognitive-flexibility\"></a> \ud83e\udde0 Cognitive Flexibility",
                     "level": 2,
-                    "line_start": 210,
-                    "line_end": 224
+                    "line_start": 199,
+                    "line_end": 213
                 },
                 {
                     "heading": "<a id=\"artifacts-and-plans\"></a> \ud83d\uddc2\ufe0f Artifacts & Plan System",
                     "level": 2,
-                    "line_start": 225,
-                    "line_end": 236
+                    "line_start": 214,
+                    "line_end": 225
                 },
                 {
                     "heading": "<a id=\"projects\"></a> \ud83d\udcc1 Projects",
                     "level": 2,
-                    "line_start": 237,
-                    "line_end": 247
+                    "line_start": 226,
+                    "line_end": 236
                 },
                 {
                     "heading": "<a id=\"toolkit-visibility\"></a> \ud83d\udd27 Toolkit Visibility",
                     "level": 2,
-                    "line_start": 248,
-                    "line_end": 259
+                    "line_start": 237,
+                    "line_end": 248
                 },
                 {
                     "heading": "<a id=\"role-scoped-filtering\"></a> \ud83c\udfad Role-Scoped Toolkit Filtering",
                     "level": 2,
-                    "line_start": 260,
-                    "line_end": 267
+                    "line_start": 249,
+                    "line_end": 256
                 },
                 {
                     "heading": "<a id=\"conversation-summarization\"></a> \ud83d\udd04 Conversation Summarization",
                     "level": 2,
-                    "line_start": 268,
-                    "line_end": 279
+                    "line_start": 257,
+                    "line_end": 268
                 },
                 {
                     "heading": "<a id=\"context-window-management\"></a> \ud83d\udcd0 Context Window Management",
                     "level": 2,
-                    "line_start": 280,
-                    "line_end": 287
+                    "line_start": 269,
+                    "line_end": 276
                 },
                 {
                     "heading": "<a id=\"layered-safety\"></a> \ud83d\udee1\ufe0f Layered Safety",
                     "level": 2,
-                    "line_start": 288,
-                    "line_end": 307
+                    "line_start": 277,
+                    "line_end": 296
                 },
                 {
                     "heading": "<a id=\"http-api\"></a> \ud83c\udf10 HTTP API",
                     "level": 2,
-                    "line_start": 308,
-                    "line_end": 319
+                    "line_start": 297,
+                    "line_end": 308
                 },
                 {
                     "heading": "<a id=\"persistent-sessions\"></a> \ud83d\udcbe Persistent Sessions",
                     "level": 2,
-                    "line_start": 320,
-                    "line_end": 332
+                    "line_start": 309,
+                    "line_end": 321
                 },
                 {
                     "heading": "<a id=\"automatic-updates\"></a> \ud83d\udd04 Automatic Updates",
                     "level": 2,
-                    "line_start": 333,
-                    "line_end": 343
+                    "line_start": 322,
+                    "line_end": 332
                 },
                 {
                     "heading": "<a id=\"health-diagnostics\"></a> \ud83e\ude7a Health Diagnostics",
                     "level": 2,
-                    "line_start": 344,
-                    "line_end": 356
+                    "line_start": 333,
+                    "line_end": 345
                 },
                 {
                     "heading": "<a id=\"mount-system\"></a> \ud83d\udcc2 Mount System",
                     "level": 2,
-                    "line_start": 357,
-                    "line_end": 383
+                    "line_start": 346,
+                    "line_end": 372
                 },
                 {
                     "heading": "<a id=\"coqui-mods\"></a> \ud83c\udfea Mods Marketplace",
                     "level": 2,
-                    "line_start": 384,
-                    "line_end": 396
+                    "line_start": 373,
+                    "line_end": 385
                 },
                 {
                     "heading": "<a id=\"soul\"></a> \ud83e\udeb6 Soul",
                     "level": 2,
-                    "line_start": 397,
-                    "line_end": 434
+                    "line_start": 386,
+                    "line_end": 423
                 },
                 {
                     "heading": "<a id=\"token-efficiency\"></a> \ud83d\udcb0 Token Efficiency",
                     "level": 2,
-                    "line_start": 435,
-                    "line_end": 447
+                    "line_start": 424,
+                    "line_end": 436
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 448,
-                    "line_end": 456
+                    "line_start": 437,
+                    "line_end": 445
                 }
             ]
         },
@@ -2996,7 +2924,7 @@
         {
             "path": "AGENTS.md",
             "title": "Coqui Project Guidelines",
-            "description": "Internal architecture docs: php-agents foundation, credential system, tool gating, visibility, loops, schedules, webhooks, memory, safety, and coding standards",
+            "description": "Internal architecture docs: php-agents foundation, credential system, tool gating, visibility, loops, schedules, memory, safety, and coding standards",
             "sections": [
                 {
                     "heading": "Coqui Contributor Guide",

@@ -351,7 +351,7 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |
 | **Planning** | `artifact_create` | Versioned artifacts |
 | **Projects** | `project_create`, `project_switch` | Lean working scopes backed by workspace directories |
-| **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
+| **Scheduling** | `schedule_create` | Cron-style automation |
 | **Loops** | `loop_start`, `loop_status`, `loop_definitions` | Automated multi-iteration workflows chaining roles |
 | **Vision** | `vision_analyze` | Multi-provider image analysis |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |
