@@ -7,6 +7,7 @@ use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Prompt\PromptLoader;
@@ -135,6 +136,53 @@ test('orchestrator (no-role) path pins prompt.context right after prompt.backsto
     expect($contextSection->group)->toBe('identity');
     expect($contextSection->decision)->toBe('pinned_critical');
     expect($contextSection->priority->value)->toBe(\CoquiBot\Coqui\Contract\PromptSectionPriority::Critical->value);
+});
+
+test('orchestrator (no-role) path splices prompt.preferences right after prompt.context', function () {
+    $profilePath = $this->workspace . '/profiles/caelum';
+    mkdir($profilePath . '/context', 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
+    file_put_contents($profilePath . '/preferences.json', json_encode([
+        'prompt_directives' => [
+            'response_style' => 'concise and measured',
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        deps: new OrchestratorDependencies(
+            activeProfile: 'caelum',
+            activeProfilePath: $profilePath,
+            profilePreferences: ProfilePreferences::fromProfilePath($profilePath),
+        ),
+    );
+
+    $sections = invokeBuildInstructionPromptSections($agent);
+    $ids = array_map(static fn($section) => $section->id, $sections);
+
+    $soulIndex = array_search('prompt.soul', $ids, true);
+    $backstoryIndex = array_search('prompt.backstory', $ids, true);
+    $contextIndex = array_search('prompt.context', $ids, true);
+    $preferencesIndex = array_search('prompt.preferences', $ids, true);
+
+    expect($soulIndex)->not->toBeFalse();
+    expect($backstoryIndex)->not->toBeFalse();
+    expect($contextIndex)->not->toBeFalse();
+    expect($preferencesIndex)->not->toBeFalse();
+
+    // Final identity order must be: soul -> backstory -> context -> preferences.
+    expect($backstoryIndex)->toBeGreaterThan($soulIndex);
+    expect($contextIndex)->toBeGreaterThan($backstoryIndex);
+    expect($preferencesIndex)->toBe($contextIndex + 1);
+
+    $preferencesSection = $sections[$preferencesIndex];
+    expect($preferencesSection->content)->toContain('## Preferences');
 });
 
 test('role path pins prompt.context right after prompt.backstory', function () {

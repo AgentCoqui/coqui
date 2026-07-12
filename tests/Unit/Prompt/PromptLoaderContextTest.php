@@ -57,6 +57,33 @@ it('omits context when the persona has no context dir', function () {
     expect(array_column($loader->buildSystemPromptSections(), 'id'))->not->toContain('context');
 });
 
+it('renders ## Context after backstory and before base in the composed prompt sections', function () {
+    $persona = makePersonaWithContext();
+    file_put_contents($persona . '/backstory.md', "# Backstory\nBorn in a repo.");
+    $loader = new PromptLoader(
+        promptsDir: dirname(__DIR__, 3) . '/prompts',
+        placeholders: [],
+        workspacePath: sys_get_temp_dir(),
+        profilePath: $persona,
+    );
+
+    $sections = $loader->buildSystemPromptSections();
+    $ids = array_column($sections, 'id');
+
+    $backstoryPos = array_search('backstory', $ids, true);
+    $contextPos = array_search('context', $ids, true);
+    $basePos = array_search('base', $ids, true);
+
+    expect($backstoryPos)->not->toBeFalse();
+    expect($contextPos)->not->toBeFalse();
+    expect($basePos)->not->toBeFalse();
+    expect($contextPos)->toBeGreaterThan($backstoryPos);
+    expect($basePos)->toBeGreaterThan($contextPos);
+
+    $contextSection = $sections[$contextPos];
+    expect($contextSection['content'])->toStartWith('## Context');
+});
+
 it('applies labels.context to the context heading', function () {
     $persona = sys_get_temp_dir() . '/persona_' . uniqid();
     mkdir($persona . '/context', 0777, true);
