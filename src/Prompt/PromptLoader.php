@@ -291,7 +291,8 @@ final readonly class PromptLoader
             return null;
         }
 
-        $content = (new PersonaContextReader())->read($this->profilePath);
+        $label = $this->profilePreferences()?->getContextLabel() ?? 'Context';
+        $content = (new PersonaContextReader())->read($this->profilePath, $label);
         if ($content === null) {
             return null;
         }
@@ -452,7 +453,8 @@ final readonly class PromptLoader
             if ($this->isPromptSectionStubbed('context')) {
                 $sections[] = $this->buildStubSectionEntry('context', 'Context', 'context');
             } elseif ($this->profilePath !== null) {
-                $contextContent = (new PersonaContextReader())->read($this->profilePath);
+                $label = $this->profilePreferences()?->getContextLabel() ?? 'Context';
+                $contextContent = (new PersonaContextReader())->read($this->profilePath, $label);
                 if ($contextContent !== null) {
                     $sections[] = [
                         'id' => 'context',

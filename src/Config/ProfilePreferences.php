@@ -414,6 +414,11 @@ final readonly class ProfilePreferences
         return $this->effectivePrompts()['labels']['backstory'] ?? 'Backstory';
     }
 
+    public function getContextLabel(): string
+    {
+        return $this->effectivePrompts()['labels']['context'] ?? 'Context';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -658,6 +663,15 @@ final readonly class ProfilePreferences
                 $errors[] = 'prompts.labels.backstory must be a non-empty string.';
             } else {
                 $prompts['labels']['backstory'] = $normalized;
+            }
+        }
+
+        if (array_key_exists('context', $labelsData)) {
+            $normalized = self::normalizeHeadingLabel($labelsData['context']);
+            if ($normalized === null) {
+                $errors[] = 'prompts.labels.context must be a non-empty string.';
+            } else {
+                $prompts['labels']['context'] = $normalized;
             }
         }
     }

@@ -10,7 +10,7 @@ namespace CoquiBot\Coqui\Prompt;
  */
 final readonly class PersonaContextReader
 {
-    public function read(string $personaPath): ?string
+    public function read(string $personaPath, string $heading = 'Context'): ?string
     {
         $dir = rtrim($personaPath, '/') . '/context';
         if (!is_dir($dir)) {
@@ -34,7 +34,7 @@ final readonly class PersonaContextReader
             return null;
         }
 
-        return "## Context\n\n" . implode("\n\n", $parts);
+        return "## {$heading}\n\n" . implode("\n\n", $parts);
     }
 
     /**

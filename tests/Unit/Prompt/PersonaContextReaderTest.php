@@ -33,3 +33,13 @@ it('returns null when context dir is empty of markdown', function () {
 
     expect((new PersonaContextReader())->read($dir))->toBeNull();
 });
+
+it('uses a custom heading when provided', function () {
+    $dir = sys_get_temp_dir() . '/persona_' . uniqid();
+    mkdir($dir . '/context', 0777, true);
+    file_put_contents($dir . '/context/note.md', '# Note');
+
+    $out = (new PersonaContextReader())->read($dir, 'Reference');
+
+    expect($out)->toStartWith('## Reference');
+});

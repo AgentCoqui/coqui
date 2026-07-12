@@ -56,3 +56,22 @@ it('omits context when the persona has no context dir', function () {
     expect($loader->buildContextContent())->toBeNull();
     expect(array_column($loader->buildSystemPromptSections(), 'id'))->not->toContain('context');
 });
+
+it('applies labels.context to the context heading', function () {
+    $persona = sys_get_temp_dir() . '/persona_' . uniqid();
+    mkdir($persona . '/context', 0777, true);
+    file_put_contents($persona . '/soul.md', '# Soul');
+    file_put_contents($persona . '/context/note.md', '# Note');
+    file_put_contents($persona . '/preferences.json', json_encode([
+        'prompts' => ['labels' => ['context' => 'Reference']],
+    ]));
+
+    $loader = new PromptLoader(
+        promptsDir: dirname(__DIR__, 3) . '/prompts',
+        placeholders: [],
+        workspacePath: sys_get_temp_dir(),
+        profilePath: $persona,
+    );
+
+    expect($loader->buildContextContent())->toStartWith('## Reference');
+});
