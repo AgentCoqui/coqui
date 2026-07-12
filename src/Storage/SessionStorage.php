@@ -1820,13 +1820,13 @@ final class SessionStorage
         if (!$force) {
             try {
                 $stmt = $this->db->prepare(
-                    'SELECT COUNT(*) FROM artifacts WHERE session_id = :id AND persistent = 1',
+                    "SELECT COUNT(*) FROM artifacts WHERE session_id = :id AND project_id IS NOT NULL AND project_id != ''",
                 );
                 $stmt->execute(['id' => $id]);
 
                 if (((int) $stmt->fetchColumn()) > 0) {
                     throw new \RuntimeException(sprintf(
-                        'Session "%s" has persistent project artifacts. Use force=true or detach artifacts first.',
+                        'Session "%s" has project-linked artifacts. Use force=true or detach artifacts first.',
                         $id,
                     ));
                 }

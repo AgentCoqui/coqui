@@ -78,6 +78,8 @@ MD);
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
+        'roleResolver' => $roleResolver,
+        'profileDiscovery' => $profileDiscovery,
         'handler' => new SessionHandler($storage, $roleResolver, $profileDiscovery, $lifecycleManager),
     ];
 }
@@ -844,6 +846,36 @@ test('session handler list filters sessions by profile scope', function () {
         expect($unprofiledBody['profile'])->toBe('none');
         expect($unprofiledBody['count'])->toBe(1);
         expect($unprofiledBody['sessions'][0]['id'])->toBe($unprofiledSessionId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session delete cleans up session-only artifact files', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $artifactStore = artifactStoreForTest($fixture['storage']->getPdo());
+        $handler = new SessionHandler(
+            $fixture['storage'],
+            $fixture['roleResolver'],
+            $fixture['profileDiscovery'],
+            artifactStore: $artifactStore,
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionOnly = $artifactStore->create($sessionId, 'Ephemeral', 'x', 'document');
+        $filePath = $artifactStore->get($sessionOnly, $sessionId)['path'];
+
+        $response = $handler->delete(
+            new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId),
+            $sessionId,
+        );
+
+        expect($response->getStatusCode())->toBe(200)
+            ->and($artifactStore->get($sessionOnly))->toBeNull();
+        // The workspace file is removed by ownership cleanup before the row cascade-deletes.
+        expect($filePath)->not->toBe('');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

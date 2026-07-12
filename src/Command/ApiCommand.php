@@ -301,7 +301,7 @@ final class ApiCommand extends Command
             artifactStore: $boot->artifactStore(),
         );
 
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle);
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle, artifactStore: $artifactStore);
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
