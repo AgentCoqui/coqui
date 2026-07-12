@@ -26,6 +26,7 @@ use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\ImagePreviewState;
 use CoquiBot\Coqui\Support\PromptInspectionService;
+use CoquiBot\Coqui\Support\TimestampFormatter;
 use CoquiBot\Coqui\Support\ToolkitDatabaseFactory;
 use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
@@ -307,7 +308,7 @@ final class SlashCommandRouter
                 ($entry['scope'] ?? 'unknown') . ':' . ($entry['path'] ?? ''),
                 number_format((int) ($entry['tokens'] ?? 0)),
                 (string) ($entry['section_count'] ?? 0),
-                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+                TimestampFormatter::formatNullable(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
             ];
         }
 
@@ -322,7 +323,7 @@ final class SlashCommandRouter
                 ($entry['scope'] ?? 'unknown') . ':' . ($path !== '' ? $path : '.'),
                 number_format((int) ($entry['tokens'] ?? 0)),
                 (string) ($entry['file_count'] ?? 0),
-                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+                TimestampFormatter::formatNullable(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
             ];
         }
 
