@@ -317,7 +317,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /image, /help, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /image, /help, /quit</>';
         }
 
         $io->text($bannerLines);
