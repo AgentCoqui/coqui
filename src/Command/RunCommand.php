@@ -22,7 +22,6 @@ use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
-use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -410,7 +409,6 @@ final class RunCommand extends Command
             role: new RoleHandler($this->boot, $this->storage),
             group: new GroupHandler($groupSessionService, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
-            backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             config: new ConfigHandler($this->boot, $this->workDir),
             thinking: new ThinkingHandler($this->boot),

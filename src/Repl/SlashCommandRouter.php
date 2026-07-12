@@ -9,7 +9,6 @@ use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitReplContext;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
-use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -62,7 +61,6 @@ final class SlashCommandRouter
         private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
         private readonly LoopHandler $loop,
-        private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
         private readonly PromptInspectionService $promptInspection,
         private readonly OutputInterface $output,
@@ -120,7 +118,6 @@ final class SlashCommandRouter
             '/group' => $this->handleGroup($io, $arg, $sessionId),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
-            '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
@@ -265,25 +262,6 @@ final class SlashCommandRouter
             '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
         ]);
 
-        // Show backstory summary if generated from source files
-        if ($activeProfile !== null) {
-            $summary = $this->backstory->getManifestSummary($activeProfile);
-            if ($summary !== null) {
-                $issueSuffix = '';
-                $issueCount = $summary['failed_files'] + $summary['unsupported_files'];
-                if ($issueCount > 0) {
-                    $issueSuffix = sprintf(', %d issue(s)', $issueCount);
-                }
-
-                $io->text(sprintf(
-                    '<fg=gray>Backstory:</> %d file(s), ~%s tokens%s (use /backstory for details)',
-                    $summary['total_files'],
-                    number_format($summary['total_tokens']),
-                    $issueSuffix,
-                ));
-            }
-        }
-
         $this->renderPromptSourceTables($io, $preview['prompt_sources']);
 
         $io->newLine();
@@ -406,11 +384,6 @@ final class SlashCommandRouter
     private function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
     {
         return $this->profile->handleProfiles($io, $activeProfile);
-    }
-
-    private function handleBackstory(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
-    {
-        return $this->backstory->handle($io, $arg, $activeProfile);
     }
 
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult
