@@ -22,4 +22,7 @@ enum IterationOutcome: string
 
     /** Iteration limit or deadline reached — loop stops. */
     case LimitReached = 'limit_reached';
+
+    /** Non-convergence or an unrecoverable stage signal — loop stops for operator retry. */
+    case Blocked = 'blocked';
 }
