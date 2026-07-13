@@ -20,6 +20,10 @@ test('fromProducerSignal ignores a malformed sentinel and returns Done', functio
     expect(StageStatus::fromProducerSignal("STATUS: WEIRD_VALUE\nbody"))->toBe(StageStatus::Done);
 });
 
+test('fromProducerSignal ignores mid-sentence prose that merely contains the phrase', function () {
+    expect(StageStatus::fromProducerSignal("Investigating a retry status: blocked temporarily, retrying now.\nAll good."))->toBe(StageStatus::Done);
+});
+
 test('halts is true only for Blocked and NeedsContext', function () {
     expect(StageStatus::Blocked->halts())->toBeTrue();
     expect(StageStatus::NeedsContext->halts())->toBeTrue();

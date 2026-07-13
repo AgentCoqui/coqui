@@ -20,13 +20,15 @@ enum StageStatus: string
     /**
      * Cheap, tolerant self-signal parse of a producer stage's output.
      *
-     * Scans the first few lines for `STATUS: BLOCKED` / `STATUS: NEEDS_CONTEXT`
-     * (case-insensitive). Anything absent or unrecognized resolves to Done.
+     * Scans the first few lines for a line-leading sentinel — `STATUS: BLOCKED`
+     * or `STATUS: NEEDS_CONTEXT` (case-insensitive), optionally indented, at the
+     * start of any of the first 5 lines. Mid-sentence prose that merely contains
+     * the phrase does not match. Anything absent or unrecognized resolves to Done.
      */
     public static function fromProducerSignal(string $output): self
     {
         $head = implode("\n", array_slice(explode("\n", $output), 0, 5));
-        if (preg_match('/status:\s*(blocked|needs_context)/i', $head, $m) === 1) {
+        if (preg_match('/^\s*status:\s*(blocked|needs_context)/im', $head, $m) === 1) {
             return strtolower($m[1]) === 'blocked' ? self::Blocked : self::NeedsContext;
         }
 
