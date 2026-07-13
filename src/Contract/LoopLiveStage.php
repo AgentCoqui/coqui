@@ -10,7 +10,8 @@ namespace CoquiBot\Coqui\Contract;
 final readonly class LoopLiveStage
 {
     /**
-     * @param list<string> $toolsUsed
+     * @param list<string>              $toolsUsed
+     * @param array<string, mixed>|null $verdict
      */
     public function __construct(
         public int $iterationNumber,
@@ -27,6 +28,7 @@ final readonly class LoopLiveStage
         public ?string $startedAt,
         public ?string $completedAt,
         public ?string $taskId,
+        public ?array $verdict = null,
     ) {}
 
     /**
@@ -51,6 +53,7 @@ final readonly class LoopLiveStage
             'started_at' => $this->startedAt,
             'completed_at' => $this->completedAt,
             'task_id' => $this->taskId,
+            'verdict' => $this->verdict,
         ];
     }
 }

@@ -74,6 +74,7 @@ final readonly class LoopLiveViewBuilder
                     startedAt: isset($stage['started_at']) ? (string) $stage['started_at'] : null,
                     completedAt: isset($stage['completed_at']) ? (string) $stage['completed_at'] : null,
                     taskId: $taskId,
+                    verdict: $this->decodeStageVerdict($stage),
                 );
 
                 if ($taskId !== null) {
@@ -215,7 +216,44 @@ final readonly class LoopLiveViewBuilder
             'last_activity_at' => isset($loop['last_activity_at']) ? (string) $loop['last_activity_at'] : null,
             'completed_at' => isset($loop['completed_at']) ? (string) $loop['completed_at'] : null,
             'deadline' => isset($loop['deadline']) ? (string) $loop['deadline'] : null,
+            'escalation' => $this->decodeEscalation($loop),
         ];
+    }
+
+    /**
+     * Decode a loop's escalation record from its raw metadata JSON. Mirrors
+     * LoopHandler::decodeEscalation — only surfaced when metadata is a non-empty
+     * string decoding to an array whose 'escalation' key is itself an array.
+     *
+     * @param array<string, mixed> $loop
+     * @return array<string, mixed>|null
+     */
+    private function decodeEscalation(array $loop): ?array
+    {
+        if (!is_string($loop['metadata'] ?? null) || $loop['metadata'] === '') {
+            return null;
+        }
+        $meta = json_decode($loop['metadata'], true);
+
+        return is_array($meta) && is_array($meta['escalation'] ?? null) ? $meta['escalation'] : null;
+    }
+
+    /**
+     * Decode a stage's machine-readable verdict JSON. Mirrors
+     * LoopHandler::normalizeStage — JSON-decode when present and non-empty,
+     * else null.
+     *
+     * @param array<string, mixed> $stage
+     * @return array<string, mixed>|null
+     */
+    private function decodeStageVerdict(array $stage): ?array
+    {
+        if (!isset($stage['verdict']) || (string) $stage['verdict'] === '') {
+            return null;
+        }
+        $decoded = json_decode((string) $stage['verdict'], true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**
