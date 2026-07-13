@@ -463,6 +463,18 @@ final class LoopStore
     }
 
     /**
+     * Clear a stage's task link so it can be re-dispatched after orphan recovery.
+     *
+     * Uses a direct UPDATE because updateStage() COALESCEs task_id and therefore
+     * cannot null it back out.
+     */
+    public function clearStageTask(string $stageId): void
+    {
+        $stmt = $this->db->prepare('UPDATE loop_stages SET task_id = NULL WHERE id = ?');
+        $stmt->execute([$stageId]);
+    }
+
+    /**
      * Persist a stage's machine-readable verdict JSON without touching its status.
      */
     public function recordStageVerdict(string $stageId, string $verdictJson): void

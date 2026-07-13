@@ -108,13 +108,29 @@ final class LoopManager
             return;
         }
 
+        // Explicit blocked-skip guard: only running loops dispatch stages. Blocked
+        // (and paused/failed) loops are absent from listLoops('running'), so this is
+        // defence in depth against a status change mid-tick.
+        if (($state['loop']['status'] ?? null) !== 'running') {
+            return;
+        }
+
         $stages = $state['stages'];
 
-        // If any stage is currently running, don't advance — wait for reconciliation
+        // If any stage is currently running, verify its task is alive; recover
+        // orphans (missing task) rather than stalling forever.
         foreach ($stages as $stage) {
-            if ($stage['status'] === 'running') {
-                return;
+            if ($stage['status'] !== 'running') {
+                continue;
             }
+            $taskId = (string) ($stage['task_id'] ?? '');
+            $task = $taskId !== '' ? $this->storage->getTask($taskId) : null;
+            if ($task === null) {
+                $this->recoverOrphanStage($stage);
+                return; // recovered this tick; next tick re-dispatches or fails
+            }
+
+            return; // a live task is running — wait for reconciliation
         }
 
         // Prepare the next pending stage
@@ -123,6 +139,23 @@ final class LoopManager
             // No pending stages — iteration may be complete, evaluate
             $this->evaluateAndAdvance($loopId);
             return;
+        }
+
+        // Dispatch idempotency: a pending stage that already carries a task_id
+        // crashed between task creation and its running status update. Re-link the
+        // existing task rather than spawning a duplicate; reconciliation handles it.
+        $existingTaskId = (string) ($this->loopStore->getStage($stageResult->stageId)['task_id'] ?? '');
+        if ($existingTaskId !== '') {
+            $existingTask = $this->storage->getTask($existingTaskId);
+            if ($existingTask !== null) {
+                $this->loopStore->updateStage(
+                    id: $stageResult->stageId,
+                    status: 'running',
+                    taskId: $existingTaskId,
+                );
+
+                return;
+            }
         }
 
         $this->advancingLoops[$loopId] = true;
@@ -191,6 +224,39 @@ final class LoopManager
     }
 
     /**
+     * Recover a running stage whose background task has vanished (crashed
+     * dispatch or deleted task). Resets to pending for one re-dispatch, bounded
+     * by a dispatch_attempts guard; over the bound, the stage fails.
+     *
+     * @param array<string, mixed> $stage
+     */
+    private function recoverOrphanStage(array $stage): void
+    {
+        $meta = [];
+        if (is_string($stage['metadata'] ?? null) && $stage['metadata'] !== '') {
+            $decoded = json_decode($stage['metadata'], true);
+            if (is_array($decoded)) {
+                $meta = $decoded;
+            }
+        }
+        $attempts = (int) ($meta['dispatch_attempts'] ?? 0) + 1;
+        $meta['dispatch_attempts'] = $attempts;
+
+        $stageId = (string) $stage['id'];
+
+        if ($attempts > 2) {
+            $this->executor->failStage($stageId, 'Stage task was lost and exceeded re-dispatch attempts.');
+            $this->loopStore->updateStage(id: $stageId, status: 'failed', metadata: $meta);
+
+            return;
+        }
+
+        // Reset to pending with a cleared task link so the next tick re-dispatches.
+        $this->loopStore->updateStage(id: $stageId, status: 'pending', metadata: $meta);
+        $this->loopStore->clearStageTask($stageId);
+    }
+
+    /**
      * Reconcile a single loop: check running stages for completed tasks.
      */
     private function reconcileLoop(string $loopId): void
@@ -212,6 +278,9 @@ final class LoopManager
 
             $task = $this->storage->getTask($taskId);
             if ($task === null) {
+                // The linked task vanished (crashed dispatch or deleted task).
+                // Recover the orphan instead of stalling on it forever.
+                $this->recoverOrphanStage($stage);
                 continue;
             }
 
