@@ -11,7 +11,12 @@ use CoquiBot\Coqui\Contract\LoopStageHandoffMetadata;
 use CoquiBot\Coqui\Contract\LoopParameterDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
 use CoquiBot\Coqui\Contract\LoopStageResult;
+use CoquiBot\Coqui\Contract\StageFinding;
+use CoquiBot\Coqui\Contract\StageSeverity;
+use CoquiBot\Coqui\Contract\StageStatus;
+use CoquiBot\Coqui\Contract\StageVerdict;
 use CoquiBot\Coqui\Contract\TerminationType;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -27,11 +32,15 @@ use CoquiBot\Coqui\Support\IdGenerator;
  */
 final class LoopExecutor
 {
+    public const DEFAULT_MAX_REWORK_ATTEMPTS = 3;
+
     public function __construct(
         private readonly LoopStore $loopStore,
         private readonly ProjectStore $projectStore,
         private readonly ?SessionStorage $sessionStorage = null,
         private readonly ?GoalEvaluator $goalEvaluator = null,
+        private readonly ?StageGateEvaluator $stageGateEvaluator = null,
+        private readonly ?MemoryStore $memoryStore = null,
     ) {}
 
     /**
@@ -332,15 +341,42 @@ final class LoopExecutor
             return IterationOutcome::Failed;
         }
 
+        // Parse the loop definition once for role flags / gate detection.
+        $definition = LoopDefinition::fromArray(
+            json_decode($loop['configuration'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR),
+        );
+
+        // Per-stage non-gate verdicts. A producer stage that self-signals
+        // Blocked/NeedsContext, or fails a hard artifact_required check, halts
+        // the loop into `blocked` BEFORE the next stage dispatches.
+        foreach ($stages as $stage) {
+            if ($stage['status'] !== 'completed') {
+                continue;
+            }
+            $stageIndex = (int) $stage['stage_index'];
+            if ($this->isGateStage($definition, $stageIndex)) {
+                continue; // gate stage is judged at iteration end
+            }
+            if (($stage['verdict'] ?? null) !== null && $stage['verdict'] !== '') {
+                $verdict = StageVerdict::fromArray(json_decode($stage['verdict'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR));
+            } else {
+                $verdict = $this->buildNonGateVerdict($definition, $stage);
+                $this->loopStore->recordStageVerdict((string) $stage['id'], json_encode($verdict->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            }
+            if ($verdict->status->halts()) {
+                $reason = $verdict->status === StageStatus::Blocked
+                    ? sprintf('Stage %d (%s) reported blocked.', $stageIndex, $stage['role'])
+                    : sprintf('Stage %d (%s) needs additional context.', $stageIndex, $stage['role']);
+                $this->escalateBlocked($loop, $iteration['id'], $reason, $verdict->findings);
+                return IterationOutcome::Blocked;
+            }
+        }
+
         // Check if all stages are completed
         $pendingStages = array_filter($stages, fn(array $s) => $s['status'] !== 'completed');
         if ($pendingStages !== []) {
             return IterationOutcome::Continue; // Still stages to run
         }
-
-        $definition = LoopDefinition::fromArray(
-            json_decode($loop['configuration'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR),
-        );
 
         $iterationNumber = (int) $iteration['iteration_number'];
 
@@ -610,6 +646,97 @@ final class LoopExecutor
         $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
 
         return $maxIterations !== null && $iterationNumber >= $maxIterations;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Private: Per-stage verdicts + escalation
+    // ──────────────────────────────────────────────
+
+    /**
+     * A stage is a gate if its role is flagged gate:true, or it is the last
+     * role of an evaluation_bound loop.
+     */
+    private function isGateStage(LoopDefinition $definition, int $stageIndex): bool
+    {
+        $role = $definition->roles[$stageIndex] ?? null;
+        if ($role === null) {
+            return false;
+        }
+        if ($role->gate) {
+            return true;
+        }
+
+        return $definition->terminationCondition->type === TerminationType::EvaluationBound
+            && $stageIndex === count($definition->roles) - 1;
+    }
+
+    /**
+     * Build a non-gate producer verdict with no LLM call: self-signal status
+     * plus the hard artifact_required check and the soft memory_required check.
+     *
+     * @param array<string, mixed> $stage
+     */
+    private function buildNonGateVerdict(LoopDefinition $definition, array $stage): StageVerdict
+    {
+        $stageIndex = (int) $stage['stage_index'];
+        $role = $definition->roles[$stageIndex] ?? null;
+        $output = (string) ($stage['result_summary'] ?? '');
+        $findings = [];
+
+        // Hard gate: artifact_required with no artifact → Blocked.
+        if ($role !== null && $role->artifactRequired) {
+            $artifactId = (string) ($stage['artifact_id'] ?? '');
+            if ($artifactId === '') {
+                return new StageVerdict(
+                    status: StageStatus::Blocked,
+                    requirementsMet: null,
+                    qualityPass: null,
+                    findings: [new StageFinding(StageSeverity::Critical, 'Required artifact was not produced.')],
+                    rationale: 'artifact_required stage produced no durable artifact.',
+                );
+            }
+        }
+
+        // Soft check: memory_required with no memory written → Minor concern.
+        if ($role !== null && $role->memoryRequired && $this->memoryStore !== null && $this->sessionStorage !== null) {
+            $taskId = (string) ($stage['task_id'] ?? '');
+            if ($taskId !== '') {
+                $task = $this->sessionStorage->getTask($taskId);
+                $sessionId = is_array($task) ? (string) ($task['session_id'] ?? '') : '';
+                if ($sessionId !== '' && $this->memoryStore->countBySession($sessionId) === 0) {
+                    $findings[] = new StageFinding(StageSeverity::Minor, 'Stage recorded no memory pointer for its canonical artifact.');
+                }
+            }
+        }
+
+        return StageVerdict::producerSelfSignal($output, $findings);
+    }
+
+    /**
+     * Transition the loop to `blocked`, record the escalation, and leave the
+     * current iteration retryable (needs_rework) for the operator.
+     *
+     * @param array<string, mixed> $loop
+     * @param list<StageFinding> $findings
+     */
+    private function escalateBlocked(array $loop, string $iterationId, string $reason, array $findings): void
+    {
+        $attempts = 0;
+        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+            $meta = json_decode($loop['metadata'], true);
+            $attempts = is_array($meta) ? (int) ($meta['rework_attempts'] ?? 0) : 0;
+        }
+
+        $this->loopStore->updateLoopMetadata((string) $loop['id'], [
+            'escalation' => [
+                'reason' => $reason,
+                'attempts' => $attempts,
+                'findings' => array_map(static fn(StageFinding $f): array => $f->toArray(), $findings),
+                'at' => Clock::nowUtc(),
+            ],
+        ]);
+        $this->loopStore->updateIterationStatus($iterationId, 'needs_rework', $reason);
+        $this->loopStore->updateLoopStatus((string) $loop['id'], 'blocked');
     }
 
     // ──────────────────────────────────────────────
