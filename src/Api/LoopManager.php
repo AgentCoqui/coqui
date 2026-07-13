@@ -407,6 +407,22 @@ final class LoopManager
                 title: 'Loop failed',
                 priority: 'high',
             );
+        } elseif ($outcome === IterationOutcome::Blocked) {
+            $loop = $this->loopStore->getLoop($loopId);
+            $reason = 'Loop blocked — operator retry required.';
+            if ($loop !== null && is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+                $meta = json_decode($loop['metadata'], true);
+                if (is_array($meta) && is_string($meta['escalation']['reason'] ?? null)) {
+                    $reason = (string) $meta['escalation']['reason'];
+                }
+            }
+            $this->publishLoopNotification(
+                loopId: $loopId,
+                outcome: 'blocked',
+                title: 'Loop blocked — needs your input',
+                detail: mb_substr($reason, 0, 200),
+                priority: 'high',
+            );
         } elseif ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
             $label = $outcome === IterationOutcome::Complete ? 'Loop completed' : 'Loop completed (iteration limit reached)';
             $this->publishLoopNotification(
@@ -589,7 +605,7 @@ final class LoopManager
                 'outcome' => $outcome,
             ];
 
-            if ($kind === 'loop.failed') {
+            if ($kind === 'loop.failed' || $kind === 'loop.blocked') {
                 $this->publisher->actionable(
                     sessionId: $targetSession,
                     kind: $kind,
