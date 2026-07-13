@@ -201,6 +201,7 @@ final readonly class LoopHandler
 
         $loops = array_map(function (array $loop): array {
             $loop['headless'] = $this->loopOrigin($loop) === 'headless';
+            $loop['escalation'] = $this->decodeEscalation($loop);
             return $loop;
         }, $loops);
 
@@ -889,15 +890,24 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Cannot retry iteration while status is "%s".', $iterationStatus));
         }
 
+        // A `running` loop must be paused/stopped first; blocked | paused |
+        // cancelled | failed iterations are all retryable.
         if ((string) ($loop['status'] ?? '') === 'running') {
             return Router::errorResponse(ApiErrorCode::CONFLICT, 'Pause or stop the loop before retrying an iteration.');
         }
+
+        $body = json_decode((string) $request->getBody(), true);
+        $note = is_array($body) && is_string($body['note'] ?? null) && trim($body['note']) !== ''
+            ? trim((string) $body['note'])
+            : null;
 
         $this->store->resetStagesForIteration($iterationId);
         $this->store->resetIterationForRetry($iterationId);
         $this->store->updateLoopStatus($id, 'running');
         $this->store->updateLoopProgress($id, (int) ($iteration['iteration_number'] ?? 0), 0);
         $this->store->updateLoopMetadata($id, [
+            'rework_attempts' => 0,
+            'pending_guidance' => $note,
             'dispatch' => [
                 'status' => 'pending',
                 'message' => 'Operator retried the latest iteration. The loop manager will dispatch stage 0 on the next tick.',
@@ -988,10 +998,28 @@ final readonly class LoopHandler
     private function normalizeLoop(array $loop): array
     {
         $origin = $this->loopOrigin($loop);
+        $escalation = $this->decodeEscalation($loop);
         $loop['metadata'] = JsonHelper::decodeJsonObject($loop['metadata'] ?? null);
         $loop['origin'] = $origin;
+        $loop['escalation'] = $escalation;
 
         return $loop;
+    }
+
+    /**
+     * Decode a loop's escalation record from its raw metadata JSON.
+     *
+     * @param array<string, mixed> $loop
+     * @return array<string, mixed>|null
+     */
+    private function decodeEscalation(array $loop): ?array
+    {
+        if (!is_string($loop['metadata'] ?? null) || $loop['metadata'] === '') {
+            return null;
+        }
+        $meta = json_decode($loop['metadata'], true);
+
+        return is_array($meta) && is_array($meta['escalation'] ?? null) ? $meta['escalation'] : null;
     }
 
     /**
@@ -1017,6 +1045,9 @@ final readonly class LoopHandler
     private function normalizeStage(array $stage): array
     {
         $stage['metadata'] = JsonHelper::decodeJsonObject($stage['metadata'] ?? null);
+        $stage['verdict'] = (isset($stage['verdict']) && $stage['verdict'] !== '')
+            ? json_decode((string) $stage['verdict'], true)
+            : null;
 
         return $stage;
     }
