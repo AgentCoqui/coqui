@@ -237,6 +237,16 @@ final class LoopExecutor
         // Build the context prompt
         $completedStages = $this->loopStore->getCompletedStages($iteration['id']);
 
+        // Operator guidance from a retry (Tasks 12/13) is injected once into the
+        // reopened stage, then cleared below so it does not leak into later stages.
+        $pendingGuidance = null;
+        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+            $meta = json_decode($loop['metadata'], true);
+            if (is_array($meta) && is_string($meta['pending_guidance'] ?? null) && $meta['pending_guidance'] !== '') {
+                $pendingGuidance = (string) $meta['pending_guidance'];
+            }
+        }
+
         $prompt = $this->buildStagePrompt(
             definition: $definition,
             goal: $loop['goal'],
@@ -250,7 +260,13 @@ final class LoopExecutor
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
             projectId: $loop['project_id'] ?? null,
+            pendingGuidance: $pendingGuidance,
         );
+
+        // Clear the guidance so it injects exactly once, into this reopened stage.
+        if ($pendingGuidance !== null) {
+            $this->loopStore->updateLoopMetadata($loopId, ['pending_guidance' => null]);
+        }
 
         $handoffMetadata = new LoopStageHandoffMetadata(
             loopId: $loopId,
@@ -822,6 +838,7 @@ final class LoopExecutor
         ?string $terminationCriteria,
         array $resolvedParameters = [],
         ?string $projectId = null,
+        ?string $pendingGuidance = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -912,6 +929,10 @@ final class LoopExecutor
         // Add loop scoping context with project details
         if ($projectId !== null && $projectId !== '') {
             $sections[] = $this->buildProjectContextSection($projectId);
+        }
+
+        if ($pendingGuidance !== null && $pendingGuidance !== '') {
+            $sections[] = "## Operator Guidance\nThe operator retried this loop with the following direction. Follow it:\n{$pendingGuidance}";
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";
