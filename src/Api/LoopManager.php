@@ -203,12 +203,20 @@ final class LoopManager
             metadata: $stageResult->handoffMetadata?->toArray(),
         );
 
-        // Link the task to the stage record
+        // Link the task to the stage record. Merge any recovery bookkeeping
+        // (dispatch_attempts, set by recoverOrphanStage) into the handoff payload
+        // first: updateStage persists metadata via COALESCE-replace, so a bare
+        // handoff payload would clobber the counter and the re-dispatch bound
+        // would never fire — re-dispatching a perpetually-orphaning stage forever.
+        $stageMetadata = $this->mergeDispatchAttempts(
+            stageId: $stageResult->stageId,
+            payload: $stageResult->handoffMetadata?->toArray(),
+        );
         $this->loopStore->updateStage(
             id: $stageResult->stageId,
             status: 'running',
             taskId: $taskId,
-            metadata: $stageResult->handoffMetadata?->toArray(),
+            metadata: $stageMetadata,
         );
         $this->loopStore->updateLoopProgress($loopId, (int) ($state['iteration']['iteration_number'] ?? 0), $stageResult->stageIndex);
         $this->loopStore->updateLoopMetadata($loopId, [
@@ -245,8 +253,12 @@ final class LoopManager
         $stageId = (string) $stage['id'];
 
         if ($attempts > 2) {
-            $this->executor->failStage($stageId, 'Stage task was lost and exceeded re-dispatch attempts.');
-            $this->loopStore->updateStage(id: $stageId, status: 'failed', metadata: $meta);
+            // Fail with the updated attempt bookkeeping in a single write.
+            $this->executor->failStage(
+                $stageId,
+                'Stage task was lost and exceeded re-dispatch attempts.',
+                $meta,
+            );
 
             return;
         }
@@ -254,6 +266,32 @@ final class LoopManager
         // Reset to pending with a cleared task link so the next tick re-dispatches.
         $this->loopStore->updateStage(id: $stageId, status: 'pending', metadata: $meta);
         $this->loopStore->clearStageTask($stageId);
+    }
+
+    /**
+     * Merge the persisted dispatch_attempts counter into a stage metadata payload
+     * before re-dispatch, so the handoff payload does not clobber the orphan
+     * recovery bound. A normal first dispatch (no prior counter) is unaffected.
+     *
+     * @param array<string, mixed>|null $payload
+     * @return array<string, mixed>|null
+     */
+    private function mergeDispatchAttempts(string $stageId, ?array $payload): ?array
+    {
+        $stage = $this->loopStore->getStage($stageId);
+        if (!is_array($stage) || !is_string($stage['metadata'] ?? null) || $stage['metadata'] === '') {
+            return $payload;
+        }
+
+        $existing = json_decode($stage['metadata'], true);
+        if (!is_array($existing) || !array_key_exists('dispatch_attempts', $existing)) {
+            return $payload;
+        }
+
+        $merged = $payload ?? [];
+        $merged['dispatch_attempts'] = $existing['dispatch_attempts'];
+
+        return $merged;
     }
 
     /**

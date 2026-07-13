@@ -81,3 +81,52 @@ test('a running stage whose task is missing is reset to pending for re-dispatch'
         expect($stage['task_id'])->toBeNull();
     }
 });
+
+test('a stage that orphans on every re-dispatch cycle eventually fails (bound fires)', function () {
+    $projectId = $this->projectStore->createProject(title: 'p', slug: 'd-3', description: 'd');
+    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, projectId: $projectId, maxIterations: 1);
+    $iterId = $this->loopStore->createIteration($loopId, 1);
+    $stageId = $this->loopStore->createStage($iterId, 0, 'coder');
+    // First orphan: a crashed dispatch — running with a task id that does not exist.
+    $this->loopStore->updateStage(id: $stageId, status: 'running', taskId: 'ghost-task-id');
+
+    $pdo = $this->storage->getPdo();
+    $attemptsSeen = [];
+
+    // Drive the loop the way the runtime does: reconcile() recovers the orphan
+    // (resetting to pending + incrementing dispatch_attempts), tick() re-dispatches
+    // it (creating a real task), then we simulate the task vanishing again by
+    // deleting it — so the SAME stage orphans on every cycle.
+    for ($cycle = 0; $cycle < 8; $cycle++) {
+        $this->manager->reconcile();
+
+        $stage = $this->loopStore->getStage($stageId);
+        $meta = $stage['metadata'] !== null ? json_decode($stage['metadata'], true) : [];
+        $attemptsSeen[] = (int) ($meta['dispatch_attempts'] ?? 0);
+
+        if ($stage['status'] === 'failed') {
+            break;
+        }
+
+        // Re-dispatch the recovered (pending) stage.
+        $this->manager->tick();
+
+        // The tick created a fresh background task and set the stage running.
+        // Simulate that task vanishing (crash) so the next reconcile re-orphans it.
+        $running = $this->loopStore->getStage($stageId);
+        $taskId = (string) ($running['task_id'] ?? '');
+        if ($taskId !== '') {
+            $pdo->prepare('DELETE FROM background_tasks WHERE id = ?')->execute([$taskId]);
+        }
+    }
+
+    $stage = $this->loopStore->getStage($stageId);
+
+    // The bound must fire: a perpetually-orphaning stage must end failed, not
+    // re-dispatch forever.
+    expect($stage['status'])->toBe('failed');
+
+    // And dispatch_attempts must actually climb across cycles — not be pinned at 1
+    // (which is the clobber bug: handoff metadata replacing the counter).
+    expect(max($attemptsSeen))->toBeGreaterThan(2);
+});

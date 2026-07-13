@@ -325,14 +325,17 @@ final class LoopExecutor
     }
 
     /**
-     * Mark a stage as failed.
+     * Mark a stage as failed, optionally persisting stage metadata in the same write.
+     *
+     * @param array<string, mixed>|null $metadata
      */
-    public function failStage(string $stageId, string $error): void
+    public function failStage(string $stageId, string $error, ?array $metadata = null): void
     {
         $this->loopStore->updateStage(
             id: $stageId,
             status: 'failed',
             resultSummary: 'FAILED: ' . $error,
+            metadata: $metadata,
         );
     }
 
