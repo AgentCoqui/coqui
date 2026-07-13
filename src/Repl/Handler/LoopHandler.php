@@ -128,7 +128,7 @@ final class LoopHandler
 
     private function handleList(SymfonyStyle $io, LoopStore $store, string $statusFilter): void
     {
-        $filter = in_array($statusFilter, ['running', 'paused', 'completed', 'failed', 'cancelled'], true)
+        $filter = in_array($statusFilter, ['running', 'paused', 'completed', 'failed', 'cancelled', 'blocked'], true)
             ? $statusFilter
             : null;
 
@@ -150,6 +150,7 @@ final class LoopHandler
                 'completed' => '<fg=cyan>✓</>',
                 'failed' => '<fg=red>✗</>',
                 'cancelled' => '<fg=gray>⊘</>',
+                'blocked' => '<fg=magenta>⚑</>',
                 default => $loop['status'],
             };
             $started = TimeFormatter::timeSince($loop['started_at']);
@@ -227,6 +228,15 @@ final class LoopHandler
             ['Started' => $loop['started_at']],
             ['Completed' => $loop['completed_at'] ?? '-'],
         );
+
+        if (($loop['status'] ?? '') === 'blocked') {
+            $escalation = is_array($loopMetadata['escalation'] ?? null) ? $loopMetadata['escalation'] : null;
+            $reason = is_string($escalation['reason'] ?? null) && $escalation['reason'] !== ''
+                ? $escalation['reason']
+                : 'Blocked — operator retry required.';
+            $io->warning("Blocked: {$reason}");
+            $io->text('<fg=gray>Retry via the agent: loop_control(action: "retry", id: "' . $target . '", note: "…") or the API /retry endpoint.</>');
+        }
 
         $dispatch = is_array($loopMetadata['dispatch'] ?? null) ? $loopMetadata['dispatch'] : null;
         if ($dispatch !== null) {
