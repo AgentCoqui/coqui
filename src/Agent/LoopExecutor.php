@@ -136,6 +136,12 @@ final class LoopExecutor
             $configuration['resolved_parameters'] = $resolvedParameters;
         }
 
+        // Preserve a per-definition circuit-breaker override so it survives the
+        // snapshot that maxReworkAttempts() later reads from stored config.
+        if (isset($substitutedData['max_rework_attempts'])) {
+            $configuration['max_rework_attempts'] = (int) $substitutedData['max_rework_attempts'];
+        }
+
         if ($maxIterationsOverride !== null && $maxIterationsOverride < 1) {
             throw new \InvalidArgumentException('max_iterations must be greater than 0');
         }
@@ -385,28 +391,31 @@ final class LoopExecutor
         } else {
             // Evaluate based on termination type
             $outcome = match ($definition->terminationCondition->type) {
-                TerminationType::EvaluationBound => $this->evaluateEvaluationBound($stages, $iterationNumber, $loop),
+                TerminationType::EvaluationBound => $this->evaluateEvaluationBound($definition, $stages, $iterationNumber, $loop, $iteration['id']),
                 TerminationType::IterationBound => $this->evaluateIterationBound($iterationNumber, $loop),
                 TerminationType::GoalBound => $this->evaluateGoalBound($definition, $stages, $iterationNumber, $loop),
             };
         }
 
-        // Update iteration status based on outcome
-        $iterationStatus = match ($outcome) {
-            IterationOutcome::Complete, IterationOutcome::LimitReached => 'completed',
-            IterationOutcome::Continue => 'completed', // Iteration completed, but loop continues
-            IterationOutcome::Failed => 'failed',
-        };
+        // Update iteration status based on outcome. Blocked leaves the iteration
+        // needs_rework (already set by escalateBlocked) so an operator retry can
+        // reopen it.
+        if ($outcome !== IterationOutcome::Blocked) {
+            $iterationStatus = match ($outcome) {
+                IterationOutcome::Complete, IterationOutcome::LimitReached => 'completed',
+                IterationOutcome::Continue => $definition->terminationCondition->type === TerminationType::EvaluationBound
+                    ? 'needs_rework'
+                    : 'completed',
+                IterationOutcome::Failed => 'failed',
+            };
+            $summary = $this->buildIterationSummary($stages);
+            $this->loopStore->updateIterationStatus($iteration['id'], $iterationStatus, $summary);
+        }
 
-        $summary = $this->buildIterationSummary($stages);
-        $this->loopStore->updateIterationStatus($iteration['id'], $iterationStatus, $summary);
-
-        // If loop should continue, advance to next iteration
         if ($outcome === IterationOutcome::Continue) {
             $this->advanceIteration($loopId, $definition, $loop['project_id'], $loop['goal']);
         }
 
-        // If loop is done, update its status
         if ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
             $this->loopStore->updateLoopStatus($loopId, 'completed');
         }
@@ -414,6 +423,7 @@ final class LoopExecutor
         if ($outcome === IterationOutcome::Failed) {
             $this->loopStore->updateLoopStatus($loopId, 'failed');
         }
+        // Blocked: escalateBlocked already set loop status = blocked; do not advance.
 
         return $outcome;
     }
@@ -543,45 +553,94 @@ final class LoopExecutor
     // ──────────────────────────────────────────────
 
     /**
-     * Evaluate an evaluation_bound loop by checking the last stage (evaluator) output.
+     * Evaluate an evaluation_bound loop via the structured gate verdict.
      *
-     * The last role in the definition is expected to be the evaluator. Its output
-     * is checked for approval signals.
+     * Returns Complete (approved), Continue (rework — iteration marked
+     * needs_rework, rework_attempts incremented), or Blocked (breaker tripped).
      *
      * @param list<array<string, mixed>> $stages
      * @param array<string, mixed> $loop
      */
-    private function evaluateEvaluationBound(array $stages, int $iterationNumber, array $loop): IterationOutcome
-    {
-        // The last stage is the evaluator — check its output for approval
-        $lastStage = end($stages);
-        if ($lastStage === false || $lastStage['result_summary'] === null) {
+    private function evaluateEvaluationBound(
+        LoopDefinition $definition,
+        array $stages,
+        int $iterationNumber,
+        array $loop,
+        string $iterationId,
+    ): IterationOutcome {
+        $gateStage = end($stages);
+        if ($gateStage === false) {
             return IterationOutcome::Continue;
         }
 
-        $output = strtolower($lastStage['result_summary']);
-
-        // Simple approval detection — look for common approval signals
-        $approvalSignals = ['approved', 'approve', 'lgtm', 'looks good', 'accepted', 'passes all criteria'];
-        $rejectionSignals = ['rejected', 'needs changes', 'needs_changes', 'needs work', 'not approved', 'revisions needed'];
-
-        foreach ($approvalSignals as $signal) {
-            if (str_contains($output, $signal)) {
-                // Verify it's not a negated approval
-                $negated = false;
-                foreach ($rejectionSignals as $rejection) {
-                    if (str_contains($output, $rejection)) {
-                        $negated = true;
-                        break;
+        // Reuse a persisted verdict if present (idempotent across reconcile ticks).
+        $verdict = null;
+        if (($gateStage['verdict'] ?? null) !== null && $gateStage['verdict'] !== '') {
+            $verdict = StageVerdict::fromArray(json_decode($gateStage['verdict'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR));
+        }
+        if ($verdict === null) {
+            $gateOutput = (string) ($gateStage['result_summary'] ?? '');
+            if ($this->stageGateEvaluator !== null) {
+                $priorSummaries = [];
+                foreach ($stages as $s) {
+                    if ((int) $s['stage_index'] !== (int) $gateStage['stage_index']) {
+                        $priorSummaries[] = sprintf('%s: %s', $s['role'], (string) ($s['result_summary'] ?? ''));
                     }
                 }
-                if (!$negated) {
-                    return IterationOutcome::Complete;
-                }
+                $verdict = $this->stageGateEvaluator->judge(
+                    goal: (string) $loop['goal'],
+                    acceptanceCriteria: $loop['termination_criteria'] ?? null,
+                    gateStageOutput: $gateOutput,
+                    priorStageSummaries: $priorSummaries,
+                );
+            } else {
+                $verdict = StageVerdict::gateFromText($gateOutput);
             }
+            $this->loopStore->recordStageVerdict((string) $gateStage['id'], json_encode($verdict->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        }
+
+        if ($verdict->isApproved()) {
+            return IterationOutcome::Complete;
+        }
+
+        // Rework: increment the breaker counter, mark the iteration needs_rework.
+        $attempts = $this->reworkAttempts($loop) + 1;
+        $this->loopStore->updateLoopMetadata((string) $loop['id'], ['rework_attempts' => $attempts]);
+        $this->loopStore->updateIterationStatus($iterationId, 'needs_rework', $this->buildIterationSummary($stages));
+
+        $maxAttempts = $this->maxReworkAttempts($loop);
+        if ($attempts >= $maxAttempts) {
+            $this->escalateBlocked($loop, $iterationId, sprintf('Not converging: %d rework attempts without approval.', $attempts), $verdict->findings);
+            return IterationOutcome::Blocked;
         }
 
         return IterationOutcome::Continue;
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     */
+    private function reworkAttempts(array $loop): int
+    {
+        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+            $meta = json_decode($loop['metadata'], true);
+            if (is_array($meta)) {
+                return (int) ($meta['rework_attempts'] ?? 0);
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     */
+    private function maxReworkAttempts(array $loop): int
+    {
+        $config = json_decode((string) $loop['configuration'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
+        $value = is_array($config) ? (int) ($config['max_rework_attempts'] ?? self::DEFAULT_MAX_REWORK_ATTEMPTS) : self::DEFAULT_MAX_REWORK_ATTEMPTS;
+
+        return $value > 0 ? $value : self::DEFAULT_MAX_REWORK_ATTEMPTS;
     }
 
     /**
