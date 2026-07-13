@@ -57,9 +57,10 @@ from a machine-readable verdict, not from prose or a producer's self-report.**
 
 ### Mechanism 1 — Stage Verdict (the shared primitive)
 
-Every completed stage is judged and reduced to a `StageVerdict`. This single primitive serves both
-the per-stage status taxonomy (item: machine-readable status) and the two-verdict gate (item: stage
-gate).
+Every stage resolves to a `StageVerdict`. This single primitive serves both the per-stage status
+taxonomy (item: machine-readable status) and the two-verdict gate (item: stage gate). **Only gate
+stages spend a utility-LLM call** (see "Gate-only judging" below); non-gate producer stages
+self-signal cheaply.
 
 **New value objects (`src/Contract/`):**
 
@@ -89,15 +90,35 @@ gate).
 **A stage is a gate** if it is the last role of an `evaluation_bound` loop, or a role explicitly
 flagged `gate: true` in the definition.
 
+**Gate-only judging (decision).** `StageGateEvaluator` runs **only on gate stages**. Non-gate
+producer stages self-signal without a utility call: they **default to `Done`**, and MAY emit
+`Blocked`/`NeedsContext` via a cheap, tolerant sentinel scan of their output (e.g. a leading
+`STATUS: BLOCKED` / `STATUS: NEEDS_CONTEXT` line) — no LLM call, best-effort, defaulting to `Done`
+when absent or malformed.
+
+Rationale: the "producer grades itself" problem bites at the *gate*, not at producer stages; and the
+circuit-breaker is already the real non-convergence net (bounds waste to ~3 iterations regardless).
+Per-stage judging would catch a mid-iteration stall only a fraction of an iteration sooner, at
+2–3× the utility-call cost plus reactor pressure.
+
+**Seam (do not build now, do not design out).** If hands-off loops later prove to stall
+mid-iteration, per-stage judging returns behind an opt-in role flag. Keep the `gate`/verdict plumbing
+general enough that flipping a per-role "judge me" flag would route a producer stage through the same
+`StageGateEvaluator` path — but ship no such flag in this change.
+
 **Fallback (graceful degradation).** When no utility model is configured, `StageGateEvaluator` is
 absent. Gate stages fall back to today's keyword string-match; non-gate stages resolve to `Done`.
 Existing loops keep working unchanged.
 
-**Persistence.** New column `loop_stages.verdict TEXT` (JSON), migrated via `SchemaHelper::addColumnIfMissing`.
+**Persistence.** New column `loop_stages.verdict TEXT` (JSON), migrated via
+`SchemaHelper::addColumnIfMissing`. This is the **one** real schema migration — it earns it. All
+other new state (`rework_attempts`, `escalation`, `pending_guidance`, `dispatch_attempts`) lives in
+existing `metadata` JSON, matching the codebase's own precedent and avoiding schema churn.
 
-**Cost note (accepted).** One cheap utility call per completed stage (e.g. 3 per iteration for a
-plan→coder→reviewer loop). Acceptable for deterministic BLOCKED/NEEDS_CONTEXT detection; degrades to
-zero calls when no utility model is set.
+**Reactor discipline (fold-in).** The gate evaluator's utility call must not stall other loops' ticks
+while in flight. Place and await it exactly the way `GoalEvaluator` is already invoked in the
+reconcile/evaluate path (same reactor treatment) — called out explicitly so the implementer matches
+the existing pattern rather than introducing a blocking call on the ReactPHP loop.
 
 ### Mechanism 2 — Gate & Rework controller + circuit-breaker
 
@@ -135,6 +156,12 @@ surfaced in context and the final summary, never blocks).
 `{ reason, attempts, last_findings }`.
 
 ### Mechanism 3 — Durability
+
+**3a-0. Tick skips blocked loops (fold-in).** A `blocked` loop must spend **nothing** until an
+operator retry revives it. `LoopManager::tick()`/`reconcile()` iterate `listLoops('running')`, so a
+loop moved to `blocked` naturally drops out — but this is made an **explicit** requirement and test,
+not an implicit consequence: a blocked loop dispatches no stages, makes no evaluator calls, and only
+re-enters the running set when a retry sets it back to `running`.
 
 **3a. Orphan-stage recovery (`LoopManager`).** On tick/reconcile:
 
@@ -248,7 +275,12 @@ fields** (never raw JSON in chat/REPL).
 ## Testing (TDD)
 
 - `StageVerdict` parse/serialize/map; `StageStatus`/`StageSeverity` mapping.
-- `StageGateEvaluator` with a fake provider returning verdicts; fallback path (no utility model).
+- `StageGateEvaluator` with a fake provider returning verdicts; fallback path (no utility model);
+  **runs only on gate stages** (non-gate stage completing spends no evaluator call).
+- Non-gate self-signal: default `Done`; sentinel `STATUS: BLOCKED`/`NEEDS_CONTEXT` parsed; malformed
+  sentinel → `Done`.
+- Tick skips blocked loops: a `blocked` loop dispatches no stages and makes no evaluator call until
+  a retry restores `running`.
 - Gate controller: approve→Complete; Critical→rework; Minor-only→Complete; 3×reject→blocked.
 - Circuit-breaker threshold (configurable) and metadata counter.
 - Per-stage BLOCKED/NEEDS_CONTEXT → blocked with correct reason.
