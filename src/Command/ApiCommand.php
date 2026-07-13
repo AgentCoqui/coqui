@@ -52,6 +52,7 @@ use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
 use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
+use CoquiBot\Coqui\Agent\StageGateEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
@@ -270,16 +271,18 @@ final class ApiCommand extends Command
 
         $loopManager = null;
         if ($loopStore !== null && $projectStore !== null) {
-            // Resolve utility model provider for goal_bound evaluation
+            // Resolve utility model provider for goal_bound + gate evaluation.
             $goalEvaluator = null;
+            $stageGateEvaluator = null;
             try {
                 $factory = $boot->providerFactory(new ReactHttpClientAdapter());
                 $utilityModel = $boot->roleResolver()->resolveUtility();
                 if ($utilityModel !== '') {
                     $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
+                    $stageGateEvaluator = new StageGateEvaluator($factory->create($utilityModel));
                 }
             } catch (\Throwable) {
-                // Goal evaluation degrades gracefully — goal_bound loops run to their iteration limit
+                // Evaluation degrades gracefully — gate falls back to keyword matching.
             }
 
             $loopExecutor = new LoopExecutor(
@@ -287,6 +290,8 @@ final class ApiCommand extends Command
                 projectStore: $projectStore,
                 sessionStorage: $storage,
                 goalEvaluator: $goalEvaluator,
+                stageGateEvaluator: $stageGateEvaluator,
+                memoryStore: $boot->memoryStore(),
             );
             $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
         }
