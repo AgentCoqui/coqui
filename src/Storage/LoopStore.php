@@ -83,6 +83,7 @@ final class LoopStore
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_loop_stages_iteration ON loop_stages(iteration_id)');
 
         $this->migrateAddColumn('loop_stages', 'metadata', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('loop_stages', 'verdict', 'TEXT DEFAULT NULL');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -459,6 +460,15 @@ final class LoopStore
             SQL);
             $stmt->execute([$status, $taskId, $artifactId, $metadataJson, $resultSummary, $completedAt, $id]);
         }
+    }
+
+    /**
+     * Persist a stage's machine-readable verdict JSON without touching its status.
+     */
+    public function recordStageVerdict(string $stageId, string $verdictJson): void
+    {
+        $stmt = $this->db->prepare('UPDATE loop_stages SET verdict = ? WHERE id = ?');
+        $stmt->execute([$verdictJson, $stageId]);
     }
 
     /**
