@@ -392,7 +392,7 @@ final class LoopExecutor
                 $reason = $verdict->status === StageStatus::Blocked
                     ? sprintf('Stage %d (%s) reported blocked.', $stageIndex, $stage['role'])
                     : sprintf('Stage %d (%s) needs additional context.', $stageIndex, $stage['role']);
-                $this->escalateBlocked($loop, $iteration['id'], $reason, $verdict->findings);
+                $this->escalateBlocked($loop, $iteration['id'], $reason, $verdict->findings, $this->reworkAttempts($loop));
                 return IterationOutcome::Blocked;
             }
         }
@@ -629,7 +629,7 @@ final class LoopExecutor
 
         $maxAttempts = $this->maxReworkAttempts($loop);
         if ($attempts >= $maxAttempts) {
-            $this->escalateBlocked($loop, $iterationId, sprintf('Not converging: %d rework attempts without approval.', $attempts), $verdict->findings);
+            $this->escalateBlocked($loop, $iterationId, sprintf('Not converging: %d rework attempts without approval.', $attempts), $verdict->findings, $attempts);
             return IterationOutcome::Blocked;
         }
 
@@ -796,15 +796,10 @@ final class LoopExecutor
      *
      * @param array<string, mixed> $loop
      * @param list<StageFinding> $findings
+     * @param int $attempts the true (already-incremented) rework attempt count
      */
-    private function escalateBlocked(array $loop, string $iterationId, string $reason, array $findings): void
+    private function escalateBlocked(array $loop, string $iterationId, string $reason, array $findings, int $attempts): void
     {
-        $attempts = 0;
-        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
-            $meta = json_decode($loop['metadata'], true);
-            $attempts = is_array($meta) ? (int) ($meta['rework_attempts'] ?? 0) : 0;
-        }
-
         $this->loopStore->updateLoopMetadata((string) $loop['id'], [
             'escalation' => [
                 'reason' => $reason,

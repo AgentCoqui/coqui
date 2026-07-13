@@ -246,7 +246,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 new EnumParameter(
                     name: 'status',
                     description: 'Filter by loop status',
-                    values: ['running', 'paused', 'completed', 'failed', 'cancelled'],
+                    values: ['running', 'paused', 'blocked', 'completed', 'failed', 'cancelled'],
                     required: false,
                 ),
             ],

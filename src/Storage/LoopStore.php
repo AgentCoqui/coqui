@@ -495,6 +495,7 @@ final class LoopStore
                 metadata = NULL,
                 status = 'pending',
                 result_summary = NULL,
+                verdict = NULL,
                 started_at = NULL,
                 completed_at = NULL
             WHERE iteration_id = ?
