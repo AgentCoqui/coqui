@@ -38,7 +38,6 @@ final class ReplCommandCatalog
             new ReplCommandSpec('/thinking', '/thinking [off|low|medium|high|clear]', 'Show or set reasoning effort for the active model (off disables thinking).', firstArguments: ['off', 'low', 'medium', 'high', 'clear'], section: 'Context & Inspection'),
             new ReplCommandSpec('/budget', '/budget [role]', 'Show prompt-budget and toolkit loading decisions.', section: 'Context & Inspection'),
             new ReplCommandSpec('/prompt', '/prompt [export]', 'Show the rendered system prompt, source breakdowns, or export it to the workspace.', firstArguments: ['export'], section: 'Context & Inspection'),
-            new ReplCommandSpec('/backstory', '/backstory [generate|failed]', 'Show backstory generation status and source breakdowns for the active profile.', firstArguments: ['generate', 'failed'], section: 'Context & Inspection'),
             new ReplCommandSpec('/summarize', '/summarize [recent N|focus topic]', 'Summarize older conversation history to reclaim context.', firstArguments: ['recent', 'focus'], section: 'Context & Inspection'),
             new ReplCommandSpec('/tasks', '/tasks [status]', 'List background tasks, optionally filtered by status.', firstArguments: ['all', 'pending', 'running', 'cancelling', 'completed', 'failed', 'cancelled'], section: 'Work Tracking'),
             new ReplCommandSpec('/task', '/task <task-id>', 'Show task status, metadata, and recent events.', section: 'Work Tracking'),

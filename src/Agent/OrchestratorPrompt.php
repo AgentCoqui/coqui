@@ -70,6 +70,16 @@ final readonly class OrchestratorPrompt
     }
 
     /**
+     * Return the context section (supplementary persona notes).
+     *
+     * Returns null if no context/*.md exists in the active persona.
+     */
+    public function renderContext(): ?string
+    {
+        return $this->loader->buildContextContent();
+    }
+
+    /**
      * Return the body sections (base + tools + security + done).
      */
     public function renderBody(): string

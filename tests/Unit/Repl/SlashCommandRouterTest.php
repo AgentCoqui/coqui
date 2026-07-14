@@ -12,7 +12,6 @@ use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
-use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -62,7 +61,6 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(ThinkingHandler::class),
         $instantiate(ConversationHandler::class),
         $instantiate(LoopHandler::class),
-        $instantiate(BackstoryHandler::class),
         $instantiate(AgentRunner::class),
         $instantiate(PromptInspectionService::class),
         $output,
@@ -203,7 +201,6 @@ test('slash command router renders local markdown previews through its markdown 
             $instantiate(ThinkingHandler::class),
             $instantiate(ConversationHandler::class),
             $instantiate(LoopHandler::class),
-            $instantiate(BackstoryHandler::class),
             $instantiate(AgentRunner::class),
             $instantiate(PromptInspectionService::class),
             $output,

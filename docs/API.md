@@ -1997,6 +1997,7 @@ Return a single profile record with picker-friendly policy details.
     "prompt_sections": {
       "soul": true,
       "backstory": true,
+      "context": true,
       "base": true,
       "memory": true,
       "preferences": true,
@@ -2171,132 +2172,7 @@ This initial slice intentionally refuses to delete the configured default profil
 
 **Response `409`** — the requested profile is still the configured default profile.
 
-#### `GET /api/v1/profiles/{name}/backstory`
-
-Profile-scoped alias for `GET /api/v1/server/backstory?profile={name}`.
-
-This is the app-facing inspection route for the purpose-built backstory builder. It returns generated `backstory.md` content, source file breakdowns, folder summaries, unsupported file visibility, and regeneration metadata for a single profile.
-
-**Response `200`**
-
-Returns the same payload shape as `GET /api/v1/server/backstory?profile={name}`.
-
-**Response `400`** — unknown profile.
-
-#### `GET /api/v1/profiles/{name}/backstory/entries`
-
-Read a single supported backstory source entry under `profiles/{name}/backstory/`.
-
-This exists for the app-side backstory organizer so source files can be viewed and edited without exposing a generic workspace file browser.
-
-**Query Parameters**
-
-- `path` — required relative path to a supported source entry, for example `intro.md` or `timeline/01-origin.md`
-
-**Response `200`**
-
-```json
-{
-  "path": "profiles/caelum/backstory/intro.md",
-  "relative_path": "intro.md",
-  "content": "# Intro\n\nCaelum has a long memory.\n"
-}
-```
-
-**Response `400`** — invalid path or unknown profile.
-
-**Response `404`** — entry not found.
-
-#### `POST /api/v1/profiles/{name}/backstory/folders`
-
-Create a folder inside `profiles/{name}/backstory/` for organizing source files used by the backstory generator.
-
-This endpoint is intentionally profile-scoped and path-limited. It does not expose a generic workspace browser.
-
-**Request Body**
-
-```json
-{
-  "path": "timeline/childhood"
-}
-```
-
-**Response `201`**
-
-```json
-{
-  "created": true,
-  "path": "profiles/caelum/backstory/timeline/childhood",
-  "backstory": {
-    "profile": "caelum",
-    "source_folder": "profiles/caelum/backstory",
-    "source_folder_exists": true
-  }
-}
-```
-
-**Response `400`** — invalid path or unknown profile.
-
-#### `PUT /api/v1/profiles/{name}/backstory/entries`
-
-Create or replace a single backstory source entry under `profiles/{name}/backstory/`.
-
-Supported entry paths are limited to the same allowlisted source extensions used by backstory generation. Hidden paths, traversal segments, and unsupported extensions are rejected.
-
-After writing the file, Coqui regenerates `backstory.md` and refreshes the manifest before returning the updated inspection payload.
-
-**Request Body**
-
-```json
-{
-  "path": "timeline/01-origin.md",
-  "content": "# Origin\n\nCaelum first learned through careful observation."
-}
-```
-
-**Response `200`**
-
-```json
-{
-  "updated": true,
-  "path": "profiles/caelum/backstory/timeline/01-origin.md",
-  "backstory": {
-    "profile": "caelum",
-    "generated_backstory_path": "profiles/caelum/backstory.md"
-  }
-}
-```
-
-**Response `400`** — invalid JSON, invalid path, unsupported extension, empty content, or unknown profile.
-
-#### `DELETE /api/v1/profiles/{name}/backstory/entries`
-
-Delete a single backstory source entry under `profiles/{name}/backstory/` and regenerate the generated backstory output.
-
-**Request Body**
-
-```json
-{
-  "path": "timeline/01-origin.md"
-}
-```
-
-**Response `200`**
-
-```json
-{
-  "deleted": true,
-  "path": "profiles/caelum/backstory/timeline/01-origin.md",
-  "backstory": {
-    "profile": "caelum",
-    "generated_backstory_path": "profiles/caelum/backstory.md"
-  }
-}
-```
-
-**Response `400`** — invalid JSON, invalid path, unsupported extension, or unknown profile.
-
-**Response `404`** — entry not found.
+> **Breaking change:** the profile-scoped backstory source-management routes (`GET`/`PUT`/`DELETE /api/v1/profiles/{name}/backstory/entries`, `POST /api/v1/profiles/{name}/backstory/folders`, and `GET /api/v1/profiles/{name}/backstory`) have been removed from core. Source-file backstory generation now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` above still accepts a `backstory` field that writes `backstory.md` content directly.
 
 #### `GET /api/v1/config/models`
 
@@ -4388,109 +4264,7 @@ Return the runtime slash-command catalog that powers REPL help output. This is t
 | `commands` | array | Flat list of command metadata for search/filter UIs |
 | `count` | int | Total number of commands returned |
 
-#### `GET /api/v1/server/backstory`
-
-Return the generated `backstory.md` content and the manifest metadata for a profile, including per-file token counts, folder rollups, unsupported files, and regeneration status.
-
-**Query Parameters**
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `profile` | string | `null` | Profile to inspect. When omitted, the endpoint returns an explicit `available: false` payload because unprofiled sessions do not have a backstory. |
-
-**Response `200`** — profiled backstory:
-
-```json
-{
-  "profile": "caelum",
-  "available": true,
-  "reason": null,
-  "source_folder": "profiles/caelum/backstory",
-  "generated_backstory_path": "profiles/caelum/backstory.md",
-  "source_folder_exists": true,
-  "has_generated_backstory": true,
-  "generated_at": "2026-04-18T20:50:00+00:00",
-  "last_modified_at": "2026-04-18T20:49:10+00:00",
-  "content_hash": "sha256:abc123...",
-  "needs_regeneration": false,
-  "total_files": 3,
-  "supported_file_count": 2,
-  "successful_file_count": 2,
-  "unsupported_file_count": 1,
-  "failed_file_count": 0,
-  "total_tokens": 820,
-  "total_size_bytes": 5821,
-  "content": "## Backstory\n\n### File: /intro.md\n...",
-  "files": [
-    {
-      "path": "profiles/caelum/backstory/intro.md",
-      "relative_path": "intro.md",
-      "size_bytes": 211,
-      "token_estimate": 164,
-      "status": "ok",
-      "error": null,
-      "modified_at": "2026-04-18T20:49:10+00:00",
-      "sha256": "..."
-    }
-  ],
-  "folders": [
-    {
-      "path": "",
-      "total_tokens": 492,
-      "total_size_bytes": 401,
-      "file_count": 1,
-      "unsupported_file_count": 1,
-      "failed_file_count": 0,
-      "last_modified_at": "2026-04-18T20:49:10+00:00"
-    }
-  ],
-  "unsupported_files": [
-    {
-      "path": "profiles/caelum/backstory/image.png",
-      "relative_path": "image.png",
-      "extension": "png",
-      "reason": "Unsupported file type",
-      "size_bytes": 2048,
-      "modified_at": "2026-04-18T20:48:00+00:00",
-      "sha256": "..."
-    }
-  ],
-  "errors": []
-}
-```
-
-**Response `200`** — no active profile:
-
-```json
-{
-  "profile": null,
-  "available": false,
-  "reason": "no_active_profile",
-  "content": null,
-  "files": [],
-  "folders": [],
-  "unsupported_files": [],
-  "errors": []
-}
-```
-
-**Response `400`** — unknown profile:
-
-```json
-{
-  "error": "Unknown profile \"missing\".",
-  "code": "validation_error"
-}
-```
-
-**Response `500`** — if prompt construction fails:
-
-```json
-{
-  "error": "Failed to build system prompt: <reason>",
-  "code": "internal_error"
-}
-```
+> **Breaking change:** `GET /api/v1/server/backstory` has been removed from core. It returned generated `backstory.md` content and source-manifest metadata for the source-file backstory generator, which now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` still accepts a `backstory` field that writes `backstory.md` content directly.
 
 ## Middleware
 
@@ -4621,12 +4395,7 @@ The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-m
 | `/mcp set-env <name> <ENV_KEY>` | `POST /api/v1/mcp/servers/{name}/env` | Links a secret or env placeholder to an MCP server |
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
-| `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
 | profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
-| profile backstory inspect | `GET /api/v1/profiles/{name}/backstory` | Returns the same backstory inspection payload through a profile-scoped app route |
-| profile backstory folder create | `POST /api/v1/profiles/{name}/backstory/folders` | Creates a folder inside `profiles/{name}/backstory/` |
-| profile backstory entry upsert | `PUT /api/v1/profiles/{name}/backstory/entries` | Creates or replaces a typed backstory source entry and regenerates output |
-| profile backstory entry delete | `DELETE /api/v1/profiles/{name}/backstory/entries` | Deletes a backstory source entry and regenerates output |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
@@ -4679,10 +4448,6 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/profiles` | Yes | Create a profile |
 | `PATCH` | `/api/v1/profiles/{name}` | Yes | Update soul, backstory, and preferences for a profile |
 | `DELETE` | `/api/v1/profiles/{name}` | Yes | Delete a non-default profile |
-| `GET` | `/api/v1/profiles/{name}/backstory` | Yes | Get profile-scoped backstory inspection data |
-| `POST` | `/api/v1/profiles/{name}/backstory/folders` | Yes | Create a folder inside a profile backstory source tree |
-| `PUT` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Create or replace a backstory source entry and regenerate output |
-| `DELETE` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Delete a backstory source entry and regenerate output |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
 | `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |
@@ -4707,7 +4472,6 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt, optionally session-aware via `session_id` |
-| `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state, optionally session-aware via `session_id` |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |

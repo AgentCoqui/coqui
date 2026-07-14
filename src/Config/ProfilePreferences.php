@@ -25,6 +25,7 @@ final readonly class ProfilePreferences
     private const array ALLOWED_PROMPT_SECTIONS = [
         'soul',
         'backstory',
+        'context',
         'base',
         'memory',
         'preferences',
@@ -36,7 +37,7 @@ final readonly class ProfilePreferences
     ];
     private const array ALLOWED_PROMPT_SECTION_MODES = [true, false, 'stub'];
     private const array ALLOWED_ROLE_FIELDS = ['allow', 'deny'];
-    private const array ALLOWED_LABELS = ['backstory'];
+    private const array ALLOWED_LABELS = ['backstory', 'context'];
 
     /**
      * @param array<string, string> $promptDirectives Communication directives rendered into the system prompt.
@@ -413,6 +414,11 @@ final readonly class ProfilePreferences
         return $this->effectivePrompts()['labels']['backstory'] ?? 'Backstory';
     }
 
+    public function getContextLabel(): string
+    {
+        return $this->effectivePrompts()['labels']['context'] ?? 'Context';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -657,6 +663,15 @@ final readonly class ProfilePreferences
                 $errors[] = 'prompts.labels.backstory must be a non-empty string.';
             } else {
                 $prompts['labels']['backstory'] = $normalized;
+            }
+        }
+
+        if (array_key_exists('context', $labelsData)) {
+            $normalized = self::normalizeHeadingLabel($labelsData['context']);
+            if ($normalized === null) {
+                $errors[] = 'prompts.labels.context must be a non-empty string.';
+            } else {
+                $prompts['labels']['context'] = $normalized;
             }
         }
     }

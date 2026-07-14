@@ -22,7 +22,6 @@ use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
-use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -36,7 +35,6 @@ use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
-use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
@@ -194,11 +192,6 @@ final class RunCommand extends Command
             }
         }
 
-        // Auto-regenerate backstory if source files changed
-        if ($this->activeProfile !== null) {
-            $this->autoRegenerateBackstory($noTerminal ? null : $io);
-        }
-
         // Handle --update: apply updates and restart
         if ((bool) $input->getOption('update')) {
             $configHandler = new ConfigHandler($this->boot, $this->workDir);
@@ -318,7 +311,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /image, /help, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /image, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -410,7 +403,6 @@ final class RunCommand extends Command
             role: new RoleHandler($this->boot, $this->storage),
             group: new GroupHandler($groupSessionService, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
-            backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             config: new ConfigHandler($this->boot, $this->workDir),
             thinking: new ThinkingHandler($this->boot),
@@ -714,40 +706,6 @@ final class RunCommand extends Command
                     return $turnResult->exitCode ?? Command::SUCCESS;
                 }
             }
-        }
-    }
-
-    /**
-     * Auto-regenerate backstory.md if source files have changed since last generation.
-     */
-    private function autoRegenerateBackstory(?SymfonyStyle $io): void
-    {
-        $profileDiscovery = $this->boot->profileDiscovery();
-        if (!$profileDiscovery->profileExists($this->activeProfile ?? '')) {
-            return;
-        }
-
-        $profilePath = $profileDiscovery->getProfilePath($this->activeProfile ?? '');
-        $assembler = new \CoquiBot\Coqui\Backstory\BackstoryAssembler();
-        $preferences = ProfilePreferences::fromProfilePath($profilePath);
-
-        if (!$assembler->needsRegeneration($profilePath)) {
-            return;
-        }
-
-        $io?->text('<fg=gray>Backstory source files changed — regenerating...</>');
-        $result = $assembler->generate($profilePath, $preferences->getBackstoryLabel());
-
-        if ($result->totalFiles > 0 && $io !== null) {
-            $msg = sprintf(
-                'Backstory generated: %d file(s), ~%s tokens',
-                $result->totalFiles,
-                number_format($result->totalTokens),
-            );
-            if ($result->failedFiles > 0) {
-                $msg .= sprintf(' (%d failed — run /backstory failed)', $result->failedFiles);
-            }
-            $io->text('<fg=gray>' . $msg . '</>');
         }
     }
 
