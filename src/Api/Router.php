@@ -17,8 +17,20 @@ use React\Http\Message\Response;
  */
 final class Router
 {
-    /** @var array<string, array{pattern: string, handler: callable, regex: string, params: string[]}> */
+    /** @var array<string, array{pattern: string, handler: callable, regex: string, params: string[], requiresAuth: bool}> */
     private array $routes = [];
+
+    /** @var list<string> Compiled regexes for routes registered as public (auth-exempt). */
+    private array $publicPatterns = [];
+
+    /**
+     * @var list<array{method: string, path: string}> Public routes, for the boot-time audit log.
+     *
+     * Populated by addPublicRoute() and read back for the boot audit in Task 2; declared here so
+     * that method does not re-introduce it. Remove this ignore once a reader lands.
+     * @phpstan-ignore property.onlyWritten
+     */
+    private array $publicRoutes = [];
 
     /** @var callable[] */
     private array $middleware = [];
@@ -27,8 +39,28 @@ final class Router
      * Register a route handler.
      *
      * @param callable(ServerRequestInterface, array<string, string>): Response $handler
+     * @param bool $requiresAuth When false, the route is exempt from AuthMiddleware. Prefer addPublicRoute() to set this.
      */
-    public function addRoute(string $method, string $path, callable $handler): void
+    public function addRoute(string $method, string $path, callable $handler, bool $requiresAuth = true): void
+    {
+        $compiled = $this->compilePattern($path);
+
+        $key = strtoupper($method) . ':' . $path;
+        $this->routes[$key] = [
+            'pattern' => $path,
+            'handler' => $handler,
+            'regex' => $compiled['regex'],
+            'params' => $compiled['params'],
+            'requiresAuth' => $requiresAuth,
+        ];
+    }
+
+    /**
+     * Compile a {param} path pattern into an anchored, single-segment regex.
+     *
+     * @return array{regex: string, params: string[]}
+     */
+    private function compilePattern(string $path): array
     {
         $params = [];
         $regex = preg_replace_callback('/\{(\w+)\}/', static function (array $matches) use (&$params): string {
@@ -36,13 +68,21 @@ final class Router
             return '([^/]+)';
         }, $path);
 
-        $key = strtoupper($method) . ':' . $path;
-        $this->routes[$key] = [
-            'pattern' => $path,
-            'handler' => $handler,
-            'regex' => '#^' . $regex . '$#',
-            'params' => $params,
-        ];
+        return ['regex' => '#^' . $regex . '$#', 'params' => $params];
+    }
+
+    /**
+     * Determine whether a request path matches a route registered as public.
+     */
+    public function isPublicPath(string $path): bool
+    {
+        foreach ($this->publicPatterns as $pattern) {
+            if (preg_match($pattern, $path) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
