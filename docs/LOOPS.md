@@ -80,9 +80,11 @@ Iteration 1:
     - Produces: "NEEDS CHANGES — validation missing" or "APPROVED"
   ↓
 LoopExecutor: evaluateIteration()
-  - Last stage output contains "APPROVED"?
-    → No: advanceIteration() → Iteration 2
-    → Yes: loop completes
+  - StageGateEvaluator judges the gate stage → StageVerdict
+    → Approved: loop completes
+    → Rejected: mark needs_rework, rework_attempts++
+      → under max_rework_attempts: advanceIteration() → Iteration 2
+      → at max_rework_attempts: loop → blocked (awaits operator retry)
 ```
 
 ### Prompt Composition
@@ -103,13 +105,53 @@ This gives each agent full context of where the loop is, what happened before, a
 
 | Type | Trigger | Example |
 | --- | --- | --- |
-| `evaluation_bound` | Last stage output contains an approval keyword | Reviewer responds "APPROVED" |
+| `evaluation_bound` | `StageGateEvaluator` returns an approving verdict for the gate stage | Reviewer's work passes the structured gate |
 | `iteration_bound` | N iterations completed | `value: 5` |
 | `goal_bound` | An LLM judges the goal achieved from the last stage output | `value: { goal_prompt, max_iterations }` |
 
 A loop can always be stopped explicitly with `loop_control(action: "stop", id: ...)` regardless of its termination type.
 
-For `evaluation_bound`, the executor scans the last stage's output for approval signals (`approved`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) while cross-checking against rejection signals to avoid false positives. For `goal_bound`, the executor asks the utility LLM whether the goal is met; if no utility model is configured, the loop runs to its `max_iterations` limit.
+For `evaluation_bound`, the loop's gate stage is judged by `StageGateEvaluator` — a single-shot utility-LLM call that returns a structured verdict (`requirements_met` + `quality_pass` + severity-tagged findings). Approval requires both verdicts true and no Critical/Important findings. When no utility model is configured (or its output is unparseable), the evaluator falls back to keyword matching against the last stage's output — approval signals (`approved`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) cross-checked against rejection signals. For `goal_bound`, the executor asks the utility LLM whether the goal is met; if no utility model is configured, the loop runs to its `max_iterations` limit. See [Stage verdicts and the gate](#stage-verdicts-and-the-gate).
+
+### Stage verdicts and the gate
+
+Every completed stage resolves to a machine-readable `StageStatus`:
+
+| Status | Meaning |
+| --- | --- |
+| `done` | Stage succeeded; the loop advances |
+| `done_with_concerns` | Gate did not approve, or a soft (Minor) concern was recorded — surfaced, not halting |
+| `blocked` | Stage cannot proceed; the loop halts into escalation |
+| `needs_context` | Stage needs more input; the loop halts into escalation |
+
+Stages fall into two kinds:
+
+- **Gate stages** — the last role of an `evaluation_bound` loop, or any role flagged `gate: true`. A gate stage is judged by `StageGateEvaluator`, which returns a `StageVerdict` (`requirements_met` + `quality_pass` + a list of severity-tagged findings). Approval requires both booleans true with no Critical/Important findings; anything else is a rejection.
+- **Producer (non-gate) stages** — self-signal with no LLM call. The default status is `done`. A producer can halt the loop by emitting a line-leading sentinel — `STATUS: BLOCKED` or `STATUS: NEEDS_CONTEXT` (case-insensitive, within the first few lines). Mid-sentence prose that merely contains the phrase does not match.
+
+Gate verdicts are persisted on the stage row (`loop_stages.verdict`) so re-evaluation across reconcile ticks is idempotent.
+
+### Circuit-breaker and the `blocked` state
+
+An `evaluation_bound` loop that keeps failing its gate does not spin forever. Each rejected round marks the iteration `needs_rework` and increments a `rework_attempts` counter in the loop metadata. Once `rework_attempts` reaches `max_rework_attempts` (default `3`, overridable with a top-level `max_rework_attempts` field in the definition), the loop transitions to **`blocked`** and records an `escalation` metadata entry (reason, attempt count, findings).
+
+`blocked` is a *retryable* stop, not a terminal one — it is distinct from `completed (limit reached)`, which is a clean stop after the iteration limit. Reaching `blocked` fires an **actionable** notification (`loop.blocked`) so an operator (or the API automation runner) knows the loop is waiting for input.
+
+A producer stage that self-signals `blocked`/`needs_context`, or fails a hard `artifact_required` check, also escalates the loop to `blocked` before the next stage dispatches.
+
+### Artifact-required and memory-required stages
+
+Two per-role flags add stage-level guarantees:
+
+- `artifact_required: true` — a **hard** gate. If the stage produces no durable artifact, it resolves to `blocked` (a Critical finding) and the loop escalates.
+- `memory_required: true` — a **soft** check. If the stage records no memory pointer, it accrues a single Minor finding (`done_with_concerns`); it never blocks the loop.
+
+### Unblocking
+
+A `blocked` loop is revived by reopening its latest iteration, clearing the circuit-breaker (`rework_attempts` → 0), and injecting any operator note as an `## Operator Guidance` prompt section on the next round.
+
+- **Agent / chat:** `loop_control(action: "retry", id: "loop123", note: "…")`. The `note` is optional. Retry applies to `blocked`, `paused`, or `cancelled` loops.
+- **API:** `POST /api/v1/loops/{id}/iterations/{iterationId}/retry` with an optional `{"note": "…"}` body. Only the latest iteration is retryable, its status must be `failed` or `needs_rework`, and a `running` loop must be paused or stopped first.
 
 ## Loop Lifecycle
 
@@ -118,6 +160,7 @@ For `evaluation_bound`, the executor scans the last stage's output for approval 
 | `running` | Stages are being executed |
 | `paused` | Suspended — can be resumed |
 | `completed` | Termination condition met |
+| `blocked` | Circuit-breaker tripped or a stage self-signalled blocked/needs-context — retryable via `loop_control(action: "retry")` or the REST `/retry` endpoint |
 | `failed` | Stage error or unrecoverable failure |
 | `cancelled` | Stopped by user or agent |
 
@@ -271,7 +314,7 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `loop_start` | Start a loop from a definition with a goal |
 | `loop_list` | List loops with optional status filter |
 | `loop_status` | Get detailed status of a specific loop |
-| `loop_control` | Pause, resume, or stop one loop or all active loops |
+| `loop_control` | Pause, resume, stop, or retry one loop or all active loops (`retry` reopens a `blocked`/`paused`/`cancelled` loop with an optional guidance `note`) |
 | `loop_definitions` | List available loop definitions |
 
 ## API Endpoints
@@ -298,6 +341,7 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `POST` | `/api/v1/loops/{id}/stop` | Stop/cancel loop |
 | `GET` | `/api/v1/loops/{id}/iterations` | List iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Get iteration with stages |
+| `POST` | `/api/v1/loops/{id}/iterations/{iterationId}/retry` | Retry the latest iteration (optional `note`); unblocks a `blocked` loop |
 
 ## REPL Commands
 
@@ -326,7 +370,7 @@ Both modes use `LoopExecutor` as the shared orchestration engine for state manag
 - **No nested loops** — stage agents cannot start loops inside loops (LoopToolkit is excluded)
 - **No background tasks from stages** — stage agents cannot spawn background tasks
 - **Stage output truncation** — stage results are truncated to 2,000 characters when stored, which may lose detail for verbose outputs
-- **Approval detection** — `evaluation_bound` uses keyword matching, not semantic understanding. Ambiguous responses may be misclassified
+- **Approval detection** — `evaluation_bound` prefers a structured `StageGateEvaluator` verdict; only when no utility model is configured (or its output is unparseable) does it fall back to keyword matching, where ambiguous responses may be misclassified
 
 ## Related
 

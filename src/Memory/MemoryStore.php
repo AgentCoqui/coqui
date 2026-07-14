@@ -470,6 +470,23 @@ final class MemoryStore
     }
 
     /**
+     * Count memories recorded within a specific session.
+     *
+     * Used by the loop engine's soft `memory_required` check — a stage that was
+     * asked to record a canonical-artifact memory pointer but wrote none earns a
+     * Minor concern (never blocking).
+     */
+    public function countBySession(string $sessionId): int
+    {
+        $this->ensureTables();
+
+        $stmt = $this->getPdo()->prepare('SELECT COUNT(*) FROM memories WHERE session_id = ?');
+        $stmt->execute([$sessionId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Get a compact summary of all core memories for system prompt injection.
      *
     * Returns formatted text suitable for including in an agent's system prompt.

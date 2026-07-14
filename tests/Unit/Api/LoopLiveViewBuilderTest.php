@@ -187,3 +187,47 @@ test('a running stage with no turn yet reports zero tokens and null model', func
     expect($reviewer['model'])->toBeNull();
     expect($reviewer['tokens'])->toBe(['prompt' => 0, 'completion' => 0, 'total' => 0]);
 });
+
+test('exposes loop escalation and per-stage verdict in the snapshot', function (): void {
+    [$builder, $loopId, $storage, $loopStore] = seedLiveLoop();
+
+    // Record a blocked status + an escalation record in the loop's metadata.
+    $storage->getPdo()
+        ->prepare('UPDATE loops SET status = ?, metadata = ? WHERE id = ?')
+        ->execute([
+            'blocked',
+            json_encode(['escalation' => ['reason' => 'needs human input', 'raised_at' => '2026-07-13T00:00:00Z']]),
+            $loopId,
+        ]);
+
+    // Attach a structured verdict to the completed (plan) stage.
+    $planStageId = null;
+    foreach ($loopStore->listIterations($loopId) as $iteration) {
+        foreach ($loopStore->listStages((string) $iteration['id']) as $stage) {
+            if (($stage['role'] ?? null) === 'plan') {
+                $planStageId = (string) $stage['id'];
+            }
+        }
+    }
+    expect($planStageId)->not->toBeNull();
+    $loopStore->recordStageVerdict($planStageId, json_encode(['decision' => 'pass', 'confidence' => 0.9]));
+
+    $snapshot = $builder->build($loopId)->toArray();
+
+    expect($snapshot['loop']['escalation'])->toBe([
+        'reason' => 'needs human input',
+        'raised_at' => '2026-07-13T00:00:00Z',
+    ]);
+    expect($snapshot['stages'][0]['role'])->toBe('plan');
+    expect($snapshot['stages'][0]['verdict'])->toBe(['decision' => 'pass', 'confidence' => 0.9]);
+    // Stages without a verdict stay null and never break existing consumers.
+    expect($snapshot['stages'][1]['verdict'])->toBeNull();
+});
+
+test('loop escalation is null when metadata carries no escalation', function (): void {
+    [$builder, $loopId] = seedLiveLoop();
+    $snapshot = $builder->build($loopId)->toArray();
+
+    expect($snapshot['loop']['escalation'])->toBeNull();
+    expect($snapshot['stages'][0]['verdict'])->toBeNull();
+});

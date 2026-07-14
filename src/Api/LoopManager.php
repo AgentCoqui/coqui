@@ -108,13 +108,29 @@ final class LoopManager
             return;
         }
 
+        // Explicit blocked-skip guard: only running loops dispatch stages. Blocked
+        // (and paused/failed) loops are absent from listLoops('running'), so this is
+        // defence in depth against a status change mid-tick.
+        if (($state['loop']['status'] ?? null) !== 'running') {
+            return;
+        }
+
         $stages = $state['stages'];
 
-        // If any stage is currently running, don't advance — wait for reconciliation
+        // If any stage is currently running, verify its task is alive; recover
+        // orphans (missing task) rather than stalling forever.
         foreach ($stages as $stage) {
-            if ($stage['status'] === 'running') {
-                return;
+            if ($stage['status'] !== 'running') {
+                continue;
             }
+            $taskId = (string) ($stage['task_id'] ?? '');
+            $task = $taskId !== '' ? $this->storage->getTask($taskId) : null;
+            if ($task === null) {
+                $this->recoverOrphanStage($stage);
+                return; // recovered this tick; next tick re-dispatches or fails
+            }
+
+            return; // a live task is running — wait for reconciliation
         }
 
         // Prepare the next pending stage
@@ -123,6 +139,23 @@ final class LoopManager
             // No pending stages — iteration may be complete, evaluate
             $this->evaluateAndAdvance($loopId);
             return;
+        }
+
+        // Dispatch idempotency: a pending stage that already carries a task_id
+        // crashed between task creation and its running status update. Re-link the
+        // existing task rather than spawning a duplicate; reconciliation handles it.
+        $existingTaskId = (string) ($this->loopStore->getStage($stageResult->stageId)['task_id'] ?? '');
+        if ($existingTaskId !== '') {
+            $existingTask = $this->storage->getTask($existingTaskId);
+            if ($existingTask !== null) {
+                $this->loopStore->updateStage(
+                    id: $stageResult->stageId,
+                    status: 'running',
+                    taskId: $existingTaskId,
+                );
+
+                return;
+            }
         }
 
         $this->advancingLoops[$loopId] = true;
@@ -170,12 +203,20 @@ final class LoopManager
             metadata: $stageResult->handoffMetadata?->toArray(),
         );
 
-        // Link the task to the stage record
+        // Link the task to the stage record. Merge any recovery bookkeeping
+        // (dispatch_attempts, set by recoverOrphanStage) into the handoff payload
+        // first: updateStage persists metadata via COALESCE-replace, so a bare
+        // handoff payload would clobber the counter and the re-dispatch bound
+        // would never fire — re-dispatching a perpetually-orphaning stage forever.
+        $stageMetadata = $this->mergeDispatchAttempts(
+            stageId: $stageResult->stageId,
+            payload: $stageResult->handoffMetadata?->toArray(),
+        );
         $this->loopStore->updateStage(
             id: $stageResult->stageId,
             status: 'running',
             taskId: $taskId,
-            metadata: $stageResult->handoffMetadata?->toArray(),
+            metadata: $stageMetadata,
         );
         $this->loopStore->updateLoopProgress($loopId, (int) ($state['iteration']['iteration_number'] ?? 0), $stageResult->stageIndex);
         $this->loopStore->updateLoopMetadata($loopId, [
@@ -188,6 +229,69 @@ final class LoopManager
                 'updated_at' => Clock::nowUtc(),
             ],
         ]);
+    }
+
+    /**
+     * Recover a running stage whose background task has vanished (crashed
+     * dispatch or deleted task). Resets to pending for one re-dispatch, bounded
+     * by a dispatch_attempts guard; over the bound, the stage fails.
+     *
+     * @param array<string, mixed> $stage
+     */
+    private function recoverOrphanStage(array $stage): void
+    {
+        $meta = [];
+        if (is_string($stage['metadata'] ?? null) && $stage['metadata'] !== '') {
+            $decoded = json_decode($stage['metadata'], true);
+            if (is_array($decoded)) {
+                $meta = $decoded;
+            }
+        }
+        $attempts = (int) ($meta['dispatch_attempts'] ?? 0) + 1;
+        $meta['dispatch_attempts'] = $attempts;
+
+        $stageId = (string) $stage['id'];
+
+        if ($attempts > 2) {
+            // Fail with the updated attempt bookkeeping in a single write.
+            $this->executor->failStage(
+                $stageId,
+                'Stage task was lost and exceeded re-dispatch attempts.',
+                $meta,
+            );
+
+            return;
+        }
+
+        // Reset to pending with a cleared task link so the next tick re-dispatches.
+        $this->loopStore->updateStage(id: $stageId, status: 'pending', metadata: $meta);
+        $this->loopStore->clearStageTask($stageId);
+    }
+
+    /**
+     * Merge the persisted dispatch_attempts counter into a stage metadata payload
+     * before re-dispatch, so the handoff payload does not clobber the orphan
+     * recovery bound. A normal first dispatch (no prior counter) is unaffected.
+     *
+     * @param array<string, mixed>|null $payload
+     * @return array<string, mixed>|null
+     */
+    private function mergeDispatchAttempts(string $stageId, ?array $payload): ?array
+    {
+        $stage = $this->loopStore->getStage($stageId);
+        if (!is_array($stage) || !is_string($stage['metadata'] ?? null) || $stage['metadata'] === '') {
+            return $payload;
+        }
+
+        $existing = json_decode($stage['metadata'], true);
+        if (!is_array($existing) || !array_key_exists('dispatch_attempts', $existing)) {
+            return $payload;
+        }
+
+        $merged = $payload ?? [];
+        $merged['dispatch_attempts'] = $existing['dispatch_attempts'];
+
+        return $merged;
     }
 
     /**
@@ -212,6 +316,9 @@ final class LoopManager
 
             $task = $this->storage->getTask($taskId);
             if ($task === null) {
+                // The linked task vanished (crashed dispatch or deleted task).
+                // Recover the orphan instead of stalling on it forever.
+                $this->recoverOrphanStage($stage);
                 continue;
             }
 
@@ -298,6 +405,22 @@ final class LoopManager
                 loopId: $loopId,
                 outcome: 'failed',
                 title: 'Loop failed',
+                priority: 'high',
+            );
+        } elseif ($outcome === IterationOutcome::Blocked) {
+            $loop = $this->loopStore->getLoop($loopId);
+            $reason = 'Loop blocked — operator retry required.';
+            if ($loop !== null && is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+                $meta = json_decode($loop['metadata'], true);
+                if (is_array($meta) && is_string($meta['escalation']['reason'] ?? null)) {
+                    $reason = (string) $meta['escalation']['reason'];
+                }
+            }
+            $this->publishLoopNotification(
+                loopId: $loopId,
+                outcome: 'blocked',
+                title: 'Loop blocked — needs your input',
+                detail: mb_substr($reason, 0, 200),
                 priority: 'high',
             );
         } elseif ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
@@ -482,7 +605,7 @@ final class LoopManager
                 'outcome' => $outcome,
             ];
 
-            if ($kind === 'loop.failed') {
+            if ($kind === 'loop.failed' || $kind === 'loop.blocked') {
                 $this->publisher->actionable(
                     sessionId: $targetSession,
                     kind: $kind,

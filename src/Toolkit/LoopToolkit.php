@@ -246,7 +246,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 new EnumParameter(
                     name: 'status',
                     description: 'Filter by loop status',
-                    values: ['running', 'paused', 'completed', 'failed', 'cancelled'],
+                    values: ['running', 'paused', 'blocked', 'completed', 'failed', 'cancelled'],
                     required: false,
                 ),
             ],
@@ -332,15 +332,20 @@ final readonly class LoopToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'loop_control',
-            description: 'Pause, resume, or cancel a loop. Pass id="all" to apply to all matching loops at once.',
+            description: 'Pause, resume, stop, or retry a loop. retry revives a blocked loop and reopens its latest iteration; pass an optional note to steer the rework. Pass id="all" to apply pause/resume/stop to all matching loops at once.',
             parameters: [
                 new EnumParameter(
                     name: 'action',
                     description: 'The control action to perform',
-                    values: ['pause', 'resume', 'stop'],
+                    values: ['pause', 'resume', 'stop', 'retry'],
                     required: true,
                 ),
                 new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
+                new StringParameter(
+                    name: 'note',
+                    description: 'Optional guidance recorded for the next round when retrying a blocked loop.',
+                    required: false,
+                ),
             ],
             callback: function (array $input): ToolResult {
                 $action = (string) ($input['action'] ?? '');
@@ -354,6 +359,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     'pause' => $this->executePause($id),
                     'resume' => $this->executeResume($id),
                     'stop' => $this->executeStop($id),
+                    'retry' => $this->executeRetry($id, isset($input['note']) ? (string) $input['note'] : null),
                     default => ToolResult::error("Unknown action: {$action}"),
                 };
             },
@@ -416,6 +422,37 @@ final readonly class LoopToolkit implements ToolkitInterface
 
         $this->loopStore->updateLoopStatus($id, 'running');
         return ToolResult::success("Loop \"{$id}\" resumed.");
+    }
+
+    private function executeRetry(string $id, ?string $note): ToolResult
+    {
+        $loop = $this->loopStore->getLoop($id);
+        if ($loop === null) {
+            return ToolResult::error("Loop \"{$id}\" not found.");
+        }
+        if (!in_array((string) $loop['status'], ['blocked', 'paused', 'cancelled'], true)) {
+            return ToolResult::error("Cannot retry loop — current status is \"{$loop['status']}\". Retry applies to blocked, paused, or stopped loops.");
+        }
+
+        $iterations = $this->loopStore->listIterations($id);
+        if ($iterations === []) {
+            return ToolResult::error('Loop has no iterations to retry.');
+        }
+        $latest = $iterations[array_key_last($iterations)];
+        $iterationId = (string) $latest['id'];
+
+        $this->loopStore->resetStagesForIteration($iterationId);
+        $this->loopStore->resetIterationForRetry($iterationId);
+        $this->loopStore->updateLoopMetadata($id, [
+            'rework_attempts' => 0,
+            'pending_guidance' => ($note !== null && $note !== '') ? $note : null,
+        ]);
+        $this->loopStore->updateLoopProgress($id, (int) ($latest['iteration_number'] ?? 0), 0);
+        $this->loopStore->updateLoopStatus($id, 'running');
+
+        $suffix = ($note !== null && $note !== '') ? ' Guidance recorded for the next round.' : '';
+
+        return ToolResult::success("Loop \"{$id}\" retried — reopened iteration {$latest['iteration_number']} and cleared the block.{$suffix}");
     }
 
     private function executeStop(string $id): ToolResult

@@ -142,3 +142,32 @@ test('fromArray throws on missing role and name', function () {
 test('fromArray throws on missing prompt', function () {
     LoopRoleDefinition::fromArray(['role' => 'coder']);
 })->throws(\InvalidArgumentException::class, 'non-empty "prompt"');
+
+// ──────────────────────────────────────────────
+//  gate / artifact_required / memory_required flags
+// ──────────────────────────────────────────────
+
+test('flags default to false when absent', function () {
+    $r = LoopRoleDefinition::fromArray(['role' => 'coder', 'prompt' => 'do it']);
+    expect($r->gate)->toBeFalse();
+    expect($r->artifactRequired)->toBeFalse();
+    expect($r->memoryRequired)->toBeFalse();
+});
+
+test('flags parse from array and round-trip through toArray', function () {
+    $r = LoopRoleDefinition::fromArray([
+        'role' => 'reviewer',
+        'prompt' => 'review it',
+        'gate' => true,
+        'artifact_required' => true,
+        'memory_required' => true,
+    ]);
+    expect($r->gate)->toBeTrue();
+    expect($r->artifactRequired)->toBeTrue();
+    expect($r->memoryRequired)->toBeTrue();
+
+    $round = LoopRoleDefinition::fromArray($r->toArray());
+    expect($round->gate)->toBeTrue();
+    expect($round->artifactRequired)->toBeTrue();
+    expect($round->memoryRequired)->toBeTrue();
+});

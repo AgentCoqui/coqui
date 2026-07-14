@@ -135,27 +135,37 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Headless start: when startLoop runs with no conversation session, auto-provisions a hidden loop-owned work-scope session (active project = loop's project) so LoopManager's project propagation and cross-stage artifact scoping apply unchanged, and records metadata.origin ('headless' | 'conversation'). Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, goal_bound). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage and goalEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Headless start: when startLoop runs with no conversation session, auto-provisions a hidden loop-owned work-scope session (active project = loop's project) so LoopManager's project propagation and cross-stage artifact scoping apply unchanged, and records metadata.origin ('headless' | 'conversation'). Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, goal_bound). For evaluation_bound loops the gate stage (last role, or any role flagged gate:true) is judged by the optional StageGateEvaluator into a structured StageVerdict (requirements_met + quality_pass + severity findings), persisted on loop_stages.verdict for idempotent re-evaluation; keyword matching is the no-utility-model fallback. Non-gate producer stages self-signal a StageStatus (default done; STATUS: BLOCKED / STATUS: NEEDS_CONTEXT sentinel), plus a hard artifact_required check (no artifact → blocked) and a soft memory_required check (Minor concern via injected MemoryStore/SessionStorage). Runs a circuit-breaker: each rejected gate round marks the iteration needs_rework and increments metadata.rework_attempts; at max_rework_attempts (DEFAULT_MAX_REWORK_ATTEMPTS = 3, overridable via a top-level max_rework_attempts in the definition) escalateBlocked records escalation metadata and transitions the loop to the retryable blocked status. On retry, injects metadata.pending_guidance as an '## Operator Guidance' stage-prompt section. Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage, goalEvaluator, stageGateEvaluator, and memoryStore. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters, resolves project via 3-tier fallback, provisions a hidden work-scope session + records metadata.origin when headless, creates loop and first iteration",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with rich project context",
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters (including top-level max_rework_attempts), resolves project via 3-tier fallback, provisions a hidden work-scope session + records metadata.origin when headless, creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with rich project context and any pending operator guidance",
                 "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), advances if continuing",
+                "evaluateIteration(string $loopId): IterationOutcome — resolves per-stage verdicts (halting to blocked on a producer self-signal or failed artifact_required check), evaluates the termination condition (gate verdict for evaluation_bound, goal/iteration evaluators otherwise), runs the rework circuit-breaker, and advances or escalates to blocked",
                 "resolveProject(?string $projectId, ?string $projectSlug, ?string $sessionId, string $goal): string — 3-tier project resolution: explicit ID/slug → session active project → auto-create",
                 "buildProjectContextSection(?string $projectId): string — renders rich project context for stage prompts"
+            ]
+        },
+        {
+            "path": "src/Agent/StageGateEvaluator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\StageGateEvaluator",
+            "layer": "agent",
+            "description": "Single-shot LLM gate evaluator for a loop's reviewer (gate) stage. Judges the gate stage output against the goal and acceptance criteria and emits a structured StageVerdict (requirements_met + quality_pass + severity-tagged findings). Mirrors GoalEvaluator: one provider->chat() call, no tool use, catches all errors, and degrades to StageVerdict::gateFromText (keyword matching) on unparseable output. Constructed with a ProviderInterface.",
+            "methods": [
+                "judge(string $goal, ?string $acceptanceCriteria, string $gateStageOutput, array $priorStageSummaries): StageVerdict — return the structured gate verdict for a reviewer stage's output"
             ]
         },
         {
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "agent",
-            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks. Publishes loop lifecycle notifications through NotificationPublisher, upgrading terminal loop failures to actionable notifications for the API-side automation runner while keeping stage/complete milestones informational.",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops (blocked loops are explicitly skipped so they never dispatch), starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. Recovers orphaned stages (running stage whose task is missing) by clearing the stale task link and re-dispatching, bounded by a dispatch_attempts counter so a perpetually-orphaning stage eventually fails instead of looping forever. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks. Publishes loop lifecycle notifications through NotificationPublisher, upgrading terminal failures and the retryable blocked escalation (loop.blocked) to actionable notifications for the API-side automation runner while keeping stage/complete milestones informational.",
             "methods": [
                 "tick(): void — process all running loops on timer",
                 "advanceLoop(string $loopId): void — prepare next stage, create task with parentSessionId propagation",
-                "reconcileLoop(string $loopId): void — check completed tasks, create loop_output artifacts, advance state",
+                "reconcileLoop(string $loopId): void — check completed tasks, create loop_output artifacts, recover orphan stages, advance state",
+                "recoverOrphanStage(array $stage): void — clear a running stage's dead task link and bump dispatch_attempts so it re-dispatches (or fails when bound is exceeded)",
                 "createStageArtifact(string $loopId, array $stage, array $task, string $output, array $state): ?string — create loop_output artifact (a file) in work-scope session, stamped with loop/stage created_by",
-                "publishLoopNotification(...): void — route informational vs actionable loop notifications to the user-facing session"
+                "publishLoopNotification(...): void — route informational vs actionable loop notifications (including loop.blocked) to the user-facing session"
             ]
         },
         {
@@ -521,7 +531,7 @@
             "path": "src/Repl/Handler/LoopHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\LoopHandler",
             "layer": "command",
-            "description": "Handles /loops REPL command with subcommands: list (with optional status filter), definitions/defs, status <id>, pause <id|all>, resume <id|all>, stop <id|all>.",
+            "description": "Handles /loops REPL command with subcommands: list (with optional status filter, including blocked), definitions/defs, status <id>, pause <id|all>, resume <id|all>, stop <id|all>. Blocked-aware: the list uses a distinct blocked glyph, and the status view renders the escalation reason with a hint to revive the loop via loop_control(action: \"retry\") or the REST /retry endpoint.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches loop subcommand"
             ]
@@ -723,9 +733,53 @@
             "path": "src/Contract/LoopRoleDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
             "layer": "contract",
-            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, and three loop-hardening flags: gate (stage acts as a hard quality gate judged by StageGateEvaluator), artifact_required (stage must produce a durable artifact or the loop blocks), and memory_required (stage should record a memory pointer — a soft Minor concern otherwise).",
             "methods": [
-                "fromArray(array): self — factory from JSON config"
+                "fromArray(array): self — factory from JSON config (reads gate, artifact_required, memory_required)",
+                "toArray(): array — serialize back to JSON config"
+            ]
+        },
+        {
+            "path": "src/Contract/StageStatus.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\StageStatus",
+            "layer": "contract",
+            "description": "Machine-readable outcome status for a loop stage: Done, DoneWithConcerns, Blocked, NeedsContext. Producer (non-gate) stages self-signal a status with no LLM call — defaulting to Done, optionally emitting Blocked/NeedsContext via a line-leading STATUS: sentinel within the first few output lines.",
+            "methods": [
+                "fromProducerSignal(string $output): self — tolerant self-signal parse of a producer stage's output (STATUS: BLOCKED / STATUS: NEEDS_CONTEXT sentinel), else Done",
+                "halts(): bool — whether this status must halt the loop into escalation (Blocked or NeedsContext)"
+            ]
+        },
+        {
+            "path": "src/Contract/StageSeverity.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\StageSeverity",
+            "layer": "contract",
+            "description": "Severity of a reviewer finding: Critical, Important, Minor. Critical/Important block the gate (force rework); Minor accrues and is surfaced but never blocks.",
+            "methods": [
+                "blocks(): bool — whether a finding of this severity blocks gate approval (Critical or Important)"
+            ]
+        },
+        {
+            "path": "src/Contract/StageFinding.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\StageFinding",
+            "layer": "contract",
+            "description": "Immutable value object for a single reviewer finding within a gate stage verdict: severity (StageSeverity), summary, and optional location.",
+            "methods": [
+                "fromArray(array): self — factory from a decoded verdict finding",
+                "toArray(): array — serialize the finding for persistence"
+            ]
+        },
+        {
+            "path": "src/Contract/StageVerdict.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\StageVerdict",
+            "layer": "contract",
+            "description": "Machine-readable verdict for a completed loop stage. For gate stages, requirementsMet/qualityPass/findings drive approval; for non-gate producer stages those are null and only status matters. Persisted as JSON on loop_stages.verdict.",
+            "methods": [
+                "isApproved(): bool — gate approval: both verdicts true and no blocking (Critical/Important) findings",
+                "hasBlockingFindings(): bool — whether any finding blocks the gate",
+                "toArray(): array — serialize the verdict",
+                "fromArray(array): self — rehydrate a persisted verdict",
+                "gateFromText(string $output): self — keyword fallback for gate stages when no utility model is configured",
+                "producerSelfSignal(string $output, array $findings): self — non-gate producer verdict from a cheap self-signal parse"
             ]
         },
         {
@@ -2311,6 +2365,7 @@
                 "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
                 "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination (excludes archived)",
                 "count(): int — total active memory count",
+                "countBySession(string $sessionId): int — count active memories written within a session (used by the loop memory_required soft check)",
                 "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection, excluding legacy session summaries",
                 "decayAndArchive(): int — scans memories, computes effective score, archives those below threshold",
                 "restoreMemory(string $id): bool — un-archives a memory",
@@ -2881,14 +2936,19 @@
             "path": "src/Storage/LoopStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\LoopStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for loop workflows. Three tables: loops, loop_iterations, loop_stages. Tracks loop lifecycle from running through completion/failure/cancellation with full iteration and stage history.",
+            "description": "SQLite-backed persistence for loop workflows. Three tables: loops, loop_iterations, loop_stages. Tracks loop lifecycle from running through completion/failure/cancellation/blocked with full iteration and stage history. Adds a nullable loop_stages.verdict column (migrateAddColumn) holding each stage's machine-readable StageVerdict JSON; the rest of the loop-hardening state (rework_attempts, escalation, pending_guidance) lives in the loop metadata JSON.",
             "methods": [
                 "createLoop(string, string, array, ...): string — create a new loop record",
                 "getLoop(string): ?array — get loop by ID",
                 "listLoops(?string): array — list loops with optional status filter",
                 "updateLoopStatus(string, string): void — update loop status",
+                "updateLoopMetadata(string $id, array $patch): void — shallow-merge a patch into the loop metadata JSON (rework_attempts, escalation, pending_guidance)",
                 "createIteration(string, int): string — create iteration record",
                 "createStage(string, int, string, string): string — create stage record",
+                "recordStageVerdict(string $stageId, string $verdictJson): void — persist a stage's StageVerdict JSON without touching its status",
+                "clearStageTask(string $stageId): void — clear a stage's stale task link during orphan recovery",
+                "resetStagesForIteration(string $iterationId): void — reset an iteration's stages for a retry",
+                "resetIterationForRetry(string $id): void — reopen an iteration so a blocked/failed loop can retry it",
                 "getCurrentState(string): ?array — get loop with current iteration and stages",
                 "countActive(): int — count running loops",
                 "latestActivityId(string): ?int — max task_events.id across a loop's stage tasks (activity cursor), null when none",
@@ -2927,7 +2987,7 @@
             "path": "src/Api/LoopLiveViewBuilder.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopLiveViewBuilder",
             "layer": "agent",
-            "description": "Pure read-model that assembles a rich, poll-friendly snapshot of an in-flight loop for GET /api/v1/loops/{id}/live. Composes existing store methods (LoopStore::getLoop/listIterations/listStages, SessionStorage::getTask/getTurns/getTaskEvents) over the loop -> stage(task) -> session -> turns chain to produce per-stage model/token rollups, a consumption budget (tokens, iterations, elapsed/remaining time against an injectable now), the current running stage with heartbeat and latest activity, and a newest-first recent-event feed. No schema, storage-query, or loop-execution changes; returns null for an unknown loop.",
+            "description": "Pure read-model that assembles a rich, poll-friendly snapshot of an in-flight loop for GET /api/v1/loops/{id}/live. Composes existing store methods (LoopStore::getLoop/listIterations/listStages, SessionStorage::getTask/getTurns/getTaskEvents) over the loop -> stage(task) -> session -> turns chain to produce per-stage model/token rollups (including each stage's decoded StageVerdict), a consumption budget (tokens, iterations, elapsed/remaining time against an injectable now), the current running stage with heartbeat and latest activity, the loop's blocked escalation record when present, and a newest-first recent-event feed. No schema, storage-query, or loop-execution changes; returns null for an unknown loop.",
             "methods": [
                 "build(string, ?string): ?LoopLiveSnapshot — build the live snapshot for a loop id (optional injected now), null if unknown"
             ]
@@ -2960,7 +3020,7 @@
             "path": "src/Api/Handler/LoopHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
             "layer": "agent",
-            "description": "REST API endpoints for loop CRUD and control, plus full CRUD over loop definition files (GET/POST/PUT/DELETE /loops/definitions[/{name}], with a builtin flag in the list). Endpoints: list, create, definitions, get, history, metrics, live, events, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. The events endpoint is an SSE nudge stream (connected, stage_changed, activity, done) built on SseStream + the pure LoopStreamTracker::diff, mirroring TaskHandler::events' 1s ReactPHP timer; clients refetch /live on each nudge. Self-registers routes via register(Router). Surfaces loop origin: list() enriches each loop with a derived headless boolean and supports a ?headless=true|false filter; normalizeLoop() adds origin ('headless' | 'conversation'), both derived from loop metadata via loopOrigin().",
+            "description": "REST API endpoints for loop CRUD and control, plus full CRUD over loop definition files (GET/POST/PUT/DELETE /loops/definitions[/{name}], with a builtin flag in the list). Endpoints: list, create, definitions, get, history, metrics, live, events, update, delete, pause, resume, stop, skip-stage, iterations, iteration, retry-iteration. Blocked-aware: serializers expose each stage's decoded verdict (normalizeStage) and the loop's escalation record (decodeEscalation on normalizeLoop). The retryIteration endpoint (POST /loops/{id}/iterations/{iterationId}/retry) accepts an optional note, applies only to the latest iteration whose status is failed or needs_rework (the state a blocked loop leaves it in), requires a non-running loop, clears the circuit-breaker (rework_attempts → 0), stores the note as pending_guidance, and returns the loop to running. The events endpoint is an SSE nudge stream (connected, stage_changed, activity, done) built on SseStream + the pure LoopStreamTracker::diff, mirroring TaskHandler::events' 1s ReactPHP timer; clients refetch /live on each nudge. Self-registers routes via register(Router). Surfaces loop origin: list() enriches each loop with a derived headless boolean and supports a ?headless=true|false filter; normalizeLoop() adds origin ('headless' | 'conversation'), both derived from loop metadata via loopOrigin().",
             "methods": [
                 "register(Router): void — register all loop API routes",
                 "live(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/live (rich live snapshot via LoopLiveViewBuilder)",
@@ -2980,7 +3040,7 @@
                 "skipStage(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/skip-stage",
                 "iterations(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/iterations",
                 "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}",
-                "retryIteration(ServerRequestInterface, string, string): Response — POST /api/v1/loops/{id}/iterations/{iterationId}/retry"
+                "retryIteration(ServerRequestInterface, string, string): Response — POST /api/v1/loops/{id}/iterations/{iterationId}/retry (optional note; unblocks a blocked loop by reopening the latest needs_rework/failed iteration)"
             ]
         },
         {
@@ -2997,7 +3057,7 @@
             "path": "src/Toolkit/LoopToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\LoopToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for starting and managing loop workflows. 5 tools: loop_start, loop_list, loop_status, loop_control (pause/resume/stop via action param), loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
+            "description": "Agent-facing tools for starting and managing loop workflows. 5 tools: loop_start, loop_list, loop_status, loop_control (pause/resume/stop/retry via action param), loop_definitions. The retry action reopens the latest iteration of a blocked/paused/cancelled loop, clears the circuit-breaker, and records an optional guidance note as pending_guidance for the next round. Guidelines inject active loop count, running loop details, and available definition names.",
             "methods": [
                 "tools(): array — return all 5 loop tools",
                 "guidelines(): string — dynamic active loop status and definition list"

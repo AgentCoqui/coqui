@@ -83,6 +83,7 @@ final class LoopStore
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_loop_stages_iteration ON loop_stages(iteration_id)');
 
         $this->migrateAddColumn('loop_stages', 'metadata', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('loop_stages', 'verdict', 'TEXT DEFAULT NULL');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -462,6 +463,27 @@ final class LoopStore
     }
 
     /**
+     * Clear a stage's task link so it can be re-dispatched after orphan recovery.
+     *
+     * Uses a direct UPDATE because updateStage() COALESCEs task_id and therefore
+     * cannot null it back out.
+     */
+    public function clearStageTask(string $stageId): void
+    {
+        $stmt = $this->db->prepare('UPDATE loop_stages SET task_id = NULL WHERE id = ?');
+        $stmt->execute([$stageId]);
+    }
+
+    /**
+     * Persist a stage's machine-readable verdict JSON without touching its status.
+     */
+    public function recordStageVerdict(string $stageId, string $verdictJson): void
+    {
+        $stmt = $this->db->prepare('UPDATE loop_stages SET verdict = ? WHERE id = ?');
+        $stmt->execute([$verdictJson, $stageId]);
+    }
+
+    /**
      * Reset all stages for an iteration back to pending.
      */
     public function resetStagesForIteration(string $iterationId): void
@@ -473,6 +495,7 @@ final class LoopStore
                 metadata = NULL,
                 status = 'pending',
                 result_summary = NULL,
+                verdict = NULL,
                 started_at = NULL,
                 completed_at = NULL
             WHERE iteration_id = ?
