@@ -18,8 +18,12 @@ use React\Http\Message\Response;
  */
 final class AuthMiddleware
 {
+    /**
+     * @param ?callable(string): bool $isPublic Returns true for auth-exempt request paths (wired to Router::isPublicPath). Null ⇒ no exemptions.
+     */
     public function __construct(
         private readonly ?string $apiKey = null,
+        private $isPublic = null,
     ) {}
 
     /**
@@ -37,8 +41,8 @@ final class AuthMiddleware
             return $next($request);
         }
 
-        // Skip auth for health endpoint
-        if ($request->getUri()->getPath() === '/api/v1/health') {
+        // Skip auth for routes a mod (or core) registered as public via addPublicRoute
+        if ($this->isPublic !== null && ($this->isPublic)($request->getUri()->getPath())) {
             return $next($request);
         }
 
