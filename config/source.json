@@ -1663,11 +1663,14 @@
             "path": "src/Api/Router.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Router",
             "layer": "config",
-            "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via regex. Provides convenience methods (get, post, put, patch, delete), middleware chain, jsonResponse(), and errorResponse() with ApiErrorCode.",
+            "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via anchored single-segment regex. Routes are authenticated by default; addPublicRoute() registers auth-exempt routes and isPublicPath() is the sole exemption matcher AuthMiddleware defers to. Provides convenience verb methods, middleware chain, jsonResponse(), and errorResponse().",
             "methods": [
-                "addRoute(string $method, string $path, callable $handler): void",
-                "get/post/put/patch/delete(string $path, callable $handler): void — convenience methods",
-                "errorResponse(ApiErrorCode $code, string $message, mixed $details): Response — structured error response",
+                "addRoute(string $method, string $path, callable $handler, bool $requiresAuth = true): void",
+                "addPublicRoute(string $method, string $path, callable $handler): void — register an auth-exempt route (the single greppable marker for public routes)",
+                "isPublicPath(string $path): bool — the only exemption matcher",
+                "publicRoutes(): list<array{method,path}> — public routes for the boot audit log",
+                "get/post/put/patch/delete(string $path, callable $handler): void — authenticated convenience methods",
+                "errorResponse(ApiErrorCode $code, string $message, mixed $details): Response",
                 "dispatch(ServerRequestInterface $request): Response"
             ]
         },
@@ -1706,8 +1709,9 @@
             "path": "src/Api/Middleware/AuthMiddleware.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\AuthMiddleware",
             "layer": "config",
-            "description": "Bearer token API key authentication middleware. Skips auth for OPTIONS and /api/v1/health. Uses hash_equals for timing-safe comparison.",
+            "description": "Bearer token API key authentication middleware. Skips auth for OPTIONS and for any path matched by the injected isPublic closure (Router::isPublicPath) — there is no hardcoded exemption. Uses hash_equals for timing-safe comparison.",
             "methods": [
+                "__construct(?string $apiKey = null, ?callable $isPublic = null)",
                 "__invoke(ServerRequestInterface $request, callable $next): Response"
             ]
         },

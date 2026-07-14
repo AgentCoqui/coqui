@@ -198,3 +198,86 @@ The `coqui-toolkit-images` package registers `/image` via this pattern:
 - The handler receives the built tools from the parent toolkit — no core coupling
 
 See `Toolkits/coqui-toolkit-images/src/Command/ImageCommandHandler.php` for the full implementation.
+
+## API Features
+
+Beyond REPL commands, a mod can contribute HTTP routes to the API server. This uses the same interface-based discovery model as REPL commands, so whole HTTP features can live in optional mods instead of core.
+
+> **"Mod" vs "toolkit":** "mod" is the umbrella category for everything an installed package can contribute (skills, toolkits, and future kinds); a "toolkit" is one kind of mod. This is a vocabulary clarification, not a rename — the discovery mechanism is the same.
+
+### Declaring an API feature
+
+A mod lists its provider class(es) under `extra.php-agents.apiFeatures` in `composer.json`:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "apiFeatures": [
+                "Vendor\\MyMod\\Api\\ExampleFeature"
+            ]
+        }
+    }
+}
+```
+
+At API-server boot, `ApiFeatureDiscovery` scans `vendor/composer/installed.json`, instantiates each declared provider (each must implement `ApiFeatureInterface` and be **no-arg constructable**), and registers it. Registration failures are isolated: each provider's `register()` runs in its own try/catch, so one faulty mod cannot abort API-server boot — the failure is reported and the remaining providers still register.
+
+### Implementing `ApiFeatureInterface`
+
+The contract lives in `CoquiBot\Coqui\Contract\`:
+
+```php
+interface ApiFeatureInterface
+{
+    public function register(Router $router, CoreServices $services): void;
+}
+```
+
+A minimal provider that registers one authenticated route and one public route:
+
+```php
+use CoquiBot\Coqui\Api\CoreServices;
+use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Contract\ApiFeatureInterface;
+use React\Http\Message\Response;
+
+final class ExampleFeature implements ApiFeatureInterface
+{
+    public function register(Router $router, CoreServices $services): void
+    {
+        // Authenticated: inherits the Bearer api.key gate.
+        $router->get('/api/v1/example/items', static fn () => new Response(200, [], '[]'));
+
+        // Public: auth-exempt. YOU must verify the caller (e.g. an HMAC signature).
+        $router->addPublicRoute('POST', '/api/v1/example/incoming/{name}', static function ($request, string $name) {
+            // verify signature over the raw body here before trusting the request
+            return new Response(202);
+        });
+    }
+}
+```
+
+### The `CoreServices` surface
+
+`CoreServices` is a read-only handle to the core collaborators a feature needs. It is deliberately minimal — widen it only when a future feature-mod genuinely requires more:
+
+| Method | Description |
+|---|---|
+| `$services->sessionStorage()` | The shared session store (`SessionStorage`) |
+| `$services->pdo()` | The core SQLite `PDO` handle |
+| `$services->profileDiscovery()` | Profile resolution (`ProfileDiscovery`) |
+| `$services->config()` | Runtime configuration (`OpenClawConfig`) |
+
+### Authenticated vs public routes
+
+- `$router->addRoute(...)` and the verb helpers (`get`, `post`, `put`, `patch`, `delete`) are **authenticated by default**: they inherit the Bearer `api.key` gate enforced by `AuthMiddleware`.
+- `$router->addPublicRoute($method, $path, $handler)` registers an **auth-exempt** route. It is the single greppable marker for unauthenticated routes — searching the codebase for `addPublicRoute` enumerates every route that bypasses the API key.
+
+### Securing a public route
+
+> **Security warning.** Registering a route as public lifts **only** the API-key gate. The rate-limit, CORS, size, and content-type middleware still apply, but the API key is no longer checked — so **you must secure your own public route**. Verify a signature, HMAC, or shared secret yourself over the raw request body before trusting the request. This is exactly how a webhook receiver authenticates: by signature, not by the API key.
+
+### Dependency
+
+Add `coquibot/coqui` to your mod's `composer.json` `require` section for the `ApiFeatureInterface`, `Router`, and `CoreServices` types, the same way REPL command providers depend on it.
