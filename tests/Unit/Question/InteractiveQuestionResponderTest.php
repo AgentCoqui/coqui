@@ -68,6 +68,85 @@ test('single-select returns the chosen option and persists the answer', function
     expect($storage->getQuestion('q1')['status'])->toBe('answered');
 });
 
+test('multi-select returns the picked options and persists the answer', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Symfony Console accepts comma-separated labels (or indices) for
+    // choice(..., multiSelect: true). "red,blue" picks red and blue.
+    [$io] = scriptedIo("red,blue\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qm',
+        prompt: 'Which colours?',
+        format: QuestionFormat::MultiSelect,
+        options: [new QuestionOption('red'), new QuestionOption('green'), new QuestionOption('blue')],
+        allowOther: false,
+        suggested: new QuestionResponse([]),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->selected)->toEqualCanonicalizing(['red', 'blue']);
+    expect($answer->text)->toBeNull();
+    expect($answer->isValidFor($request))->toBeTrue();
+    expect($storage->getQuestion('qm')['status'])->toBe('answered');
+});
+
+test('single-select Other path returns typed free text', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Choices are [apple, pear, Other…]; index 2 selects the Other… entry,
+    // then the typed line becomes the free-text answer.
+    [$io] = scriptedIo("2\nmy own answer\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qo',
+        prompt: 'Which fruit?',
+        format: QuestionFormat::SingleSelect,
+        options: [new QuestionOption('apple'), new QuestionOption('pear')],
+        allowOther: true,
+        suggested: new QuestionResponse(['apple']),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->selected)->toBe([]);
+    expect($answer->text)->toBe('my own answer');
+    expect($answer->isValidFor($request))->toBeTrue();
+});
+
+test('single-select defaults to Other when the suggestion is an Other answer', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Empty keystroke accepts the offered default. If the default is the Other…
+    // entry (as the brief requires for an Other-style suggestion), the responder
+    // follows the Other path and prompts for free text, which we then supply.
+    [$io] = scriptedIo("\ncustom-typed\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qd',
+        prompt: 'Which fruit?',
+        format: QuestionFormat::SingleSelect,
+        options: [new QuestionOption('apple'), new QuestionOption('pear')],
+        allowOther: true,
+        suggested: new QuestionResponse([], 'custom'),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    // Following the Other path proves the offered default was the Other… entry;
+    // an option default would have returned selected=[apple] with no text.
+    expect($answer->selected)->toBe([]);
+    expect($answer->text)->toBe('custom-typed');
+    expect($answer->isValidFor($request))->toBeTrue();
+});
+
 test('free-text returns typed text', function () {
     $storage = new SessionStorage(':memory:');
     $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');

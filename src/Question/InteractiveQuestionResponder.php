@@ -72,10 +72,7 @@ final class InteractiveQuestionResponder implements QuestionResponderInterface
             $choices[] = self::OTHER_LABEL;
         }
 
-        $suggested = $question->suggested->selected[0] ?? null;
-        $default = $suggested !== null && in_array($suggested, $choices, true)
-            ? $suggested
-            : $choices[0];
+        $default = $question->suggested->selected[0] ?? ($question->allowOther ? self::OTHER_LABEL : $labels[0]);
 
         $chosen = (string) $this->io->choice($question->prompt, $choices, $default);
         if ($chosen === self::OTHER_LABEL) {
