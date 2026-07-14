@@ -372,6 +372,16 @@ final class ApiCommand extends Command
             },
         );
 
+        // Boot-time audit: surface exactly which routes are exposed without an
+        // API key, so an operator can see the public surface (core + mods) at a glance.
+        foreach ($router->publicRoutes() as $publicRoute) {
+            $output->writeln(sprintf(
+                '<info>Public API route (no auth):</info> %s %s',
+                $publicRoute['method'],
+                $publicRoute['path'],
+            ));
+        }
+
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
         $cors = new CorsMiddleware($corsOrigins);
@@ -389,7 +399,10 @@ final class ApiCommand extends Command
         ];
 
         if ($apiKey !== null) {
-            $middlewareStack[] = new AuthMiddleware($apiKey);
+            $middlewareStack[] = new AuthMiddleware(
+                $apiKey,
+                static fn (string $path): bool => $router->isPublicPath($path),
+            );
         }
 
         foreach ($middlewareStack as $mw) {
@@ -562,8 +575,8 @@ final class ApiCommand extends Command
     ): void {
         $v1 = '/api/v1';
 
-        // Health
-        $router->get($v1 . '/health', $health);
+        // Health (public — no API key required so liveness probes work unauthenticated)
+        $router->addPublicRoute('GET', $v1 . '/health', $health);
 
         // Sessions
         $router->get($v1 . '/sessions', [$session, 'list']);
