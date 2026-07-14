@@ -15,7 +15,6 @@
 - **No `CoreServices` widening** — it stays minimal.
 - **No rate-limit exemption for mods.** Public routes remain rate-limited. The mechanism lifts *only* the API-key requirement. Do **not** touch `RateLimitMiddleware::EXEMPT_PATHS` (its separate `/api/v1/health` entry stays).
 - **No change to the auth scheme** — still `Authorization: Bearer <api.key>`.
-- Every existing `addRoute()` / verb-helper call must stay unchanged (new param defaults to `requiresAuth: true`).
 - Do **not** commit `config/documentation.json` (generated + untracked).
 - Validation gates: `composer test` fully green; `composer analyse` (PHPStan, `--memory-limit=512M`) zero errors.
 

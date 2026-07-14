@@ -276,7 +276,7 @@ final class ExampleFeature implements ApiFeatureInterface
 
 ### Securing a public route
 
-> **Security warning.** Registering a route as public lifts **only** the API-key gate. The rate-limit, CORS, size, and content-type middleware still apply, but the API key is no longer checked — so **you must secure your own public route**. Verify a signature, HMAC, or shared secret yourself over the raw request body before trusting the request. This is exactly how a webhook receiver authenticates: by signature, not by the API key.
+> **Security warning.** Registering a route as public lifts **only** the API-key gate. The rate-limit, CORS, size, and content-type middleware still apply, but the API key is no longer checked — so **you must secure your own public route**. Verify a signature, HMAC, or shared secret yourself over the raw request body before trusting the request. This is exactly how a webhook receiver authenticates: by signature, not by the API key. Note the exemption is **path-scoped, not method-scoped**: it lifts the API key for *all* HTTP methods on the matching path pattern, so if you register a public `POST /…/{name}` and also serve a `GET` on the same path pattern, the `GET` is unauthenticated too — scope your public paths accordingly.
 
 ### Dependency
 

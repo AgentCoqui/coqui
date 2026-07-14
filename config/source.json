@@ -1665,7 +1665,7 @@
             "layer": "config",
             "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via anchored single-segment regex. Routes are authenticated by default; addPublicRoute() registers auth-exempt routes and isPublicPath() is the sole exemption matcher AuthMiddleware defers to. Provides convenience verb methods, middleware chain, jsonResponse(), and errorResponse().",
             "methods": [
-                "addRoute(string $method, string $path, callable $handler, bool $requiresAuth = true): void",
+                "addRoute(string $method, string $path, callable $handler): void",
                 "addPublicRoute(string $method, string $path, callable $handler): void — register an auth-exempt route (the single greppable marker for public routes)",
                 "isPublicPath(string $path): bool — the only exemption matcher",
                 "publicRoutes(): list<array{method,path}> — public routes for the boot audit log",

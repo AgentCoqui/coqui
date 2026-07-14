@@ -42,8 +42,8 @@ Two secondary gaps: the auth-inheritance guarantee (mod routes are authenticated
 
 ### Component 1 — `Router` (`src/Api/Router.php`)
 
-- `addRoute()` gains a trailing `bool $requiresAuth = true`. **Every existing core call is unchanged** (default `true`). The route entry records `requiresAuth`.
-- **New `addPublicRoute(string $method, string $path, callable $handler): void`** — the single explicit entry point for an auth-exempt route. Internally calls `addRoute(..., requiresAuth: false)` and records the route's compiled `{param}`→regex in a public-patterns list.
+- `addRoute()` is **unchanged** (3-arg signature). Public status is tracked separately: `addPublicRoute()` populates a public-patterns list, so there is no `requiresAuth` flag on route entries.
+- **New `addPublicRoute(string $method, string $path, callable $handler): void`** — the single explicit entry point for an auth-exempt route. Internally calls `addRoute()` and records the route's compiled `{param}`→regex in a public-patterns list.
 - **New `isPublicPath(string $path): bool`** — matches a request path against the registered public patterns. This is the *only* path-matching implementation used for exemptions (the middleware does not re-implement regex matching).
 
 The verb helpers (`get`/`post`/`put`/`delete`/`patch`) stay authenticated-only (unchanged signatures) — keeping core's ~22 registrations untouched and making `addPublicRoute` stand out in review.
@@ -73,7 +73,6 @@ No ordering change: core + mod routes already register *before* the middleware s
 
 | Change | Location |
 |--------|----------|
-| `addRoute()` + `bool $requiresAuth = true`; record flag | `src/Api/Router.php` |
 | New `addPublicRoute()` + public-patterns list | `src/Api/Router.php` |
 | New `isPublicPath(string $path): bool` | `src/Api/Router.php` |
 | `?callable $isPublic` ctor param; drop hardcoded health exemption | `src/Api/Middleware/AuthMiddleware.php` |
@@ -88,7 +87,7 @@ No ordering change: core + mod routes already register *before* the middleware s
 - **Public route still rate-limited:** exceeding the limit on a public route → `429`.
 - **Matching precision:** `addPublicRoute('POST', '/api/v1/webhooks/incoming/{name}', ...)` → `isPublicPath` matches `/api/v1/webhooks/incoming/gh`, and does **not** match a sibling like `/api/v1/webhooks` or `/api/v1/webhooks/incoming/gh/extra`.
 - **Health via mechanism:** `/api/v1/health` still exempt, now through `addPublicRoute` rather than the removed hardcoded string.
-- **`Router` units:** `addPublicRoute` registers a dispatchable route; `requiresAuth` default is `true`; `isPublicPath` returns `false` for unregistered paths.
+- **`Router` units:** `addPublicRoute` registers a dispatchable route; `isPublicPath` returns `false` for unregistered paths.
 - **Back-compat:** existing core routes and existing mod features are unaffected; no `api.key` still means local-open mode.
 
 ## Part 2 — webhooks adoption (integration proof, separate repo)

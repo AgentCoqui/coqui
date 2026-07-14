@@ -17,7 +17,7 @@ use React\Http\Message\Response;
  */
 final class Router
 {
-    /** @var array<string, array{pattern: string, handler: callable, regex: string, params: string[], requiresAuth: bool}> */
+    /** @var array<string, array{pattern: string, handler: callable, regex: string, params: string[]}> */
     private array $routes = [];
 
     /** @var list<string> Compiled regexes for routes registered as public (auth-exempt). */
@@ -37,9 +37,8 @@ final class Router
      * Register a route handler.
      *
      * @param callable(ServerRequestInterface, array<string, string>): Response $handler
-     * @param bool $requiresAuth When false, the route is exempt from AuthMiddleware. Prefer addPublicRoute() to set this.
      */
-    public function addRoute(string $method, string $path, callable $handler, bool $requiresAuth = true): void
+    public function addRoute(string $method, string $path, callable $handler): void
     {
         $compiled = $this->compilePattern($path);
 
@@ -49,7 +48,6 @@ final class Router
             'handler' => $handler,
             'regex' => $compiled['regex'],
             'params' => $compiled['params'],
-            'requiresAuth' => $requiresAuth,
         ];
     }
 
@@ -66,7 +64,7 @@ final class Router
      */
     public function addPublicRoute(string $method, string $path, callable $handler): void
     {
-        $this->addRoute($method, $path, $handler, requiresAuth: false);
+        $this->addRoute($method, $path, $handler);
 
         $this->publicPatterns[] = $this->compilePattern($path)['regex'];
         $this->publicRoutes[] = ['method' => strtoupper($method), 'path' => $path];
