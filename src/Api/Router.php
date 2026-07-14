@@ -20,6 +20,16 @@ final class Router
     /** @var array<string, array{pattern: string, handler: callable, regex: string, params: string[]}> */
     private array $routes = [];
 
+    /** @var list<string> Compiled regexes for routes registered as public (auth-exempt). */
+    private array $publicPatterns = [];
+
+    /**
+     * @var list<array{method: string, path: string}> Public routes, for the boot-time audit log.
+     *
+     * Populated by addPublicRoute() and read back via publicRoutes() for the boot audit.
+     */
+    private array $publicRoutes = [];
+
     /** @var callable[] */
     private array $middleware = [];
 
@@ -30,19 +40,74 @@ final class Router
      */
     public function addRoute(string $method, string $path, callable $handler): void
     {
+        $compiled = $this->compilePattern($path);
+
+        $key = strtoupper($method) . ':' . $path;
+        $this->routes[$key] = [
+            'pattern' => $path,
+            'handler' => $handler,
+            'regex' => $compiled['regex'],
+            'params' => $compiled['params'],
+        ];
+    }
+
+    /**
+     * Register a PUBLIC (auth-exempt) route.
+     *
+     * This is the single, greppable entry point for an unauthenticated route:
+     * search the codebase for `addPublicRoute` to enumerate every route that
+     * bypasses the API key. The route still passes through rate-limit, CORS,
+     * size, and content-type middleware — only the API-key check is lifted, and
+     * securing it (signature/HMAC/etc.) is the registrant's responsibility.
+     *
+     * @param callable(ServerRequestInterface, array<string, string>): Response $handler
+     */
+    public function addPublicRoute(string $method, string $path, callable $handler): void
+    {
+        $this->addRoute($method, $path, $handler);
+
+        $this->publicPatterns[] = $this->compilePattern($path)['regex'];
+        $this->publicRoutes[] = ['method' => strtoupper($method), 'path' => $path];
+    }
+
+    /**
+     * Compile a {param} path pattern into an anchored, single-segment regex.
+     *
+     * @return array{regex: string, params: string[]}
+     */
+    private function compilePattern(string $path): array
+    {
         $params = [];
         $regex = preg_replace_callback('/\{(\w+)\}/', static function (array $matches) use (&$params): string {
             $params[] = $matches[1];
             return '([^/]+)';
         }, $path);
 
-        $key = strtoupper($method) . ':' . $path;
-        $this->routes[$key] = [
-            'pattern' => $path,
-            'handler' => $handler,
-            'regex' => '#^' . $regex . '$#',
-            'params' => $params,
-        ];
+        return ['regex' => '#^' . $regex . '$#', 'params' => $params];
+    }
+
+    /**
+     * Determine whether a request path matches a route registered as public.
+     */
+    public function isPublicPath(string $path): bool
+    {
+        foreach ($this->publicPatterns as $pattern) {
+            if (preg_match($pattern, $path) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The registered public routes (method + path pattern), for the boot audit log.
+     *
+     * @return list<array{method: string, path: string}>
+     */
+    public function publicRoutes(): array
+    {
+        return $this->publicRoutes;
     }
 
     /**

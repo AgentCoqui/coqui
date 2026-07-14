@@ -6,6 +6,8 @@ The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities
 
 The API is built on ReactPHP and runs as a long-lived PHP process. It shares the same core engine as the terminal REPL but without any terminal I/O dependency.
 
+> **Extending the API from a mod?** This document covers *consuming* the API. To *add* your own routes — authenticated or public — from an installed mod, see the [API features](TOOLKIT-EXTENSIBILITY.md#api-features) section of the toolkit extensibility guide.
+
 ## Changelog
 
 - Session objects no longer include `channel`/`channel_bound`; `session_origin` is never `channel`.
