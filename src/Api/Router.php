@@ -26,9 +26,7 @@ final class Router
     /**
      * @var list<array{method: string, path: string}> Public routes, for the boot-time audit log.
      *
-     * Populated by addPublicRoute() and read back for the boot audit in Task 2; declared here so
-     * that method does not re-introduce it. Remove this ignore once a reader lands.
-     * @phpstan-ignore property.onlyWritten
+     * Populated by addPublicRoute() and read back via publicRoutes() for the boot audit.
      */
     private array $publicRoutes = [];
 
@@ -53,6 +51,25 @@ final class Router
             'params' => $compiled['params'],
             'requiresAuth' => $requiresAuth,
         ];
+    }
+
+    /**
+     * Register a PUBLIC (auth-exempt) route.
+     *
+     * This is the single, greppable entry point for an unauthenticated route:
+     * search the codebase for `addPublicRoute` to enumerate every route that
+     * bypasses the API key. The route still passes through rate-limit, CORS,
+     * size, and content-type middleware — only the API-key check is lifted, and
+     * securing it (signature/HMAC/etc.) is the registrant's responsibility.
+     *
+     * @param callable(ServerRequestInterface, array<string, string>): Response $handler
+     */
+    public function addPublicRoute(string $method, string $path, callable $handler): void
+    {
+        $this->addRoute($method, $path, $handler, requiresAuth: false);
+
+        $this->publicPatterns[] = $this->compilePattern($path)['regex'];
+        $this->publicRoutes[] = ['method' => strtoupper($method), 'path' => $path];
     }
 
     /**
@@ -83,6 +100,16 @@ final class Router
         }
 
         return false;
+    }
+
+    /**
+     * The registered public routes (method + path pattern), for the boot audit log.
+     *
+     * @return list<array{method: string, path: string}>
+     */
+    public function publicRoutes(): array
+    {
+        return $this->publicRoutes;
     }
 
     /**
