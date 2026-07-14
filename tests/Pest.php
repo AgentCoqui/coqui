@@ -544,3 +544,24 @@ function createNonBlockingStreamPair(): array
 
 	return [$reader, $writer];
 }
+
+/**
+ * Shared factory: a simple single-select QuestionRequest used across the
+ * structured-questions test suite (storage, persistence, responders,
+ * handler, and loop-flow tests). Lives here so focused runs of any single
+ * test file resolve it without loading a sibling test file.
+ */
+function sampleRequest(string $id = 'q1'): \CoquiBot\Coqui\Contract\QuestionRequest
+{
+    return new \CoquiBot\Coqui\Contract\QuestionRequest(
+        id: $id,
+        prompt: 'Which fruit?',
+        format: \CoquiBot\Coqui\Contract\QuestionFormat::SingleSelect,
+        options: [
+            new \CoquiBot\Coqui\Contract\QuestionOption('apple'),
+            new \CoquiBot\Coqui\Contract\QuestionOption('pear'),
+        ],
+        allowOther: false,
+        suggested: new \CoquiBot\Coqui\Contract\QuestionResponse(['apple']),
+    );
+}

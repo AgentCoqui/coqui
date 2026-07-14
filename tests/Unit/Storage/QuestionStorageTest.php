@@ -2,27 +2,15 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Contract\QuestionFormat;
-use CoquiBot\Coqui\Contract\QuestionOption;
-use CoquiBot\Coqui\Contract\QuestionRequest;
 use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Storage\SessionStorage;
+
+// sampleRequest() is a shared factory defined in tests/Pest.php so every
+// structured-questions test file resolves it, including focused single-file runs.
 
 function questionStorage(): SessionStorage
 {
     return new SessionStorage(':memory:');
-}
-
-function sampleRequest(string $id = 'q1'): QuestionRequest
-{
-    return new QuestionRequest(
-        id: $id,
-        prompt: 'Which fruit?',
-        format: QuestionFormat::SingleSelect,
-        options: [new QuestionOption('apple'), new QuestionOption('pear')],
-        allowOther: false,
-        suggested: new QuestionResponse(['apple']),
-    );
 }
 
 test('createQuestion then getQuestion returns a pending row', function () {
