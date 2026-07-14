@@ -36,6 +36,8 @@
 
 ## Task 1: Router — `requiresAuth` flag + shared `compilePattern()` helper
 
+> **Superseded (post-implementation):** the whole-branch review found the `requiresAuth` flag was never read — the exemption runs solely off `$publicPatterns`. It was removed in commit `1ae78aa`: `addRoute` stays 3-arg, and public status is tracked only via `$publicPatterns` (populated by `addPublicRoute`). The Task 1 narrative below records the flag as originally executed; the design doc reflects the shipped 3-arg reality.
+
 **Files:**
 - Modify: `src/Api/Router.php:20-46` (routes array shape, `addRoute`)
 - Test: `tests/Unit/Api/RouterTest.php` (create)
