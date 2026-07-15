@@ -37,6 +37,7 @@ use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
+use CoquiBot\Coqui\Contract\QuestionResponderInterface;
 use CoquiBot\Coqui\Mcp\McpRuntime;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
@@ -142,8 +143,9 @@ final class AgentRunner
         ?string $role = null,
         ?string $profile = null,
         ?string $turnProcessId = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile, turnProcessId: $turnProcessId);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile, turnProcessId: $turnProcessId, questionResponder: $questionResponder);
     }
 
     /**
@@ -164,6 +166,7 @@ final class AgentRunner
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
         ?string $profile = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -177,6 +180,7 @@ final class AgentRunner
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
             profile: $profile,
+            questionResponder: $questionResponder,
         );
     }
 
@@ -192,8 +196,9 @@ final class AgentRunner
         ?CancellationTokenInterface $cancellationToken = null,
         ?string $role = null,
         ?string $profile = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role, profile: $profile);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role, profile: $profile, questionResponder: $questionResponder);
     }
 
     /**
@@ -215,6 +220,7 @@ final class AgentRunner
         ?string $profile = null,
         ?string $actorName = null,
         ?string $actorRole = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         return $this->executeSegment(
             prompt: $prompt,
@@ -227,6 +233,7 @@ final class AgentRunner
             turnId: $turnId,
             actorName: $actorName ?? $profile,
             actorRole: $actorRole ?? ($role ?? 'orchestrator'),
+            questionResponder: $questionResponder,
         );
     }
 
@@ -249,6 +256,7 @@ final class AgentRunner
         ?string $defaultProjectId = null,
         ?string $profile = null,
         ?string $turnProcessId = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -308,6 +316,7 @@ final class AgentRunner
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
+            questionResponder: $questionResponder,
         );
 
         if ($observer !== null) {
@@ -638,6 +647,7 @@ final class AgentRunner
         ?Conversation $history = null,
         ?string $actorName = null,
         ?string $actorRole = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         $history ??= $this->storage->loadConversation($sessionId);
         $effectiveRole = $role ?? 'orchestrator';
@@ -672,6 +682,7 @@ final class AgentRunner
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
+            questionResponder: $questionResponder,
         );
 
         if ($observer !== null) {
@@ -916,6 +927,7 @@ final class AgentRunner
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
         ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
+        ?QuestionResponderInterface $questionResponder = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role, $activeProfile);
         $httpClient = $this->httpClient;
@@ -959,6 +971,7 @@ final class AgentRunner
                 discovery: $this->discovery,
                 maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activeProfile),
                 executionPolicy: $executionPolicy,
+                questionResponder: $questionResponder,
                 onRestart: $onRestart,
                 credentialResolver: $this->credentialResolver,
                 cancellationToken: $cancellationToken,

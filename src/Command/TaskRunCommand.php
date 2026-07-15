@@ -167,6 +167,39 @@ final class TaskRunCommand extends Command
             sessionId: $sessionId,
         );
 
+        // Resolve the structured-question policy for this task. Loop stages carry
+        // loop/stage identifiers in the task's handoff metadata; the loop's
+        // `on_question` mode lives in its stored configuration snapshot. Plain
+        // background tasks (no loop context) default to `block`.
+        $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::Block;
+        $loopId = null;
+        $stageId = null;
+        $meta = is_string($task['metadata'] ?? null) ? json_decode($task['metadata'], true) : null;
+        if (is_array($meta) && isset($meta['loop_id'])) {
+            $loopId = (string) $meta['loop_id'];
+            $stageId = isset($meta['stage_id']) ? (string) $meta['stage_id'] : null;
+            $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo());
+            $loopRow = $loopStore->getLoop($loopId);
+            $config = is_array($loopRow) && is_string($loopRow['configuration'] ?? null)
+                ? json_decode($loopRow['configuration'], true)
+                : null;
+            $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::fromString(
+                is_array($config) && isset($config['on_question']) && is_string($config['on_question'])
+                    ? $config['on_question']
+                    : null,
+            );
+        }
+        $questionResponder = new \CoquiBot\Coqui\Question\PolicyQuestionResponder(
+            $onQuestion,
+            new \CoquiBot\Coqui\Question\QuestionPersistence($storage),
+            $sessionId,
+            // TODO(task 9): wire LoopQuestionBlockNotifier for block-mode escalation
+            loopBlock: null,
+            turnId: null,
+            loopId: $loopId,
+            stageId: $stageId,
+        );
+
         try {
             // Dispatch SIGTERM between iterations
             if (function_exists('pcntl_async_signals')) {
@@ -185,6 +218,7 @@ final class TaskRunCommand extends Command
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $taskProjectId,
                 profile: $taskProfile,
+                questionResponder: $questionResponder,
             );
 
             if ($cancellationToken->isCancelled()) {

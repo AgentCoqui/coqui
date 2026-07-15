@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\QuestionResponderInterface;
 use CoquiBot\Coqui\Mcp\McpRuntime;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
@@ -55,6 +56,7 @@ final readonly class OrchestratorDependencies
         public ?ToolkitDiscovery $discovery = null,
         public int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
         public ?ToolExecutionPolicyInterface $executionPolicy = null,
+        public ?QuestionResponderInterface $questionResponder = null,
         public ?\Closure $onRestart = null,
         public ?CredentialResolverInterface $credentialResolver = null,
         public ?CancellationTokenInterface $cancellationToken = null,
