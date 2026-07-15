@@ -57,7 +57,7 @@ final class WebToolkit implements ToolkitInterface
             ? "\n        - Use web_search for information discovery."
             : '';
         $downloadLine = $this->storage !== null && $this->parentSessionId !== null
-            ? "\n        - Use http_download to queue file downloads into the workspace downloads directory, then monitor them with task_status."
+            ? "\n        - Use http_download to queue file downloads into the workspace downloads directory."
             : "\n        - Use http_download to save files into the workspace downloads directory.";
 
         return <<<GUIDELINES
@@ -324,7 +324,7 @@ final class WebToolkit implements ToolkitInterface
             'status' => 'pending',
             'download_dir' => $this->downloadsDirectoryPath(),
             'requested_filename' => $request['filename'] ?? null,
-            'message' => 'Background download queued. Use task_status to monitor progress.',
+            'message' => 'Background download queued.',
         ]);
     }
 
