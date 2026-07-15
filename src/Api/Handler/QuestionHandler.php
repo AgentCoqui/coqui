@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\QuestionAnswerReopener;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
@@ -62,21 +63,21 @@ final class QuestionHandler
 
         $record = $this->persistence->find($questionId);
         if ($record === null || $record->sessionId !== $id) {
-            return Router::jsonResponse(['error' => 'Question not found'], 404);
+            return Router::errorResponse(ApiErrorCode::QUESTION_NOT_FOUND, 'Question not found');
         }
         if ($record->status !== 'pending') {
-            return Router::jsonResponse(['error' => 'Question already answered'], 409);
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Question already answered');
         }
 
         $body = $this->decodeJsonObjectOrNull($request) ?? [];
         $answer = QuestionResponse::fromArray($body);
 
         if (!$answer->isValidFor($record->request)) {
-            return Router::jsonResponse(['error' => 'Answer is not valid for this question'], 422);
+            return Router::errorResponse(ApiErrorCode::QUESTION_INVALID_ANSWER, 'Answer is not valid for this question');
         }
 
         if (!$this->persistence->persistAnswered($questionId, $id, $record->request, $answer)) {
-            return Router::jsonResponse(['error' => 'Question could not be answered'], 409);
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Question could not be answered');
         }
 
         if ($record->loopId !== null && $this->reopener !== null) {

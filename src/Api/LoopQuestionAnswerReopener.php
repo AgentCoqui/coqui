@@ -47,6 +47,13 @@ final class LoopQuestionAnswerReopener implements QuestionAnswerReopener
                 'answer' => $answer->toArray(),
                 'at' => Clock::nowUtc(),
             ],
+            'dispatch' => [
+                'status' => 'pending',
+                'message' => 'Operator answer reopened the loop. The loop manager will dispatch stage 0 on the next tick.',
+                'iteration_id' => $iterationId,
+                'stage_index' => 0,
+                'updated_at' => Clock::nowUtc(),
+            ],
         ]);
 
         // Reopen the iteration — the #3 retry sequence (LoopHandler::retryIteration).

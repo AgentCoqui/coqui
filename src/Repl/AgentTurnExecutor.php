@@ -111,7 +111,7 @@ final class AgentTurnExecutor
             $groupEnabled = $sessionType === SessionType::Group;
 
             if ($groupEnabled && is_array($session)) {
-                $result = $this->executeGroupTurn($prompt, $sessionId, $session, $executionPolicy);
+                $result = $this->executeGroupTurn($prompt, $sessionId, $session, $executionPolicy, $io);
             } else {
                 // Synchronous REPL responder: renders `ask_user` questions inline
                 // on the TTY. turnId is null here — the turns row is created inside
@@ -185,6 +185,7 @@ final class AgentTurnExecutor
         string $sessionId,
         array $session,
         ToolExecutionPolicyInterface $executionPolicy,
+        SymfonyStyle $io,
     ): ContractAgentTurnResult {
         $members = $this->storage->listSessionGroupMemberNames($sessionId);
         $sessionRole = is_string($session['model_role'] ?? null) && $session['model_role'] !== ''
@@ -213,6 +214,7 @@ final class AgentTurnExecutor
                 $sessionId,
                 $role,
                 $sessionRole,
+                $io,
             ): ContractAgentTurnResult {
                 $this->escObserver->setActorContext($actorName, $role ?? $sessionRole);
 
@@ -227,6 +229,11 @@ final class AgentTurnExecutor
                     profile: $actorName,
                     actorName: $actorName,
                     actorRole: $role ?? $sessionRole,
+                    questionResponder: new InteractiveQuestionResponder(
+                        $io,
+                        new QuestionPersistence($this->storage),
+                        $sessionId,
+                    ),
                 );
             },
             notifyLifecycleEvent: fn(string $event, array $data) => $this->dispatchGroupLifecycleEvent($event, $data),

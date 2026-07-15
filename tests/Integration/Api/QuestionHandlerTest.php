@@ -76,7 +76,10 @@ test('POST answer with an invalid answer returns 422 and stays pending', functio
         'q1',
     );
 
+    $body = json_decode((string) $response->getBody(), true);
     expect($response->getStatusCode())->toBe(422);
+    expect($body)->toHaveKey('code');
+    expect($body['code'])->toBe('question_invalid_answer');
     expect($storage->getQuestion('q1')['status'])->toBe('pending');
 });
 
@@ -90,7 +93,10 @@ test('POST answer to an already-answered question returns 409', function () {
 
     $second = $handler->answer(questionJsonRequest('POST', '/', ['selected' => ['apple']]), $sessionId, 'q1');
 
+    $body = json_decode((string) $second->getBody(), true);
     expect($second->getStatusCode())->toBe(409);
+    expect($body)->toHaveKey('code');
+    expect($body['code'])->toBe('conflict');
 });
 
 test('POST answer to an unknown question returns 404', function () {
@@ -105,7 +111,10 @@ test('POST answer to an unknown question returns 404', function () {
         'does-not-exist',
     );
 
+    $body = json_decode((string) $response->getBody(), true);
     expect($response->getStatusCode())->toBe(404);
+    expect($body)->toHaveKey('code');
+    expect($body['code'])->toBe('question_not_found');
 });
 
 test('POST answer for a question belonging to another session returns 404', function () {
@@ -122,7 +131,10 @@ test('POST answer for a question belonging to another session returns 404', func
         'q1',
     );
 
+    $body = json_decode((string) $response->getBody(), true);
     expect($response->getStatusCode())->toBe(404);
+    expect($body)->toHaveKey('code');
+    expect($body['code'])->toBe('question_not_found');
     expect($storage->getQuestion('q1')['status'])->toBe('pending');
 });
 

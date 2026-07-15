@@ -182,9 +182,11 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `turn_not_found` | 404 | Turn does not exist |
 | `role_not_found` | 404 | Role does not exist |
 | `credential_not_found` | 404 | Credential does not exist |
+| `question_not_found` | 404 | Question does not exist in this session |
 | `validation_error` | 400 | Invalid input data |
 | `missing_field` | 400 | Required field not provided |
 | `invalid_format` | 400 | Field value has wrong format |
+| `question_invalid_answer` | 422 | Answer is not valid for this question |
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
 | `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
@@ -3016,11 +3018,11 @@ Answering a `block`-mode loop question reopens the blocked loop stage (the escal
 
 **Error responses**
 
-| Status | Meaning |
-|--------|---------|
-| `404` | Question not found in this session. |
-| `409` | Question already answered (no longer pending). |
-| `422` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
+| Status | Code | Meaning |
+|--------|------|---------|
+| `404` | `question_not_found` | Question not found in this session. |
+| `409` | `conflict` | Question already answered (no longer pending). |
+| `422` | `question_invalid_answer` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
 
 ### Schedules
 
