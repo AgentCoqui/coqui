@@ -565,3 +565,25 @@ function sampleRequest(string $id = 'q1'): \CoquiBot\Coqui\Contract\QuestionRequ
         suggested: new \CoquiBot\Coqui\Contract\QuestionResponse(['apple']),
     );
 }
+
+/**
+ * Bootstrap a minimal running loop (one iteration + one pending stage) for
+ * loop-integration tests. Mirrors the createLoop/createIteration/createStage
+ * idiom used by the existing loop test suite (e.g. LoopToolkitRetryTest).
+ */
+function bootstrapRunningLoop(\CoquiBot\Coqui\Storage\LoopStore $loopStore): string
+{
+    $config = [
+        'name' => 'x',
+        'roles' => [['role' => 'coder', 'prompt' => 'do']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => ['max_iterations' => 3]],
+    ];
+    $loopId = $loopStore->createLoop('x', 'goal', $config, maxIterations: 3);
+    $iterId = $loopStore->createIteration($loopId, 1);
+    $loopStore->updateIterationStatus($iterId, 'running');
+    $loopStore->createStage($iterId, 0, 'coder');
+    $loopStore->updateLoopStatus($loopId, 'running');
+    $loopStore->updateLoopProgress($loopId, 1, 0);
+
+    return $loopId;
+}

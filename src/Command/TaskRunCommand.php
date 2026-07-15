@@ -174,6 +174,7 @@ final class TaskRunCommand extends Command
         $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::Block;
         $loopId = null;
         $stageId = null;
+        $loopBlock = null;
         $meta = is_string($task['metadata'] ?? null) ? json_decode($task['metadata'], true) : null;
         if (is_array($meta) && isset($meta['loop_id'])) {
             $loopId = (string) $meta['loop_id'];
@@ -188,13 +189,15 @@ final class TaskRunCommand extends Command
                     ? $config['on_question']
                     : null,
             );
+            // Block-mode ask_user escalates the loop to `blocked`; the operator
+            // answers over REST, which reopens the iteration (Task 9).
+            $loopBlock = new \CoquiBot\Coqui\Question\LoopQuestionBlockNotifier($loopStore);
         }
         $questionResponder = new \CoquiBot\Coqui\Question\PolicyQuestionResponder(
             $onQuestion,
             new \CoquiBot\Coqui\Question\QuestionPersistence($storage),
             $sessionId,
-            // TODO(task 9): wire LoopQuestionBlockNotifier for block-mode escalation
-            loopBlock: null,
+            loopBlock: $loopBlock,
             turnId: null,
             loopId: $loopId,
             stageId: $stageId,

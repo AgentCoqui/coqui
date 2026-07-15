@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
+use CoquiBot\Coqui\Contract\OnQuestionPolicy;
 use CoquiBot\Coqui\Contract\TerminationCondition;
 use CoquiBot\Coqui\Contract\TerminationType;
 
@@ -335,6 +336,27 @@ test('resolveParameters returns empty for no-parameter definitions', function ()
     ]);
 
     expect($def->resolveParameters([]))->toBe([]);
+});
+
+// ──────────────────────────────────────────────
+//  on_question policy
+// ──────────────────────────────────────────────
+
+test('on_question defaults to block and round-trips', function () {
+    $def = LoopDefinition::fromArray([
+        'name' => 'demo',
+        'description' => 'demo loop',
+        'roles' => [['role' => 'coder', 'prompt' => 'do it']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 1],
+    ]);
+    expect($def->onQuestion)->toBe(OnQuestionPolicy::Block);
+    expect($def->toArray()['on_question'])->toBe('block');
+
+    $withDefault = LoopDefinition::fromArray(
+        ['on_question' => 'default'] + $def->toArray(),
+    );
+    expect($withDefault->onQuestion)->toBe(OnQuestionPolicy::DefaultAnswer);
+    expect($withDefault->toArray()['on_question'])->toBe('default');
 });
 
 test('fromArray throws when parameters entry is not an array', function () {
