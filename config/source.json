@@ -12,7 +12,8 @@
         "observer": "Observers — real-time event rendering for terminal output",
         "storage": "Storage — SQLite-backed session and audit persistence",
         "support": "Support — reusable cross-cutting utilities for runtime identity, filesystem, JSON, strings, process management, and version resolution",
-        "prompt": "Prompt — system prompt composition, soul resolution, placeholder substitution"
+        "prompt": "Prompt — system prompt composition, soul resolution, placeholder substitution",
+        "question": "Structured questions — the ask_user responders, persistence, and loop block/reopen wiring behind the ask_user tool"
     },
     "files": [
         {
@@ -786,10 +787,143 @@
             "path": "src/Contract/LoopDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopDefinition",
             "layer": "contract",
-            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), termination condition, and cross-stage artifact dependency validation.",
+            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), termination condition, cross-stage artifact dependency validation, and onQuestion (OnQuestionPolicy, top-level on_question field, default Block) controlling how ask_user behaves for this loop's non-interactive stages.",
             "methods": [
-                "fromArray(string, array): self — factory from JSON config with name validation"
+                "fromArray(string, array): self — factory from JSON config with name validation (reads on_question via OnQuestionPolicy::fromString)"
             ]
+        },
+        {
+            "path": "src/Contract/QuestionFormat.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionFormat",
+            "layer": "contract",
+            "description": "Backed string enum of the three ask_user answer shapes: SingleSelect (single_select), MultiSelect (multi_select), FreeText (free_text).",
+            "methods": [
+                "isSelect(): bool — whether the format is a select (requires options)"
+            ]
+        },
+        {
+            "path": "src/Contract/QuestionOption.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionOption",
+            "layer": "contract",
+            "description": "Immutable value object for one selectable choice on a select question. The label is the answer identifier (non-empty); description is optional.",
+            "methods": [
+                "fromArray(array): self — factory from a decoded option (bare-string labels handled by callers)",
+                "toArray(): array — serialize the option"
+            ]
+        },
+        {
+            "path": "src/Contract/QuestionResponse.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionResponse",
+            "layer": "contract",
+            "description": "Immutable value object for a user's answer: selected option labels and/or free-text. Home of isValidFor(QuestionRequest), the single validation authority for the whole feature — no other code re-implements answer validation (free-text requires text and no selection; selects require in-range labels, with text permitted only as an Other entry when allow_other).",
+            "methods": [
+                "isValidFor(QuestionRequest): bool — the sole answer-validity check for the feature",
+                "fromArray(array): self — factory from a decoded answer body",
+                "toArray(): array — serialize the answer"
+            ]
+        },
+        {
+            "path": "src/Contract/QuestionRequest.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionRequest",
+            "layer": "contract",
+            "description": "Immutable value object for an agent's structured question (one per ask_user call): id, prompt, format (QuestionFormat), options (QuestionOption[]), allowOther, suggested (QuestionResponse best-guess default, validated at construction), optional header. Constructor enforces the format/options invariants and that suggested is valid for the question.",
+            "methods": [
+                "optionLabels(): list<string> — the labels of all options",
+                "fromArray(array): self — factory from decoded ask_user input",
+                "toArray(): array — serialize the request (the SSE question event payload and questions.request column)"
+            ]
+        },
+        {
+            "path": "src/Contract/QuestionResponderInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionResponderInterface",
+            "layer": "contract",
+            "description": "The extensibility seam the ask_user tool delegates to. ask() renders a QuestionRequest on a surface (REPL / API / loop) and returns a validated QuestionResponse, or null when the question was escalated to an operator with no synchronous answer (loop block mode — the tool emits a hard-STOP sentinel). Implementations throw only on genuine errors (cancel/timeout), never as ordinary control flow.",
+            "methods": [
+                "ask(QuestionRequest): ?QuestionResponse — surface the question and return a validated answer, or null when escalated"
+            ]
+        },
+        {
+            "path": "src/Contract/QuestionRecord.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\QuestionRecord",
+            "layer": "contract",
+            "description": "A persisted questions-table row rehydrated into typed form: id, sessionId, request (QuestionRequest), responderKind, status, optional answer (QuestionResponse), and optional loopId/stageId for loop-escalated questions. Returned by the REST GET /questions listing.",
+            "methods": [
+                "fromRow(array): self — rehydrate from a decoded questions-table row",
+                "toArray(): array — serialize the record for the API response"
+            ]
+        },
+        {
+            "path": "src/Contract/OnQuestionPolicy.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\OnQuestionPolicy",
+            "layer": "contract",
+            "description": "Backed string enum for a loop/background task's non-interactive question policy: Block (block — escalate the loop and halt the stage) and DefaultAnswer (default — auto-take the agent's suggested answer). Set per LoopDefinition via on_question; defaults to Block.",
+            "methods": [
+                "fromString(?string): self — parse the on_question value, defaulting to Block"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopBlockNotifier.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopBlockNotifier",
+            "layer": "contract",
+            "description": "Interface that flips a loop to blocked carrying a QuestionRequest as the escalation payload. Implemented by LoopQuestionBlockNotifier over LoopStore; passed as null for non-loop tasks.",
+            "methods": [
+                "block(string $loopId, ?string $stageId, QuestionRequest $question): void — escalate the loop into blocked with the question payload"
+            ]
+        },
+        {
+            "path": "src/Question/QuestionPersistence.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\QuestionPersistence",
+            "layer": "question",
+            "description": "Single place that persists asked/answered questions to the questions table and mirrors the approval audit trail (audit_log actions question_asked / question_answered) via SessionStorage. persistAnswered re-checks QuestionResponse::isValidFor before recording, keeping validation authority in one place.",
+            "methods": [
+                "persistAsked(sessionId, QuestionRequest, responderKind, ?turnId, ?loopId, ?stageId): void — create the row and log question_asked",
+                "persistAnswered(questionId, sessionId, QuestionRequest, QuestionResponse, ?turnId): bool — validate, record the answer, and log question_answered",
+                "pending(sessionId): list<QuestionRecord> — pending questions for a session",
+                "find(questionId): ?QuestionRecord — one question by id"
+            ]
+        },
+        {
+            "path": "src/Question/InteractiveQuestionResponder.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\InteractiveQuestionResponder",
+            "layer": "question",
+            "description": "REPL responder. Renders the question synchronously via SymfonyStyle (choice/ask/confirm, with an Other… entry when allow_other) and re-prompts until the collected answer satisfies QuestionResponse::isValidFor. Persists the question as asked and the answer once collected; always resolves inline (never returns the null deferred branch).",
+            "methods": [
+                "ask(QuestionRequest): QuestionResponse — prompt-and-wait in the REPL, returning a validated answer"
+            ]
+        },
+        {
+            "path": "src/Question/SuspendingQuestionResponder.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\SuspendingQuestionResponder",
+            "layer": "question",
+            "description": "API responder for interactive turns running in a turn:run child process. Persists the question, emits a `question` turn-event (streamed to the client over SSE), then block-polls SessionStorage for the answer the REST answer endpoint records. Blocking is safe in the dedicated child process; the poll is bounded by a timeout and an optional cancellation token, throwing QuestionUnansweredException on cancel/timeout.",
+            "methods": [
+                "ask(QuestionRequest): QuestionResponse — persist, emit the SSE event, and block-poll the DB for the answer"
+            ]
+        },
+        {
+            "path": "src/Question/PolicyQuestionResponder.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\PolicyQuestionResponder",
+            "layer": "question",
+            "description": "Non-interactive responder for loop stages / background tasks. Under DefaultAnswer it persists and returns the agent's suggested answer inline (logged); under Block it persists the question, escalates the loop through LoopBlockNotifier (when a loopId is present), and returns null so the ask_user tool emits the QUESTION_BLOCKED hard-STOP sentinel. No exception, no fabricated answer.",
+            "methods": [
+                "ask(QuestionRequest): ?QuestionResponse — apply the OnQuestionPolicy: suggested answer (default) or escalate + null (block)"
+            ]
+        },
+        {
+            "path": "src/Question/LoopQuestionBlockNotifier.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\LoopQuestionBlockNotifier",
+            "layer": "question",
+            "description": "LoopBlockNotifier implementation over LoopStore. Escalates a loop to blocked with the QuestionRequest as the escalation metadata payload (mirroring LoopExecutor::escalateBlocked), marks the current iteration needs_rework, and sets loop status blocked so the existing blocked-loop UI and notifications surface it. The operator answers over REST, which reopens the iteration (LoopQuestionAnswerReopener).",
+            "methods": [
+                "block(string $loopId, ?string $stageId, QuestionRequest $question): void — escalate the loop into blocked with the question payload"
+            ]
+        },
+        {
+            "path": "src/Question/QuestionUnansweredException.php",
+            "fqcn": "CoquiBot\\Coqui\\Question\\QuestionUnansweredException",
+            "layer": "exception",
+            "description": "Thrown when a suspended API question ends without an answer (turn cancelled or timed out). Caught at the ask_user tool boundary and surfaced as a terminal ToolResult error.",
+            "methods": []
         },
         {
             "path": "src/Contract/LoopStageResult.php",
@@ -1912,6 +2046,34 @@
             ]
         },
         {
+            "path": "src/Api/Handler/QuestionHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\QuestionHandler",
+            "layer": "command",
+            "description": "Core-authenticated REST surface for structured questions (never public). GET /api/v1/sessions/{id}/questions lists pending questions; POST /api/v1/sessions/{id}/questions/{questionId}/answer records an answer (200 answered, 404 unknown/other-session, 409 already-answered, 422 invalid-for-question). QuestionResponse::isValidFor is the single authority behind the 422 decision. On answering a loop-escalated question it invokes the optional QuestionAnswerReopener to reopen the blocked stage.",
+            "methods": [
+                "list(request, id): Response — list pending questions for the session",
+                "answer(request, id, questionId): Response — validate and record an answer, reopening a blocked loop stage when applicable"
+            ]
+        },
+        {
+            "path": "src/Api/QuestionAnswerReopener.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\QuestionAnswerReopener",
+            "layer": "command",
+            "description": "Interface for reopening a suspended loop stage once its structured question is answered over the API. Implemented by LoopQuestionAnswerReopener; passed as null for non-loop questions.",
+            "methods": [
+                "reopen(string $loopId, ?string $stageId, QuestionRequest $question, QuestionResponse $answer): void — reopen the blocked stage with the answer staged for injection"
+            ]
+        },
+        {
+            "path": "src/Api/LoopQuestionAnswerReopener.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopQuestionAnswerReopener",
+            "layer": "command",
+            "description": "QuestionAnswerReopener implementation over LoopStore. On an operator answer to a block-mode loop question, clears the escalation, resets the rework breaker, stages the answer as pending_answer for one-shot injection into the reopened stage prompt (LoopExecutor::prepareNextStage), and reopens the current iteration exactly like a #3 retry (LoopHandler::retryIteration) — durable and restart-safe.",
+            "methods": [
+                "reopen(string $loopId, ?string $stageId, QuestionRequest $question, QuestionResponse $answer): void — reopen the iteration and stage the answer for injection"
+            ]
+        },
+        {
             "path": "src/Api/Handler/SummarizeHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
             "layer": "command",
@@ -2445,6 +2607,16 @@
             "methods": [
                 "tools(): array — returns 6 project management Tool instances",
                 "guidelines(): string — dynamic active project summary, empty when no active project"
+            ]
+        },
+        {
+            "path": "src/Toolkit/QuestionToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\QuestionToolkit",
+            "layer": "toolkit",
+            "description": "Exposes the single `ask_user` tool for structured questions. Context-agnostic: it takes a QuestionResponderInterface and never knows whether it runs in a REPL, an API turn, or a loop — the runtime wires the responder exactly as it wires the execution policy. Shapes/validates input into a QuestionRequest (all answer validation lives in QuestionRequest construction + QuestionResponse::isValidFor), delegates to the responder, and serializes the outcome — mapping a null (escalated) return to the QUESTION_BLOCKED hard-STOP sentinel and a QuestionUnansweredException to a tool error. Tolerant of native-array and JSON-string options/suggested arguments.",
+            "methods": [
+                "tools(): array — returns the single ask_user Tool",
+                "guidelines(): string — ASK-USER guidelines (formats, options/allow_other, required suggested, one question per call, QUESTION_BLOCKED STOP semantics)"
             ]
         },
         {

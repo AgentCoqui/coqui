@@ -29,6 +29,7 @@ Use these documents as the canonical references:
 - [docs/PROFILES.md](docs/PROFILES.md): personality profiles
 - [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md): background task model
 - [docs/LOOPS.md](docs/LOOPS.md): loop system
+- [docs/QUESTIONS.md](docs/QUESTIONS.md): structured questions (`ask_user`, responders, `on_question` loop policy)
 - [docs/PROJECTS.md](docs/PROJECTS.md): lean project working scopes
 - [docs/ARTIFACTS.md](docs/ARTIFACTS.md): artifact lifecycle and usage
 - [docs/FEATURES.md](docs/FEATURES.md): broad feature overview
