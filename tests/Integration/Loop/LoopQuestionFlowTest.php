@@ -52,3 +52,30 @@ test('answer reopener unblocks the loop and stages the answer for injection', fu
     expect($state['iteration']['status'])->toBe('running');
     expect($state['stages'][0]['status'])->toBe('pending');
 });
+
+test('answer reopener leaves a running (non-blocked) loop untouched', function () {
+    $storage = new SessionStorage(':memory:');
+    $loopStore = new LoopStore($storage->getPdo());
+    $loopId = bootstrapRunningLoop($loopStore);
+
+    // Capture the live iteration/stage state of the RUNNING loop before answering.
+    $before = $loopStore->getCurrentState($loopId);
+
+    // A default-mode question also carries loop_id; answering it in the pending
+    // window (racing the atomic answer guard) must NOT reset the live iteration.
+    $reopener = new LoopQuestionAnswerReopener($loopStore);
+    $reopener->reopen($loopId, null, sampleRequest(), new QuestionResponse(['pear']));
+
+    $loop = $loopStore->getLoop($loopId);
+    expect($loop['status'])->toBe('running');
+
+    // No pending_answer was staged (metadata is never touched at all).
+    $meta = $loop['metadata'] === null ? [] : json_decode($loop['metadata'], true);
+    expect($meta['pending_answer'] ?? null)->toBeNull();
+
+    // Iteration and stage state are unchanged (no reset happened).
+    $after = $loopStore->getCurrentState($loopId);
+    expect($after['iteration']['id'])->toBe($before['iteration']['id']);
+    expect($after['iteration']['status'])->toBe($before['iteration']['status']);
+    expect($after['stages'][0]['status'])->toBe($before['stages'][0]['status']);
+});

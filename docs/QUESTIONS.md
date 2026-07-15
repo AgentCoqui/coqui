@@ -126,6 +126,7 @@ Q&A is persisted **only** to `audit_log` and the `questions` table — never to 
 - No formats beyond `single_select`, `multi_select`, and `free_text` (plus `allow_other` on selects).
 - No role-level `on_question` override — the policy is per loop definition.
 - Q&A is confined to `audit_log` + the `questions` table.
+- A `block`-mode `ask_user` from a plain (non-loop) background task has no operator resume path — the question stays pending and the task halts; `ask_user` block-mode resolution is supported for loops (and live REPL/API turns), not fire-and-forget background tasks.
 
 ## See also
 

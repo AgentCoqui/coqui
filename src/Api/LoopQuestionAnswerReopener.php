@@ -26,6 +26,14 @@ final class LoopQuestionAnswerReopener implements QuestionAnswerReopener
             return;
         }
 
+        // Only a genuinely blocked (block-mode) question may reopen an iteration.
+        // A `default`-mode question also carries loop_id; answering one in the
+        // sub-millisecond pending window (racing the atomic answer guard) must
+        // never reset a RUNNING loop's live iteration or write pending_answer.
+        if ((string) ($state['loop']['status'] ?? '') !== 'blocked') {
+            return;
+        }
+
         $iterationId = (string) $state['iteration']['id'];
         $iterationNumber = (int) $state['iteration']['iteration_number'];
 

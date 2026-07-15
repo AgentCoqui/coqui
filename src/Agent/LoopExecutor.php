@@ -952,9 +952,15 @@ final class LoopExecutor
             $question = is_array($pendingAnswer['question'] ?? null) ? $pendingAnswer['question'] : [];
             $answer = is_array($pendingAnswer['answer'] ?? null) ? $pendingAnswer['answer'] : [];
             $selected = is_array($answer['selected'] ?? null) ? $answer['selected'] : [];
-            $chosen = is_string($answer['text'] ?? null) && $answer['text'] !== ''
-                ? (string) $answer['text']
-                : implode(', ', array_map(static fn($label): string => (string) $label, $selected));
+            // Include BOTH the selected labels and any free-text "Other" value so a
+            // multi-select answer carrying both keeps its labels (text-preferred
+            // rendering used to drop them). Free-text-only → just text; pure
+            // selects → just labels.
+            $parts = array_map(static fn($label): string => (string) $label, $selected);
+            if (is_string($answer['text'] ?? null) && $answer['text'] !== '') {
+                $parts[] = (string) $answer['text'];
+            }
+            $chosen = implode(', ', $parts);
             $askedPrompt = (string) ($question['prompt'] ?? '');
             $sections[] = "## Answer to Your Earlier Question\n"
                 . "You asked: {$askedPrompt}\n"
