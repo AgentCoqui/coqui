@@ -25,6 +25,7 @@ use CoquiBot\Coqui\Api\Handler\McpServerHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\ProjectHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
+use CoquiBot\Coqui\Api\Handler\QuestionHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
@@ -49,6 +50,7 @@ use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
 use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
 use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
+use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\StageGateEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
@@ -347,6 +349,13 @@ final class ApiCommand extends Command
         $mcpRuntime->connectEnabled();
         $mcpServerHandler = new McpServerHandler($mcpRuntime->managementService());
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
+        $questionHandler = new QuestionHandler(
+            new QuestionPersistence($storage),
+            $storage,
+            new \CoquiBot\Coqui\Api\LoopQuestionAnswerReopener(
+                $loopStore ?? new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo()),
+            ),
+        );
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
@@ -357,7 +366,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
@@ -568,6 +577,7 @@ final class ApiCommand extends Command
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
+        QuestionHandler $question,
         ScheduleHandler $schedule,
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
@@ -594,6 +604,10 @@ final class ApiCommand extends Command
             $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
             $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
         }
+
+        // Structured questions (core authenticated — never public)
+        $router->get($v1 . '/sessions/{id}/questions', [$question, 'list']);
+        $router->post($v1 . '/sessions/{id}/questions/{questionId}/answer', [$question, 'answer']);
 
         // Messages
         $router->get($v1 . '/sessions/{id}/messages', [$message, 'list']);

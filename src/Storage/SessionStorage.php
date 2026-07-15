@@ -305,6 +305,25 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_events_turn_process ON turn_events(turn_process_id)');
 
         $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS questions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                turn_id TEXT,
+                loop_id TEXT,
+                stage_id TEXT,
+                responder_kind TEXT NOT NULL,
+                request TEXT NOT NULL,
+                answer TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                answered_at TEXT
+            )
+        SQL);
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_questions_session ON questions(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_questions_status ON questions(status)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_questions_loop ON questions(loop_id)');
+
+        $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS session_title_jobs (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -1430,7 +1449,7 @@ final class SessionStorage
      */
     public function checkTablesExist(): array
     {
-        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs', 'turn_processes', 'turn_events'];
+        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs', 'turn_processes', 'turn_events', 'questions'];
         $missing = [];
 
         foreach ($expected as $table) {
@@ -2733,6 +2752,77 @@ final class SessionStorage
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Persist a pending structured question.
+     */
+    public function createQuestion(
+        string $sessionId,
+        \CoquiBot\Coqui\Contract\QuestionRequest $question,
+        string $responderKind,
+        ?string $turnId = null,
+        ?string $loopId = null,
+        ?string $stageId = null,
+    ): void {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO questions (id, session_id, turn_id, loop_id, stage_id, responder_kind, request, status, created_at)
+            VALUES (:id, :session_id, :turn_id, :loop_id, :stage_id, :responder_kind, :request, 'pending', :created_at)
+        SQL);
+        $stmt->execute([
+            ':id' => $question->id,
+            ':session_id' => $sessionId,
+            ':turn_id' => $turnId,
+            ':loop_id' => $loopId,
+            ':stage_id' => $stageId,
+            ':responder_kind' => $responderKind,
+            ':request' => json_encode($question->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            ':created_at' => date('c'),
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getQuestion(string $questionId): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM questions WHERE id = :id');
+        $stmt->execute([':id' => $questionId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getPendingQuestions(string $sessionId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT * FROM questions WHERE session_id = :session_id AND status = 'pending' ORDER BY created_at ASC",
+        );
+        $stmt->execute([':session_id' => $sessionId]);
+
+        return array_values($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Record an answer for a pending question. Returns false if it is not pending.
+     */
+    public function recordQuestionAnswer(string $questionId, \CoquiBot\Coqui\Contract\QuestionResponse $answer): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE questions
+            SET answer = :answer, status = 'answered', answered_at = :answered_at
+            WHERE id = :id AND status = 'pending'
+        SQL);
+        $stmt->execute([
+            ':answer' => json_encode($answer->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            ':answered_at' => date('c'),
+            ':id' => $questionId,
+        ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /**

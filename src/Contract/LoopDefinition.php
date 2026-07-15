@@ -21,6 +21,7 @@ final readonly class LoopDefinition
      * @param list<LoopRoleDefinition> $roles               Ordered role stages executed per iteration cycle
      * @param TerminationCondition    $terminationCondition How the loop determines when to stop
      * @param list<LoopParameterDefinition> $parameters     Declared template parameters for {{variable}} substitution
+     * @param OnQuestionPolicy        $onQuestion           How ask_user behaves for this loop's non-interactive stages
      */
     public function __construct(
         public string $name,
@@ -28,6 +29,7 @@ final readonly class LoopDefinition
         public array $roles,
         public TerminationCondition $terminationCondition,
         public array $parameters = [],
+        public OnQuestionPolicy $onQuestion = OnQuestionPolicy::Block,
     ) {
         if ($name === '' || !preg_match('/^[a-z0-9][a-z0-9_-]*$/', $name)) {
             throw new \InvalidArgumentException(
@@ -78,6 +80,7 @@ final readonly class LoopDefinition
             roles: $roles,
             terminationCondition: TerminationCondition::fromArray($terminationData),
             parameters: $parameters,
+            onQuestion: OnQuestionPolicy::fromString($data['on_question'] ?? null),
         );
     }
 
@@ -109,6 +112,7 @@ final readonly class LoopDefinition
             'description' => $this->description,
             'roles' => array_map(static fn(LoopRoleDefinition $r) => $r->toArray(), $this->roles),
             'termination_condition' => $this->terminationCondition->toArray(),
+            'on_question' => $this->onQuestion->value,
         ];
 
         if ($this->parameters !== []) {

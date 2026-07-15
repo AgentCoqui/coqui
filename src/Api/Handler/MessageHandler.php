@@ -191,6 +191,8 @@ final readonly class MessageHandler
             try {
                 $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
 
+                // All turn-event types stream through unchanged (no allowlist);
+                // this includes the `question` event emitted for structured questions.
                 foreach ($events as $event) {
                     $this->writeSseEvent($stream, $event);
                     $lastEventId = (int) $event['id'];

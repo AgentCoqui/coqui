@@ -257,6 +257,7 @@ final class OrchestratorAgent extends AbstractAgent
         $discovery = $deps->discovery;
         $maxIterations = $deps->maxIterations;
         $executionPolicy = $deps->executionPolicy;
+        $questionResponder = $deps->questionResponder;
         $onRestart = $deps->onRestart;
         $credentialResolver = $deps->credentialResolver;
         $cancellationToken = $deps->cancellationToken;
@@ -523,6 +524,17 @@ final class OrchestratorAgent extends AbstractAgent
             }
         } else {
             $this->excludeToolkitPromptSlug('loops');
+        }
+
+        // Structured questions (`ask_user`). Not role-gated — the responder is
+        // wired only by execution entry points that can service a question
+        // (REPL/API/loop). When none is supplied, no `ask_user` tool appears.
+        if ($questionResponder !== null) {
+            $this->addSystemToolkit(
+                'QuestionToolkit',
+                'Ask the user structured questions',
+                new \CoquiBot\Coqui\Toolkit\QuestionToolkit($questionResponder),
+            );
         }
 
         // --- Candidate toolkits: collected first, then budget-gated ---

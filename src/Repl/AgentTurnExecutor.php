@@ -11,6 +11,8 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult as ContractAgentTurnResult;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
+use CoquiBot\Coqui\Question\InteractiveQuestionResponder;
+use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
@@ -112,6 +114,14 @@ final class AgentTurnExecutor
             if ($groupEnabled && is_array($session)) {
                 $result = $this->executeGroupTurn($prompt, $sessionId, $session, $executionPolicy);
             } else {
+                // Synchronous REPL responder: renders `ask_user` questions inline
+                // on the TTY. turnId is null here — the turns row is created inside
+                // AgentRunner::doRun after this responder is built.
+                $questionResponder = new InteractiveQuestionResponder(
+                    $io,
+                    new QuestionPersistence($this->storage),
+                    $sessionId,
+                );
                 $result = $this->agentRunner->run(
                     $prompt,
                     $sessionId,
@@ -119,6 +129,7 @@ final class AgentTurnExecutor
                     $cancellationToken,
                     role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
                     profile: $activeProfile,
+                    questionResponder: $questionResponder,
                 );
             }
         } finally {

@@ -149,6 +149,17 @@ final class TurnRunCommand extends Command
             sessionId: $sessionId,
         );
 
+        // Structured-question responder: persists the question, emits a `question`
+        // turn-event for SSE, then block-polls the DB for the client's answer.
+        // The cancellation token lets the poll abort on SIGTERM.
+        $questionResponder = new \CoquiBot\Coqui\Question\SuspendingQuestionResponder(
+            new \CoquiBot\Coqui\Question\QuestionPersistence($storage),
+            $storage,
+            $sessionId,
+            $turnProcessId,
+            $cancellationToken,
+        );
+
         try {
             // Resolve the active role from the session record
             $session = $storage->getSession($sessionId);
@@ -186,6 +197,7 @@ final class TurnRunCommand extends Command
                         $storage,
                         $turnProcessId,
                         $role,
+                        $questionResponder,
                     ): AgentTurnResult {
                         return $agentRunner->runSegment(
                             prompt: $actorPrompt,
@@ -198,6 +210,7 @@ final class TurnRunCommand extends Command
                             profile: $actorName,
                             actorName: $actorName,
                             actorRole: $role ?? 'orchestrator',
+                            questionResponder: $questionResponder,
                         );
                     },
                 );
@@ -211,6 +224,7 @@ final class TurnRunCommand extends Command
                     $role,
                     $profile,
                     $turnProcessId,
+                    $questionResponder,
                 );
             }
 

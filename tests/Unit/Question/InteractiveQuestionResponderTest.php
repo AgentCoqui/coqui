@@ -1,0 +1,170 @@
+<?php
+
+declare(strict_types=1);
+
+use CoquiBot\Coqui\Contract\QuestionFormat;
+use CoquiBot\Coqui\Contract\QuestionOption;
+use CoquiBot\Coqui\Contract\QuestionRequest;
+use CoquiBot\Coqui\Contract\QuestionResponse;
+use CoquiBot\Coqui\Question\InteractiveQuestionResponder;
+use CoquiBot\Coqui\Question\QuestionPersistence;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+/**
+ * Drive SymfonyStyle prompts with scripted keystrokes. SymfonyStyle delegates
+ * to SymfonyQuestionHelper, which reads from $input->getStream() when the input
+ * is a StreamableInputInterface (ArrayInput is), falling back to STDIN. We seed
+ * that stream so choice()/ask()/confirm() consume our scripted lines instead of
+ * blocking on the terminal.
+ *
+ * @return array{0: SymfonyStyle, 1: BufferedOutput}
+ */
+function scriptedIo(string $keystrokes): array
+{
+    $input = new ArrayInput([]);
+    $input->setStream(fopenString($keystrokes));
+    $input->setInteractive(true);
+    $output = new BufferedOutput();
+
+    return [new SymfonyStyle($input, $output), $output];
+}
+
+/**
+ * @return resource
+ */
+function fopenString(string $content)
+{
+    $stream = fopen('php://memory', 'r+');
+    assert(is_resource($stream));
+    fwrite($stream, $content);
+    rewind($stream);
+
+    return $stream;
+}
+
+test('single-select returns the chosen option and persists the answer', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    [$io] = scriptedIo("pear\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'q1',
+        prompt: 'Which fruit?',
+        format: QuestionFormat::SingleSelect,
+        options: [new QuestionOption('apple'), new QuestionOption('pear')],
+        allowOther: false,
+        suggested: new QuestionResponse(['apple']),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->selected)->toBe(['pear']);
+    expect($answer->isValidFor($request))->toBeTrue();
+    expect($storage->getQuestion('q1')['status'])->toBe('answered');
+});
+
+test('multi-select returns the picked options and persists the answer', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Symfony Console accepts comma-separated labels (or indices) for
+    // choice(..., multiSelect: true). "red,blue" picks red and blue.
+    [$io] = scriptedIo("red,blue\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qm',
+        prompt: 'Which colours?',
+        format: QuestionFormat::MultiSelect,
+        options: [new QuestionOption('red'), new QuestionOption('green'), new QuestionOption('blue')],
+        allowOther: false,
+        suggested: new QuestionResponse([]),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->selected)->toEqualCanonicalizing(['red', 'blue']);
+    expect($answer->text)->toBeNull();
+    expect($answer->isValidFor($request))->toBeTrue();
+    expect($storage->getQuestion('qm')['status'])->toBe('answered');
+});
+
+test('single-select Other path returns typed free text', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Choices are [apple, pear, Other…]; index 2 selects the Other… entry,
+    // then the typed line becomes the free-text answer.
+    [$io] = scriptedIo("2\nmy own answer\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qo',
+        prompt: 'Which fruit?',
+        format: QuestionFormat::SingleSelect,
+        options: [new QuestionOption('apple'), new QuestionOption('pear')],
+        allowOther: true,
+        suggested: new QuestionResponse(['apple']),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->selected)->toBe([]);
+    expect($answer->text)->toBe('my own answer');
+    expect($answer->isValidFor($request))->toBeTrue();
+});
+
+test('single-select defaults to Other when the suggestion is an Other answer', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    // Empty keystroke accepts the offered default. If the default is the Other…
+    // entry (as the brief requires for an Other-style suggestion), the responder
+    // follows the Other path and prompts for free text, which we then supply.
+    [$io] = scriptedIo("\ncustom-typed\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'qd',
+        prompt: 'Which fruit?',
+        format: QuestionFormat::SingleSelect,
+        options: [new QuestionOption('apple'), new QuestionOption('pear')],
+        allowOther: true,
+        suggested: new QuestionResponse([], 'custom'),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    // Following the Other path proves the offered default was the Other… entry;
+    // an option default would have returned selected=[apple] with no text.
+    expect($answer->selected)->toBe([]);
+    expect($answer->text)->toBe('custom-typed');
+    expect($answer->isValidFor($request))->toBeTrue();
+});
+
+test('free-text returns typed text', function () {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
+    [$io] = scriptedIo("blue and green\n");
+
+    $responder = new InteractiveQuestionResponder($io, new QuestionPersistence($storage), $sessionId);
+    $request = new QuestionRequest(
+        id: 'q2',
+        prompt: 'Colours?',
+        format: QuestionFormat::FreeText,
+        options: [],
+        allowOther: false,
+        suggested: new QuestionResponse([], 'none'),
+    );
+
+    $answer = $responder->ask($request);
+
+    expect($answer)->not->toBeNull();
+    expect($answer->text)->toBe('blue and green');
+    expect($answer->selected)->toBe([]);
+});
