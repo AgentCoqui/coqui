@@ -572,7 +572,7 @@ final class LoopStore
     }
 
     /**
-     * Get timing data for each iteration of a loop (for sparkline visualization).
+     * Get timing data for each iteration of a loop (for API timing consumers).
      *
      * @return list<array{iteration: int, duration_seconds: float, stage_count: int, completed_stages: int}>
      */

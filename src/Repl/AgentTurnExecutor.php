@@ -20,7 +20,6 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use React\EventLoop\Loop;
-use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**

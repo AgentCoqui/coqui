@@ -8,7 +8,6 @@ use CarmeloSantana\PathHelper\PathHelper;
 
 use CoquiBot\Coqui\Contract\SkillProperties;
 use CoquiBot\Coqui\Exception\SkillParseException;
-use CoquiBot\Coqui\Exception\SkillValidationException;
 
 /**
  * Stateless parser for AgentSkills SKILL.md files.

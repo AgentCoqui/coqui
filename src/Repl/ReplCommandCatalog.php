@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Repl;
 
-use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 
 /**
  * Canonical slash-command metadata shared by help output and tab completion.

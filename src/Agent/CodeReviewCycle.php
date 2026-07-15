@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
-use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Message\UserMessage;

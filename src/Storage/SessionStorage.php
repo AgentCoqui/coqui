@@ -15,7 +15,6 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SessionType;
-use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\CoquiProcessChecker;
 use CoquiBot\Coqui\Support\IdGenerator;
 use CoquiBot\Coqui\Support\SchemaHelper;
