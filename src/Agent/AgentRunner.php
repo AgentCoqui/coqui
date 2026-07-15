@@ -67,7 +67,10 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
  * Extracted from RunCommand to isolate agent orchestration from
  * the REPL loop and session management concerns.
  */
-final class AgentRunner
+// Not final: a test spy subclasses this to capture the per-turn `questionResponder`
+// wiring (see tests/Unit/Agent/QuestionResponderWiringTest.php). The public turn
+// methods are the seam; internal state and helpers remain private.
+class AgentRunner
 {
     private readonly ?SkillDiscovery $skillDiscovery;
     private readonly ?RoleDiscovery $roleDiscovery;
