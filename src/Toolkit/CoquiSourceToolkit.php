@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
+use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\DocumentationIndex;
@@ -16,7 +17,7 @@ use CoquiBot\Coqui\Config\DocumentationIndex;
 /**
  * Read-only toolkit providing structured access to the Coqui project source code and documentation.
  *
- * Gives the agent self-awareness of its own codebase through eight tools:
+ * Gives the agent self-awareness of its own codebase through nine tools:
  * - coqui_source_map: Returns the structured codebase map (config/source.json)
  * - coqui_read: Reads any file from the project root (read-only, sandboxed)
  * - coqui_list: Lists directory contents in the project
@@ -25,6 +26,7 @@ use CoquiBot\Coqui\Config\DocumentationIndex;
  * - coqui_doc_read: Reads specific sections of documentation by heading
  * - coqui_docs_map: Compact documentation discovery — one line per doc, sections on request
  * - coqui_docs_read: Reads one documentation section by heading; oversized files return their section list
+ * - coqui_docs_search: Full-text search across the documentation, ranked heading-first
  *
  * All operations are read-only. Writing to project files is not permitted —
  * file writes are restricted to the workspace directory via FilesystemToolkit.
@@ -33,6 +35,9 @@ final class CoquiSourceToolkit implements ToolkitInterface
 {
     private const int MAX_GLOB_RESULTS = 500;
     private const int MAX_READ_BYTES = 65536;
+    private const int SEARCH_DEFAULT_LIMIT = 20;
+    private const int SEARCH_MAX_LIMIT = 50;
+    private const int SEARCH_SNIPPET_CHARS = 200;
 
     private readonly string $sourceMapPath;
     private readonly string $docMapPath;
@@ -60,6 +65,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
             $this->docReadTool(),
             $this->docsMapTool(),
             $this->docsReadTool(),
+            $this->docsSearchTool(),
         ];
     }
 
@@ -504,6 +510,131 @@ final class CoquiSourceToolkit implements ToolkitInterface
                 return ToolResult::error($msg . ' Available sections: ' . implode(', ', $headings));
             },
         );
+    }
+
+    private function docsSearchTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'coqui_docs_search',
+            description: 'Full-text search across Coqui documentation. Returns matching docs with the nearest heading, line number, and a snippet — feed the path and heading straight into coqui_docs_read.',
+            parameters: [
+                new StringParameter('query', 'Text to search for (case-insensitive substring)', required: true),
+                // No schema minimum/maximum: an out-of-range limit should clamp to the
+                // bound, not fail the call. The callback clamps.
+                new NumberParameter('limit', 'Maximum results to return (default 20, clamped to a maximum of 50)', required: false, integer: true),
+            ],
+            callback: function (array $input): ToolResult {
+                $query = trim((string) ($input['query'] ?? ''));
+
+                if ($query === '') {
+                    return ToolResult::error('Query is required');
+                }
+
+                $limit = (int) ($input['limit'] ?? self::SEARCH_DEFAULT_LIMIT);
+                $limit = max(1, min($limit, self::SEARCH_MAX_LIMIT));
+
+                $matches = $this->searchDocs($query);
+                $total = count($matches);
+                $results = array_slice($matches, 0, $limit);
+
+                return ToolResult::json([
+                    'query' => $query,
+                    'total_matches' => $total,
+                    'truncated' => $total > $limit,
+                    'results' => $results,
+                ]);
+            },
+        );
+    }
+
+    /**
+     * Search every indexed doc for a case-insensitive substring.
+     *
+     * Heading, title, and description hits rank above body hits; ties break on
+     * path then line, so results are deterministic.
+     *
+     * @return list<array{path: string, heading: string, line: int, snippet: string}>
+     */
+    private function searchDocs(string $query): array
+    {
+        $needle = strtolower($query);
+        $ranked = [];
+
+        foreach ($this->docsIndex->load()['files'] as $entry) {
+            $filePath = $this->normalizedRoot . '/' . $entry['path'];
+            $lines = file($filePath, FILE_IGNORE_NEW_LINES);
+
+            if ($lines === false) {
+                continue;
+            }
+
+            $metaHit = str_contains(strtolower($entry['title']), $needle)
+                || str_contains(strtolower($entry['description']), $needle);
+
+            foreach ($lines as $i => $line) {
+                if (!str_contains(strtolower($line), $needle)) {
+                    continue;
+                }
+
+                $heading = $this->headingForLine($entry['sections'], $i + 1);
+                $isHeadingHit = str_contains(strtolower($heading), $needle);
+
+                $ranked[] = [
+                    'rank' => $isHeadingHit || $metaHit ? 0 : 1,
+                    'result' => [
+                        'path' => $entry['path'],
+                        'heading' => $heading,
+                        'line' => $i + 1,
+                        'snippet' => $this->snippet($line),
+                    ],
+                ];
+            }
+        }
+
+        usort($ranked, static function (array $a, array $b): int {
+            return [$a['rank'], $a['result']['path'], $a['result']['line']]
+                <=> [$b['rank'], $b['result']['path'], $b['result']['line']];
+        });
+
+        return array_map(static fn (array $row): array => $row['result'], $ranked);
+    }
+
+    /**
+     * The nearest heading at or above a 1-based line number.
+     *
+     * @param list<array{heading: string, level: int, line_start: int, line_end: int}> $sections
+     */
+    private function headingForLine(array $sections, int $line): string
+    {
+        $heading = '';
+
+        foreach ($sections as $section) {
+            if ($section['line_start'] > $line) {
+                break;
+            }
+
+            $heading = $section['heading'];
+        }
+
+        return $heading;
+    }
+
+    /**
+     * A single-line excerpt, cut to a character bound rather than a byte one.
+     *
+     * Slicing by byte can split a multibyte sequence — the docs are full of
+     * em-dashes — and ToolResult::json degrades an unencodable payload to a
+     * bare '{}'. One stray character would silently empty the whole response.
+     */
+    private function snippet(string $line): string
+    {
+        $trimmed = trim($line);
+
+        if (mb_strlen($trimmed) <= self::SEARCH_SNIPPET_CHARS) {
+            return $trimmed;
+        }
+
+        return mb_substr($trimmed, 0, self::SEARCH_SNIPPET_CHARS) . '…';
     }
 
     /**

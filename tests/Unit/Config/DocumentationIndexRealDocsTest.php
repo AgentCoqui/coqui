@@ -60,6 +60,24 @@ it('gives every docs/*.md frontmatter-sourced metadata', function () use ($proje
     }
 });
 
+it('finds a loops-only term in the real docs/LOOPS.md', function () use ($projectRoot) {
+    $toolkit = new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $projectRoot);
+    $tool = null;
+
+    foreach ($toolkit->tools() as $candidate) {
+        if ($candidate->toFunctionSchema()['function']['name'] === 'coqui_docs_search') {
+            $tool = $candidate;
+        }
+    }
+
+    $data = json_decode($tool->execute(['query' => 'on_question'])->content, true);
+    $paths = array_column($data['results'], 'path');
+
+    // docs/LOOPS.md was invisible to the agent under the hardcoded allowlist.
+    // This is the direct regression test for that eight-doc blind spot.
+    expect($paths)->toContain('docs/LOOPS.md');
+});
+
 it('never indexes working artefacts under docs/superpowers', function () use ($projectRoot) {
     $indexed = array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path');
 

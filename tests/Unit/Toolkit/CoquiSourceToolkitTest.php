@@ -162,9 +162,9 @@ afterEach(function () {
 // Tool registration
 // ---------------------------------------------------------------
 
-// coqui_docs_map and coqui_docs_read coexist with the older doc tools until Task 6 retires them.
-test('provides 8 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(8);
+// The coqui_docs_* tools coexist with the older doc tools until Task 6 retires them.
+test('provides 9 tools', function () {
+    expect($this->toolkit->tools())->toHaveCount(9);
 });
 
 test('tool names are correct', function () {
@@ -181,6 +181,7 @@ test('tool names are correct', function () {
     expect($names)->toContain('coqui_doc_read');
     expect($names)->toContain('coqui_docs_map');
     expect($names)->toContain('coqui_docs_read');
+    expect($names)->toContain('coqui_docs_search');
 });
 
 test('guidelines contain COQUI-SOURCE-GUIDELINES tags', function () {
@@ -811,4 +812,107 @@ it('coqui_docs_read rejects paths escaping the project root', function () {
     $result = $tool->execute(['file' => '../../../etc/passwd']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
+});
+
+// ---------------------------------------------------------------
+// coqui_docs_search
+// ---------------------------------------------------------------
+
+it('coqui_docs_search finds a term in a doc body and reports its heading', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $result = $tool->execute(['query' => 'openclaw.json']);
+    $data = json_decode($result->content, true);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($data['results'][0]['path'])->toBe('docs/CONFIGURATION.md')
+        ->and($data['results'][0]['heading'])->toBe('Model Configuration')
+        ->and($data['results'][0]['snippet'])->toContain('openclaw.json')
+        ->and($data['results'][0]['line'])->toBeGreaterThan(0);
+});
+
+it('coqui_docs_search ranks heading matches above body matches', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'Shell Configuration'])->content, true);
+
+    expect($data['results'][0]['heading'])->toBe('Shell Configuration');
+});
+
+it('coqui_docs_search is case-insensitive', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'OPENCLAW.JSON'])->content, true);
+
+    expect($data['results'])->not->toBeEmpty();
+});
+
+it('coqui_docs_search returns empty results rather than an error for no match', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $result = $tool->execute(['query' => 'zzzznotpresentanywhere']);
+    $data = json_decode($result->content, true);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($data['results'])->toBe([])
+        ->and($data['total_matches'])->toBe(0);
+});
+
+it('coqui_docs_search requires a query', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    expect($tool->execute(['query' => ''])->status)->toBe(ToolResultStatus::Error);
+});
+
+it('coqui_docs_search bounds results and reports the truncation', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    // 'Filler' appears 2000 times in the HUGE.md fixture.
+    $data = json_decode($tool->execute(['query' => 'Filler', 'limit' => 5])->content, true);
+
+    expect($data['results'])->toHaveCount(5)
+        ->and($data['total_matches'])->toBeGreaterThan(5)
+        // A silent cap is the failure mode this whole change exists to kill.
+        ->and($data['truncated'])->toBeTrue();
+});
+
+it('coqui_docs_search caps limit at 50', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'Filler', 'limit' => 9999])->content, true);
+
+    expect($data['results'])->toHaveCount(50);
+});
+
+it('coqui_docs_search keeps long multibyte lines encodable', function () {
+    // An em-dash straddling the snippet cut-off. Slicing by byte splits the
+    // sequence, and ToolResult::json turns unencodable payloads into a bare
+    // '{}' — the whole response vanishes with no error. Docs are full of em-dashes.
+    file_put_contents(
+        $this->root . '/docs/WIDE.md',
+        "# Wide\n\n## Wide Section\n\n" . str_repeat('a', 198) . "—needle" . str_repeat('b', 50) . "\n",
+    );
+    // beforeEach generates the index; a doc added after it needs a fresh one.
+    file_put_contents(
+        $this->root . '/config/documentation.json',
+        json_encode((new DocumentationIndex($this->root))->build(), JSON_PRETTY_PRINT),
+    );
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $result = $tool->execute(['query' => 'needle']);
+    $data = json_decode($result->content, true);
+
+    expect($result->content)->not->toBe('{}')
+        ->and($data['results'])->toHaveCount(1)
+        ->and($data['results'][0]['path'])->toBe('docs/WIDE.md')
+        ->and(mb_check_encoding($data['results'][0]['snippet'], 'UTF-8'))->toBeTrue();
+});
+
+it('coqui_docs_search works when config/documentation.json is absent', function () {
+    unlink($this->root . '/config/documentation.json');
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'openclaw.json'])->content, true);
+
+    expect($data['results'])->not->toBeEmpty();
 });
