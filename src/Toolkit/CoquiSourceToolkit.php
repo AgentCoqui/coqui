@@ -11,17 +11,19 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Config\DocumentationIndex;
 
 /**
  * Read-only toolkit providing structured access to the Coqui project source code and documentation.
  *
- * Gives the agent self-awareness of its own codebase through six tools:
+ * Gives the agent self-awareness of its own codebase through seven tools:
  * - coqui_source_map: Returns the structured codebase map (config/source.json)
  * - coqui_read: Reads any file from the project root (read-only, sandboxed)
  * - coqui_list: Lists directory contents in the project
  * - coqui_search: Glob-based file search across the project (supports ** recursive)
  * - coqui_doc_map: Returns a structured map of documentation sections (config/documentation.json)
  * - coqui_doc_read: Reads specific sections of documentation by heading
+ * - coqui_docs_map: Compact documentation discovery — one line per doc, sections on request
  *
  * All operations are read-only. Writing to project files is not permitted —
  * file writes are restricted to the workspace directory via FilesystemToolkit.
@@ -34,6 +36,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
     private readonly string $sourceMapPath;
     private readonly string $docMapPath;
     private readonly string $normalizedRoot;
+    private readonly DocumentationIndex $docsIndex;
 
     public function __construct(
         private readonly string $projectRoot,
@@ -42,6 +45,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
         $this->normalizedRoot = $root;
         $this->sourceMapPath = $root . '/config/source.json';
         $this->docMapPath = $root . '/config/documentation.json';
+        $this->docsIndex = new DocumentationIndex($root);
     }
 
     public function tools(): array
@@ -53,6 +57,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
             $this->searchTool(),
             $this->docMapTool(),
             $this->docReadTool(),
+            $this->docsMapTool(),
         ];
     }
 
@@ -321,6 +326,46 @@ final class CoquiSourceToolkit implements ToolkitInterface
                 $available = array_column($data['files'], 'path');
 
                 return ToolResult::error("File not found in documentation index: {$file}. Available: " . implode(', ', $available));
+            },
+        );
+    }
+
+    private function docsMapTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'coqui_docs_map',
+            description: 'Lists Coqui documentation: one line per doc with its title, description, and section count. Pass `file` to get one doc\'s section headings. Use it to find which doc answers a question, then read that doc\'s section with coqui_docs_read.',
+            parameters: [
+                new StringParameter('file', 'Optional: a doc path (e.g. "docs/CONFIGURATION.md") to list that doc\'s section headings. Omit for the summary of all docs.', required: false),
+            ],
+            callback: function (array $input): ToolResult {
+                $index = $this->docsIndex->load();
+                $file = $input['file'] ?? '';
+
+                if ($file === '') {
+                    $summary = [];
+
+                    foreach ($index['files'] as $entry) {
+                        $summary[] = [
+                            'path' => $entry['path'],
+                            'title' => $entry['title'],
+                            'description' => $entry['description'],
+                            'section_count' => count($entry['sections']),
+                        ];
+                    }
+
+                    return ToolResult::json(['files' => $summary]);
+                }
+
+                foreach ($index['files'] as $entry) {
+                    if ($entry['path'] === $file) {
+                        return ToolResult::json($entry);
+                    }
+                }
+
+                $available = implode(', ', array_column($index['files'], 'path'));
+
+                return ToolResult::error("File not found in documentation index: {$file}. Available: {$available}");
             },
         );
     }

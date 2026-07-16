@@ -97,29 +97,13 @@ After the code block.
 
 The final section.
 MD;
-    file_put_contents($this->root . '/docs/CONFIG.md', $docContent);
+    file_put_contents($this->root . '/docs/CONFIGURATION.md', $docContent);
 
-    // documentation.json index matching the doc file
-    file_put_contents($this->root . '/config/documentation.json', json_encode([
-        'version' => '1.0.0',
-        'files' => [
-            [
-                'path' => 'docs/CONFIG.md',
-                'title' => 'Configuration Guide',
-                'description' => 'Configuration reference',
-                'sections' => [
-                    ['heading' => 'Configuration Guide', 'level' => 1, 'line_start' => 1, 'line_end' => 2],
-                    ['heading' => 'Model Configuration', 'level' => 2, 'line_start' => 4, 'line_end' => 6],
-                    ['heading' => 'Provider Setup', 'level' => 3, 'line_start' => 8, 'line_end' => 10],
-                    ['heading' => 'Ollama Example', 'level' => 4, 'line_start' => 12, 'line_end' => 18],
-                    ['heading' => 'Shell Configuration', 'level' => 2, 'line_start' => 20, 'line_end' => 22],
-                    ['heading' => '`shellAllowedCommands`', 'level' => 3, 'line_start' => 24, 'line_end' => 26],
-                    ['heading' => 'Code Block Test', 'level' => 2, 'line_start' => 28, 'line_end' => 36],
-                    ['heading' => 'Last Section', 'level' => 2, 'line_start' => 38, 'line_end' => 40],
-                ],
-            ],
-        ],
-    ], JSON_PRETTY_PRINT));
+    // Generated index for the fixture docs — mirrors what composer regen-docs produces.
+    file_put_contents(
+        $this->root . '/config/documentation.json',
+        json_encode((new \CoquiBot\Coqui\Config\DocumentationIndex($this->root))->build(), JSON_PRETTY_PRINT),
+    );
 
     // A source file for coqui_read tests
     mkdir($this->root . '/src/Agent', 0755, true);
@@ -157,8 +141,9 @@ afterEach(function () {
 // Tool registration
 // ---------------------------------------------------------------
 
-test('provides 6 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(6);
+// coqui_docs_map coexists with the older doc tools until Task 6 retires them.
+test('provides 7 tools', function () {
+    expect($this->toolkit->tools())->toHaveCount(7);
 });
 
 test('tool names are correct', function () {
@@ -173,6 +158,7 @@ test('tool names are correct', function () {
     expect($names)->toContain('coqui_search');
     expect($names)->toContain('coqui_doc_map');
     expect($names)->toContain('coqui_doc_read');
+    expect($names)->toContain('coqui_docs_map');
 });
 
 test('guidelines contain COQUI-SOURCE-GUIDELINES tags', function () {
@@ -380,19 +366,19 @@ test('coqui_doc_map returns full index', function () {
     expect($data)->toHaveKey('version');
     expect($data)->toHaveKey('files');
     expect($data['files'])->toHaveCount(1);
-    expect($data['files'][0]['path'])->toBe('docs/CONFIG.md');
+    expect($data['files'][0]['path'])->toBe('docs/CONFIGURATION.md');
 });
 
 test('coqui_doc_map filters by file', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_map');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->mimeType)->toBe('application/json');
     expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
-    expect($data['path'])->toBe('docs/CONFIG.md');
+    expect($data['path'])->toBe('docs/CONFIGURATION.md');
     expect($data['sections'])->toBeArray();
     expect(count($data['sections']))->toBeGreaterThan(0);
 });
@@ -403,7 +389,7 @@ test('coqui_doc_map returns error for nonexistent file', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('File not found in documentation index');
-    expect($result->content)->toContain('docs/CONFIG.md');
+    expect($result->content)->toContain('docs/CONFIGURATION.md');
 });
 
 // ---------------------------------------------------------------
@@ -412,7 +398,7 @@ test('coqui_doc_map returns error for nonexistent file', function () {
 
 test('coqui_doc_read returns full file when no section specified', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('# Configuration Guide');
@@ -441,7 +427,7 @@ test('coqui_doc_read returns error for empty file path', function () {
 
 test('coqui_doc_read extracts section by exact heading from index', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'Model Configuration']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Model Configuration']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('## Model Configuration');
@@ -449,7 +435,7 @@ test('coqui_doc_read extracts section by exact heading from index', function () 
 
 test('coqui_doc_read exact match is case-insensitive', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'model configuration']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'model configuration']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Model Configuration');
@@ -457,7 +443,7 @@ test('coqui_doc_read exact match is case-insensitive', function () {
 
 test('coqui_doc_read strips backticks for matching', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'shellAllowedCommands']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'shellAllowedCommands']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('shellAllowedCommands');
@@ -470,7 +456,7 @@ test('coqui_doc_read strips backticks for matching', function () {
 test('coqui_doc_read matches section by substring in index', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
     // "model" is a substring of "Model Configuration"
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'model']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'model']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Model Configuration');
@@ -478,7 +464,7 @@ test('coqui_doc_read matches section by substring in index', function () {
 
 test('coqui_doc_read substring match is case-insensitive', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'SHELL']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'SHELL']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Shell Configuration');
@@ -615,7 +601,7 @@ MD);
 test('coqui_doc_read suggests closest match on miss', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
     // "Modle Configuration" is close to "Model Configuration"
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'Modle Configuration']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Modle Configuration']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('not found');
@@ -625,7 +611,7 @@ test('coqui_doc_read suggests closest match on miss', function () {
 
 test('coqui_doc_read lists available sections on miss', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'zzzzz_nonexistent_zzzzz']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'zzzzz_nonexistent_zzzzz']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('Available sections:');
@@ -640,7 +626,7 @@ test('coqui_doc_read lists available sections on miss', function () {
 test('coqui_doc_read available sections include H4 headings', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_doc_read');
     // Search for something that won't match to trigger the "Available sections" response
-    $result = $tool->execute(['file' => 'docs/CONFIG.md', 'section' => 'zzzzz_nonexistent_zzzzz']);
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'zzzzz_nonexistent_zzzzz']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     // H4 heading "Ollama Example" should be in the available sections list
@@ -658,4 +644,60 @@ test('coqui_doc_read blocks directory traversal', function () {
     expect($result->status)->toBe(ToolResultStatus::Error);
     // Path either triggers "escapes project root" (if realpath resolves) or "File not found"
     expect($result->content)->toMatch('/escapes project root|File not found/');
+});
+
+// ---------------------------------------------------------------
+// coqui_docs_map
+// ---------------------------------------------------------------
+
+it('coqui_docs_map returns a compact summary with no arguments', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
+
+    $result = $tool->execute([]);
+    $data = json_decode($result->content, true);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($data['files'][0])->toHaveKeys(['path', 'title', 'description', 'section_count'])
+        // Compact means compact: no heading list in the no-arg response.
+        ->and($data['files'][0])->not->toHaveKey('sections');
+});
+
+it('coqui_docs_map stays under a hard byte ceiling with no arguments', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
+
+    // The full index is ~27K tokens. Discovery must cost ~600, not 27,000.
+    expect(strlen($tool->execute([])->content))->toBeLessThan(8192);
+});
+
+it('coqui_docs_map returns full sections for a named file', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md']);
+    $data = json_decode($result->content, true);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($data['path'])->toBe('docs/CONFIGURATION.md')
+        ->and($data['sections'])->not->toBeEmpty()
+        ->and(array_column($data['sections'], 'heading'))->toContain('Model Configuration');
+});
+
+it('coqui_docs_map errors with the available list for an unknown file', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
+
+    $result = $tool->execute(['file' => 'docs/NOPE.md']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->toContain('docs/CONFIGURATION.md');
+});
+
+it('coqui_docs_map works when config/documentation.json is absent', function () {
+    unlink($this->root . '/config/documentation.json');
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
+
+    $result = $tool->execute([]);
+    $data = json_decode($result->content, true);
+
+    // A fresh checkout has no generated index. Discovery must still work.
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and(array_column($data['files'], 'path'))->toContain('docs/CONFIGURATION.md');
 });
