@@ -336,6 +336,54 @@ it('coqui_docs_read falls back to direct parsing when the index is absent', func
         ->and($result->content)->toContain('Set the model in openclaw.json');
 });
 
+it('coqui_docs_read finds a section added after the index was generated', function () {
+    // A VALID but STALE cache: readGenerated() rebuilds only when the file is
+    // absent, corrupt, or version-mismatched — it has no staleness check at all.
+    // So a doc edited since the last `composer regen-docs` yields an index that
+    // omits the new heading, and extractSectionFromIndex cannot match it. This is
+    // the one non-theoretical case that justifies keeping the direct-parse
+    // fallback, and it is routine while editing docs.
+    file_put_contents(
+        $this->root . '/docs/CONFIGURATION.md',
+        "\n## Freshly Appended Section\n\nAdded after regen-docs last ran.\n",
+        FILE_APPEND,
+    );
+
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Freshly Appended Section']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('Added after regen-docs last ran');
+});
+
+it('serves a stale index for a doc edited after generation', function () {
+    // Pins the premise of the test above: if load() ever gained a staleness check,
+    // that test would start passing via the index and quietly stop covering the
+    // fallback it exists to protect.
+    $headingsFor = function (array $index): array {
+        foreach ($index['files'] as $entry) {
+            if ($entry['path'] === 'docs/CONFIGURATION.md') {
+                return array_column($entry['sections'], 'heading');
+            }
+        }
+
+        return [];
+    };
+
+    file_put_contents(
+        $this->root . '/docs/CONFIGURATION.md',
+        "\n## Freshly Appended Section\n\nAdded after regen-docs last ran.\n",
+        FILE_APPEND,
+    );
+
+    expect($headingsFor((new DocumentationIndex($this->root))->load()))
+        ->not->toContain('Freshly Appended Section')
+        // ...while a rebuild from disk does see it. The gap between these two is
+        // exactly the window the fallback covers.
+        ->and($headingsFor((new DocumentationIndex($this->root))->build()))
+        ->toContain('Freshly Appended Section');
+});
+
 it('coqui_docs_read rejects paths escaping the project root', function () {
     $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
 

@@ -433,14 +433,23 @@ final class CoquiDocsToolkit implements ToolkitInterface
      *
      * Tracks fenced code blocks to avoid matching headings inside code examples.
      *
-     * Near-dead, deliberately kept. It only runs for a file already in the index
-     * whose heading extractSectionFromIndex could not match, and it applies the
-     * same exact-then-substring rule, so the only cases it can still answer are:
-     * an H5/H6 heading (the index scans H1–H4; the corpus currently has none), or
-     * a stale generated cache missing a heading a contributor just added. Both are
-     * narrow, but this is the path that keeps reads working when the index is
-     * wrong rather than merely absent — a silent "section not found" on a heading
-     * that plainly exists is the failure class this toolkit exists to avoid.
+     * Narrow, deliberately kept, and scoped to H1–H4 to match
+     * DocumentationIndex::extractSections and extractHeadings.
+     *
+     * It only runs for a file already in the index whose heading
+     * extractSectionFromIndex could not match, applying the same
+     * exact-then-substring rule. What justifies it is the stale cache:
+     * readGenerated() rebuilds on absent, corrupt, or version-mismatched — never
+     * on merely out-of-date — so a doc edited since the last `composer regen-docs`
+     * yields an index missing its newest headings. That is routine while editing
+     * docs, and a silent "section not found" on a heading that plainly exists is
+     * the failure class this toolkit exists to eliminate.
+     *
+     * Every heading in that scenario is one the index WOULD carry once
+     * regenerated — i.e. H1–H4. Scanning H5–H6 here bought nothing the
+     * justification needs and created a discoverability gap instead: an H5 would
+     * be readable yet invisible to both coqui_docs_map and coqui_docs_search.
+     * Aligned, "what is listed" equals "what is readable".
      */
     private function extractSectionFromFile(string $filePath, string $section): ?string
     {
@@ -464,8 +473,11 @@ final class CoquiDocsToolkit implements ToolkitInterface
                 continue;
             }
 
-            // Extract heading level and text
-            preg_match('/^(#{1,6})\s+(.+)$/', $line, $matches);
+            // H1–H4 only, matching DocumentationIndex::extractSections and
+            // extractHeadings. See the note above this method: an H5 reachable
+            // here but absent from the index is a discoverability gap, not a
+            // feature — readable yet invisible to docs_map and docs_search.
+            preg_match('/^(#{1,4})\s+(.+)$/', $line, $matches);
             if ($matches === []) {
                 continue;
             }
