@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\AgentTurnRunnerInterface;
 use CoquiBot\Coqui\Contract\QuestionResponderInterface;
 use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
@@ -58,20 +58,17 @@ function wiringBenignTurnResult(): AgentTurnResult
 final class ResponderCaptured extends \RuntimeException {}
 
 /**
- * Spy runner: subclasses AgentRunner (non-final for exactly this seam) and
- * overrides the two public turn methods to record the questionResponder they
- * receive, without running a real turn. Its own constructor bypasses the
- * parent's heavy dependency graph.
+ * Spy runner: implements the narrow AgentTurnRunnerInterface and records the
+ * questionResponder each turn method receives, without running a real turn or
+ * touching AgentRunner's heavy dependency graph.
  */
-final class CapturingAgentRunner extends AgentRunner
+final class CapturingAgentRunner implements AgentTurnRunnerInterface
 {
     /** @var list<?QuestionResponderInterface> */
     public array $runResponders = [];
 
     /** @var list<?QuestionResponderInterface> */
     public array $segmentResponders = [];
-
-    public function __construct() {}
 
     public function run(
         string $prompt,

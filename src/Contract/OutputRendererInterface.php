@@ -8,8 +8,7 @@ namespace CoquiBot\Coqui\Contract;
  * Renders agent turn results to an output destination.
  *
  * Implementations handle the presentation concern — the terminal shows
- * colorized text, JSON mode writes structured output, and the null
- * renderer discards everything (for API mode where SSE handles display).
+ * colorized text, and JSON mode writes structured output.
  */
 interface OutputRendererInterface
 {

@@ -11,10 +11,12 @@ use React\Http\Message\ServerRequest;
 /**
  * Unit coverage for QuestionHandler BRANCH ORDERING.
  *
- * The end-to-end status/code triples (question_not_found / conflict /
- * question_invalid_answer through the router) are owned by
- * tests/Integration/Api/QuestionHandlerTest.php. This file complements it by
- * exercising the branch decisions the integration test never reaches:
+ * The status/code triples (question_not_found / conflict /
+ * question_invalid_answer) are owned by
+ * tests/Integration/Api/QuestionHandlerTest.php — a cross-component
+ * handler/storage test that constructs QuestionHandler and calls it directly
+ * against a real SessionStorage (no router, dispatch, or middleware). This
+ * file complements it by exercising branch decisions that test never reaches:
  *
  *  - the SessionAccess gate short-circuits with `session_not_found` BEFORE any
  *    question lookup, so the two 404 branches emit DISTINCT codes;

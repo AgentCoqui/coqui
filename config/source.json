@@ -2155,7 +2155,7 @@
             "path": "src/Api/Handler/BudgetHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\BudgetHandler",
             "layer": "api",
-            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, recent toolkit loading decisions, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible without exporting the full system prompt.",
+            "description": "Prompt-budget HTTP endpoint. Returns a JSON PromptBudgetSnapshot: prompt/token totals, context-window headroom, toolkit budget sources, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible over the API. Distinct from the REPL /budget command handler at src/Repl/Handler/BudgetHandler.php.",
             "methods": [
                 "get(request): Response — returns a serialized PromptBudgetSnapshot"
             ]

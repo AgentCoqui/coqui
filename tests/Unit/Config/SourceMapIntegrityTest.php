@@ -80,3 +80,17 @@ test('all source.json path values are unique', function () {
 
     expect($duplicates)->toBe([], 'Duplicate path entries in source.json: ' . implode(', ', $duplicates));
 });
+
+test('all source.json fqcn values are unique', function () {
+    ['files' => $files] = loadSourceMap();
+
+    $fqcns = [];
+    foreach ($files as $entry) {
+        expect($entry)->toHaveKey('fqcn');
+        $fqcns[] = (string) $entry['fqcn'];
+    }
+    $counts = array_count_values($fqcns);
+    $duplicates = array_keys(array_filter($counts, static fn(int $n): bool => $n > 1));
+
+    expect($duplicates)->toBe([], 'Duplicate fqcn entries in source.json: ' . implode(', ', $duplicates));
+});

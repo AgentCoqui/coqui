@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Repl;
 
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult as ContractAgentTurnResult;
+use CoquiBot\Coqui\Contract\AgentTurnRunnerInterface;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Question\InteractiveQuestionResponder;
@@ -32,7 +32,7 @@ final class AgentTurnExecutor
     public const RESTART_EXIT_CODE = 10;
 
     public function __construct(
-        private readonly AgentRunner $agentRunner,
+        private readonly AgentTurnRunnerInterface $agentRunner,
         private readonly BootManager $boot,
         private readonly SessionStorage $storage,
         private readonly EscCancellationObserver $escObserver,
