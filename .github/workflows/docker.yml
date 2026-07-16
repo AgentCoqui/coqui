@@ -31,6 +31,11 @@ jobs:
           php-version: '8.4'
           extensions: mbstring
 
+      # The generator autoloads src/Config/DocumentationIndex, so it needs vendor/.
+      # Production deps are enough — it pulls in no dev packages.
+      - name: Install dependencies
+        run: composer install --no-dev --prefer-dist --no-progress --no-interaction
+
       - name: Generate documentation index
         run: php scripts/generate-documentation-index.php
 
@@ -77,6 +82,11 @@ jobs:
         with:
           php-version: '8.4'
           extensions: mbstring
+
+      # The generator autoloads src/Config/DocumentationIndex, so it needs vendor/.
+      # Production deps are enough — it pulls in no dev packages.
+      - name: Install dependencies
+        run: composer install --no-dev --prefer-dist --no-progress --no-interaction
 
       - name: Generate documentation index
         run: php scripts/generate-documentation-index.php

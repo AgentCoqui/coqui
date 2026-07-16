@@ -94,6 +94,10 @@ jobs:
         run: |
           # scripts/ is export-ignored from the archive, so generate in the
           # checkout (which has scripts/ + docs/) and copy into the export.
+          # The generator autoloads src/Config/DocumentationIndex, so the
+          # checkout needs vendor/. This runs after `git archive`, so it cannot
+          # leak anything into the exported build.
+          composer install --no-dev --prefer-dist --no-progress --no-interaction
           php scripts/generate-documentation-index.php
           cp config/documentation.json BUILD/coqui/config/documentation.json
 

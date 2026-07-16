@@ -56,7 +56,12 @@ it('gives every docs/*.md frontmatter-sourced metadata', function () use ($proje
     foreach (glob($projectRoot . '/docs/*.md') ?: [] as $path) {
         $content = file_get_contents($path);
 
-        expect($content)->toStartWith("---\n", basename($path) . ' is missing frontmatter');
+        // Compare the first line, not a raw "---\n" prefix: the repo sets no
+        // .gitattributes eol, so a Windows checkout yields CRLF and a literal
+        // prefix match fails there while passing everywhere else.
+        $firstLine = rtrim(strtok($content, "\n"), "\r");
+
+        expect($firstLine)->toBe('---', basename($path) . ' is missing frontmatter');
     }
 });
 

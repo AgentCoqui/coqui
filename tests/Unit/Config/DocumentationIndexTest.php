@@ -19,6 +19,35 @@ function writeDoc(string $root, string $relative, string $content): void
     file_put_contents($root . '/' . $relative, $content);
 }
 
+it('parses CRLF docs identically to LF', function () {
+    // A Windows checkout yields CRLF (the repo sets no .gitattributes eol), so
+    // the index must not carry stray \r into titles, descriptions, or headings.
+    // Asserted here rather than left to the Windows CI job, which is where this
+    // surfaced the first time.
+    writeDoc($this->root, 'docs/CRLF.md', "---\r\ntitle: CRLF Doc\r\ndescription: \"A doc: with CRLF endings\"\r\n---\r\n\r\n# Heading One\r\n\r\nBody prose.\r\n\r\n## Section Two\r\n\r\nMore.\r\n");
+    writeDoc($this->root, 'docs/LF.md', "---\ntitle: LF Doc\ndescription: \"A doc: with LF endings\"\n---\n\n# Heading One\n\nBody prose.\n\n## Section Two\n\nMore.\n");
+
+    $files = (new DocumentationIndex($this->root))->build()['files'];
+    $crlf = $files[0];
+    $lf = $files[1];
+
+    expect($crlf['title'])->toBe('CRLF Doc')
+        ->and($crlf['description'])->toBe('A doc: with CRLF endings')
+        ->and(array_column($crlf['sections'], 'heading'))->toBe(['Heading One', 'Section Two'])
+        // Line ranges must not shift: CRLF and LF differ only in bytes, not lines.
+        ->and(array_column($crlf['sections'], 'line_start'))
+        ->toBe(array_column($lf['sections'], 'line_start'));
+});
+
+it('falls back to the H1 and first paragraph on a CRLF doc without frontmatter', function () {
+    writeDoc($this->root, 'docs/PLAINCRLF.md', "# Plain CRLF\r\n\r\nThe first paragraph.\r\n\r\n## Later\r\n\r\nMore.\r\n");
+
+    $file = (new DocumentationIndex($this->root))->build()['files'][0];
+
+    expect($file['title'])->toBe('Plain CRLF')
+        ->and($file['description'])->toBe('The first paragraph.');
+});
+
 it('globs every docs/*.md rather than an allowlist', function () {
     writeDoc($this->root, 'docs/ALPHA.md', "# Alpha\n\nFirst doc.\n");
     writeDoc($this->root, 'docs/BETA.md', "# Beta\n\nSecond doc.\n");
