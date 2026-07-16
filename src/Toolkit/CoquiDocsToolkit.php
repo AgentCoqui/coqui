@@ -119,9 +119,9 @@ final class CoquiDocsToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'coqui_docs_read',
-            description: 'Read one section of a Coqui documentation file by heading. Omit `section` to read a whole file — for files too large to return, the section list is returned instead so you can pick one.',
+            description: 'Read one section of a Coqui documentation file by heading. Reads documentation only — the readable files are exactly those coqui_docs_map lists. Omit `section` to read a whole file — for files too large to return, the section list is returned instead so you can pick one.',
             parameters: [
-                new StringParameter('file', 'Doc path relative to the project root (e.g. "docs/CONFIGURATION.md", "AGENTS.md")', required: true),
+                new StringParameter('file', 'Doc path as listed by coqui_docs_map (e.g. "docs/CONFIGURATION.md", "AGENTS.md")', required: true),
                 new StringParameter('section', 'Section heading to extract (case-insensitive, e.g. "model", "mounts"). Omit to read the whole file.', required: false),
             ],
             callback: function (array $input): ToolResult {
@@ -129,6 +129,15 @@ final class CoquiDocsToolkit implements ToolkitInterface
 
                 if ($file === '') {
                     return ToolResult::error('File path is required');
+                }
+
+                if (!$this->isIndexedDoc($file)) {
+                    // The index is the whole definition of "documentation". Anything
+                    // else under the project root is source, config, or a working
+                    // artefact — none of which this tool claims to serve.
+                    return ToolResult::error(
+                        "Not a Coqui documentation file: {$file}. Use coqui_docs_map to list the docs available.",
+                    );
                 }
 
                 $filePath = $this->resolvePath($file);
@@ -215,8 +224,20 @@ final class CoquiDocsToolkit implements ToolkitInterface
     /**
      * Search every indexed doc for a case-insensitive substring.
      *
-     * Heading, title, and description hits rank above body hits; ties break on
-     * path then line, so results are deterministic.
+     * Four tiers: the doc's title (0), its description (1), a section heading
+     * (2), body text (3). Ties break on path then line, so results stay
+     * deterministic.
+     *
+     * Title and heading shared tier 0 before, which meant alphabetical order
+     * decided between them: docs/API.md sorts first and carries 50+ heading hits
+     * for most terms, so it took all 20 result slots and a query of "loops"
+     * never surfaced docs/LOOPS.md at all. A doc titled for the query is the
+     * strongest relevance signal in the corpus and cannot lose to sort order.
+     *
+     * Title outranks description for the same reason, one tier down: the title
+     * is what a doc *is*, a description merely mentions. Sharing a tier let
+     * docs/DATA_FLOW.md ("...projects, artifacts, and loops...") beat
+     * docs/LOOPS.md on "loops" purely by sorting first.
      *
      * @return list<array{path: string, heading: string, line: int, snippet: string}>
      */
@@ -233,8 +254,8 @@ final class CoquiDocsToolkit implements ToolkitInterface
                 continue;
             }
 
-            $metaHit = str_contains(strtolower($entry['title']), $needle)
-                || str_contains(strtolower($entry['description']), $needle);
+            $titleHit = str_contains(strtolower($entry['title']), $needle);
+            $descriptionHit = str_contains(strtolower($entry['description']), $needle);
 
             foreach ($lines as $i => $line) {
                 if (!str_contains(strtolower($line), $needle)) {
@@ -245,7 +266,12 @@ final class CoquiDocsToolkit implements ToolkitInterface
                 $isHeadingHit = str_contains(strtolower($heading), $needle);
 
                 $ranked[] = [
-                    'rank' => $isHeadingHit || $metaHit ? 0 : 1,
+                    'rank' => match (true) {
+                        $titleHit => 0,
+                        $descriptionHit => 1,
+                        $isHeadingHit => 2,
+                        default => 3,
+                    },
                     'result' => [
                         'path' => $entry['path'],
                         'heading' => $heading,
@@ -406,6 +432,15 @@ final class CoquiDocsToolkit implements ToolkitInterface
      * Extract a section by scanning the file for matching headings.
      *
      * Tracks fenced code blocks to avoid matching headings inside code examples.
+     *
+     * Near-dead, deliberately kept. It only runs for a file already in the index
+     * whose heading extractSectionFromIndex could not match, and it applies the
+     * same exact-then-substring rule, so the only cases it can still answer are:
+     * an H5/H6 heading (the index scans H1–H4; the corpus currently has none), or
+     * a stale generated cache missing a heading a contributor just added. Both are
+     * narrow, but this is the path that keeps reads working when the index is
+     * wrong rather than merely absent — a silent "section not found" on a heading
+     * that plainly exists is the failure class this toolkit exists to avoid.
      */
     private function extractSectionFromFile(string $filePath, string $section): ?string
     {
@@ -558,7 +593,34 @@ final class CoquiDocsToolkit implements ToolkitInterface
     // ──────────────────────────────────────────────
 
     /**
+     * Whether a path names a doc in the documentation index.
+     *
+     * This is the primary gate on coqui_docs_read, not the traversal check below.
+     * Containment under the project root would let this tool serve src/, config/,
+     * and docs/superpowers/** — reinstating the projectRoot-scoped source access
+     * this toolkit was built to drop, and falsifying its own description.
+     *
+     * Membership is tested against DocumentationIndex::load(), which derives the
+     * list from disk when the generated cache is absent, so the gate holds on a
+     * fresh checkout rather than failing open.
+     */
+    private function isIndexedDoc(string $file): bool
+    {
+        foreach ($this->docsIndex->load()['files'] as $entry) {
+            if ($entry['path'] === $file) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Resolve a relative path to an absolute path within the project root.
+     *
+     * Defence in depth behind isIndexedDoc(): an indexed path is already known
+     * good, so this only has to stay honest if the index ever carries one that
+     * is not.
      *
      * Returns null if the resolved path escapes the project root (directory traversal protection).
      */

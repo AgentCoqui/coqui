@@ -113,6 +113,47 @@ MD;
         file_put_contents($this->root . "/docs/FILLER{$i}.md", $filler);
     }
 
+    // A doc whose title is the query, and a doc that sorts earlier alphabetically
+    // and carries far more heading hits for the same query. This is the real
+    // docs/LOOPS.md-vs-docs/API.md shape: without a title tier above headings,
+    // AAA-API.md monopolises the window and ZLOOPS.md never appears.
+    file_put_contents(
+        $this->root . '/docs/ZLOOPS.md',
+        "# Loops\n\nHow scheduled loops work end to end.\n\n## Loop Stages\n\nEach stage runs in order.\n",
+    );
+
+    $api = "# HTTP Endpoints\n\nEvery route the server exposes.\n";
+
+    for ($i = 1; $i <= 30; $i++) {
+        $api .= "\n## POST /loops/route{$i}\n\nStarts route {$i}.\n";
+    }
+
+    file_put_contents($this->root . '/docs/AAA-API.md', $api);
+
+    // Mentions the query in its description only, and sorts before ZLOOPS.md.
+    // Mirrors the real docs/DATA_FLOW.md, which beat docs/LOOPS.md on "loops"
+    // when title and description shared one tier.
+    file_put_contents(
+        $this->root . '/docs/BBB-FLOW.md',
+        "# Data Flow\n\nHow stages and loops fit together.\n\n## Entities\n\nRelationships between them.\n",
+    );
+
+    // Root docs are in the index and must stay readable.
+    file_put_contents($this->root . '/README.md', "# Readme\n\nThe project readme.\n");
+    file_put_contents($this->root . '/AGENTS.md', "# Agents\n\nThe contributor guide.\n");
+
+    // In-root files that are NOT documentation. coqui_docs_read must refuse these:
+    // the branch dropped projectRoot-scoped source access, and the tool's own
+    // description promises documentation only.
+    file_put_contents($this->root . '/composer.json', '{"name": "coqui/fixture"}');
+    mkdir($this->root . '/src', 0755, true);
+    file_put_contents($this->root . '/src/Secret.php', "<?php\n// internal source\n");
+
+    // Working artefacts: deliberately outside the index (DocumentationIndex globs
+    // docs/*.md, not docs/**\/*.md), so they must be unreadable too.
+    mkdir($this->root . '/docs/superpowers/plans', 0755, true);
+    file_put_contents($this->root . '/docs/superpowers/plans/plan.md', "# Plan\n\nWorking notes.\n");
+
     // Generated index for the fixture docs — mirrors what composer regen-docs produces.
     file_put_contents(
         $this->root . '/config/documentation.json',
@@ -303,6 +344,82 @@ it('coqui_docs_read rejects paths escaping the project root', function () {
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
+it('coqui_docs_read refuses an in-root file that is not documentation', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'composer.json']);
+
+    // Containment under the project root is not a documentation check. This tool
+    // says it reads documentation; anything else it returns makes that a lie.
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->not->toContain('coqui/fixture')
+        // Refusal must route the agent to discovery, not dead-end it.
+        ->and($result->content)->toContain('coqui_docs_map');
+});
+
+it('coqui_docs_read refuses a source file under the project root', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'src/Secret.php']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->not->toContain('internal source');
+});
+
+it('coqui_docs_read refuses working artefacts under docs/superpowers', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/superpowers/plans/plan.md']);
+
+    // Excluded from the index on purpose; the read tool must honour that exclusion
+    // rather than route around it.
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->not->toContain('Working notes');
+});
+
+it('coqui_docs_read does not name every doc when refusing a non-doc', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'composer.json']);
+
+    // Pointing at coqui_docs_map costs a few tokens; inlining 20+ paths costs
+    // hundreds on every mistaken read. Assert the refusal too — otherwise a
+    // successful read of a short file passes this vacuously.
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and(strlen($result->content))->toBeLessThan(200)
+        ->and($result->content)->not->toContain('docs/FILLER1.md');
+});
+
+it('coqui_docs_read still reads an indexed doc', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Shell Configuration']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('Configure shell access');
+});
+
+it('coqui_docs_read still reads README.md and AGENTS.md', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    // Both are in the index and both live at the root, so index membership — not
+    // a docs/ prefix — has to be what the gate tests.
+    expect($tool->execute(['file' => 'README.md'])->status)->toBe(ToolResultStatus::Success)
+        ->and($tool->execute(['file' => 'AGENTS.md'])->content)->toContain('The contributor guide');
+});
+
+it('coqui_docs_read refuses a non-doc when config/documentation.json is absent', function () {
+    unlink($this->root . '/config/documentation.json');
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    // load() falls back to build(), so a fresh checkout gates identically. If the
+    // gate depended on the generated cache it would fail open here — the worst
+    // possible place for it to fail open.
+    expect($tool->execute(['file' => 'composer.json'])->status)->toBe(ToolResultStatus::Error)
+        ->and($tool->execute(['file' => 'src/Secret.php'])->status)->toBe(ToolResultStatus::Error)
+        ->and($tool->execute(['file' => 'docs/CONFIGURATION.md'])->status)->toBe(ToolResultStatus::Success);
+});
+
 // ---------------------------------------------------------------
 // coqui_docs_search
 // ---------------------------------------------------------------
@@ -338,6 +455,56 @@ it('coqui_docs_search ranks heading matches above body matches', function () {
         ->and($bodyHit['heading'])->toBe('Model Configuration')
         ->and($bodyHit['line'])->toBeLessThan($headingHit['line'])
         ->and($bodyHit['path'])->toBe($headingHit['path']);
+});
+
+it('coqui_docs_search ranks the title-matching doc above a doc with more heading hits', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'loops'])->content, true);
+
+    // docs/ZLOOPS.md is titled "Loops"; docs/AAA-API.md sorts first and has 30
+    // heading hits. A title match is the strongest relevance signal there is and
+    // must not lose to alphabetical order — this is the docs/API.md monopoly that
+    // hid docs/LOOPS.md from every "how do loops work" question.
+    expect($data['results'][0]['path'])->toBe('docs/ZLOOPS.md')
+        ->and(array_column($data['results'], 'path'))->toContain('docs/AAA-API.md');
+});
+
+it('coqui_docs_search ranks a title match above a description mention', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'loops'])->content, true);
+    $paths = array_column($data['results'], 'path');
+
+    // docs/BBB-FLOW.md only mentions loops in its description and sorts earlier.
+    // A title is what a doc IS; a description merely mentions. Collapsing the two
+    // into one tier just moves the alphabetical-order bug down a level.
+    expect(array_search('docs/ZLOOPS.md', $paths, true))
+        ->toBeLessThan(array_search('docs/BBB-FLOW.md', $paths, true));
+});
+
+it('coqui_docs_search keeps heading hits above body hits under the title tier', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $data = json_decode($tool->execute(['query' => 'route7'])->content, true);
+
+    // No title carries "route7", so the tiers below the title tier still have to
+    // order correctly on their own.
+    expect($data['results'][0]['heading'])->toBe('POST /loops/route7')
+        ->and($data['results'][0]['snippet'])->toBe('## POST /loops/route7');
+});
+
+it('coqui_docs_search reports totals before the limit slice', function () {
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $all = json_decode($tool->execute(['query' => 'loops', 'limit' => 50])->content, true);
+    $few = json_decode($tool->execute(['query' => 'loops', 'limit' => 2])->content, true);
+
+    // Ranking changes must not quietly shrink the match set: total_matches counts
+    // every hit, whatever tier it landed in.
+    expect($few['total_matches'])->toBe($all['total_matches'])
+        ->and($few['results'])->toHaveCount(2)
+        ->and($few['truncated'])->toBeTrue();
 });
 
 it('coqui_docs_search is case-insensitive', function () {

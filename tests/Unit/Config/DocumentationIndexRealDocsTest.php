@@ -78,6 +78,28 @@ it('finds a loops-only term in the real docs/LOOPS.md', function () use ($projec
     expect($paths)->toContain('docs/LOOPS.md');
 });
 
+it('surfaces the real docs/LOOPS.md for the bare term "loops"', function () use ($projectRoot) {
+    $toolkit = new \CoquiBot\Coqui\Toolkit\CoquiDocsToolkit(projectRoot: $projectRoot);
+    $tool = null;
+
+    foreach ($toolkit->tools() as $candidate) {
+        if ($candidate->toFunctionSchema()['function']['name'] === 'coqui_docs_search') {
+            $tool = $candidate;
+        }
+    }
+
+    $data = json_decode($tool->execute(['query' => 'loops'])->content, true);
+    $paths = array_column($data['results'], 'path');
+
+    // The on_question test above only gates because API.md cannot match a
+    // loops-only term. "loops" is the question an agent actually asks, and it
+    // returned 20/20 results from docs/API.md — the eight-doc blind spot
+    // re-created at the ranking layer. docs/LOOPS.md is titled "Loops"; nothing
+    // in the corpus is a stronger answer.
+    expect($paths)->toContain('docs/LOOPS.md')
+        ->and($data['results'][0]['path'])->toBe('docs/LOOPS.md');
+});
+
 it('never indexes working artefacts under docs/superpowers', function () use ($projectRoot) {
     $indexed = array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path');
 
