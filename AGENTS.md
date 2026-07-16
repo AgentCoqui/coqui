@@ -198,12 +198,12 @@ Update docs whenever you change:
 
 The file list is **globbed**, not listed: every `docs/*.md` plus `README.md` and `AGENTS.md` is indexed the moment it exists. Per-doc `title` and `description` come from each doc's own YAML frontmatter, falling back to its H1 and first paragraph. There is no allowlist to update — adding a doc is enough.
 
-When you add a doc under `docs/`, give it frontmatter:
+When you add a doc under `docs/`, give it frontmatter. Keep `title` identical to the doc's H1 — the H1 is what the fallback uses, so a divergent title is drift. Double-quote any `description` containing a colon; unquoted, it is invalid YAML for the strict parsers that read these files outside this repo:
 
 ```yaml
 ---
 title: Loops
-description: Loop system: definitions, stages, iteration control, and API endpoints
+description: "Hands-off multi-role iteration cycles: built-in and custom definitions, termination conditions, and API endpoints"
 ---
 ```
 
