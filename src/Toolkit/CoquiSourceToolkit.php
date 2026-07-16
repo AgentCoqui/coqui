@@ -16,7 +16,7 @@ use CoquiBot\Coqui\Config\DocumentationIndex;
 /**
  * Read-only toolkit providing structured access to the Coqui project source code and documentation.
  *
- * Gives the agent self-awareness of its own codebase through seven tools:
+ * Gives the agent self-awareness of its own codebase through eight tools:
  * - coqui_source_map: Returns the structured codebase map (config/source.json)
  * - coqui_read: Reads any file from the project root (read-only, sandboxed)
  * - coqui_list: Lists directory contents in the project
@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Config\DocumentationIndex;
  * - coqui_doc_map: Returns a structured map of documentation sections (config/documentation.json)
  * - coqui_doc_read: Reads specific sections of documentation by heading
  * - coqui_docs_map: Compact documentation discovery — one line per doc, sections on request
+ * - coqui_docs_read: Reads one documentation section by heading; oversized files return their section list
  *
  * All operations are read-only. Writing to project files is not permitted —
  * file writes are restricted to the workspace directory via FilesystemToolkit.
@@ -58,6 +59,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
             $this->docMapTool(),
             $this->docReadTool(),
             $this->docsMapTool(),
+            $this->docsReadTool(),
         ];
     }
 
@@ -442,6 +444,106 @@ final class CoquiSourceToolkit implements ToolkitInterface
         );
     }
 
+    private function docsReadTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'coqui_docs_read',
+            description: 'Read one section of a Coqui documentation file by heading. Omit `section` to read a whole file — for files too large to return, the section list is returned instead so you can pick one.',
+            parameters: [
+                new StringParameter('file', 'Doc path relative to the project root (e.g. "docs/CONFIGURATION.md", "AGENTS.md")', required: true),
+                new StringParameter('section', 'Section heading to extract (case-insensitive, e.g. "model", "mounts"). Omit to read the whole file.', required: false),
+            ],
+            callback: function (array $input): ToolResult {
+                $file = $input['file'] ?? '';
+
+                if ($file === '') {
+                    return ToolResult::error('File path is required');
+                }
+
+                $filePath = $this->resolvePath($file);
+
+                if ($filePath === null) {
+                    return ToolResult::error("Path escapes project root: {$file}");
+                }
+
+                if (!file_exists($filePath) || !is_file($filePath)) {
+                    return ToolResult::error("File not found: {$file}");
+                }
+
+                $section = $input['section'] ?? '';
+
+                if ($section === '') {
+                    return $this->readWholeDoc($file, $filePath);
+                }
+
+                $sectionContent = $this->extractSectionFromIndex($file, $section, $filePath);
+
+                if ($sectionContent !== null) {
+                    return ToolResult::success($sectionContent);
+                }
+
+                $sectionContent = $this->extractSectionFromFile($filePath, $section);
+
+                if ($sectionContent !== null) {
+                    return ToolResult::success($sectionContent);
+                }
+
+                $headings = $this->extractHeadings($filePath);
+
+                if ($headings === []) {
+                    return ToolResult::error("Section '{$section}' not found in {$file}");
+                }
+
+                $closest = $this->findClosestHeading($section, $headings);
+                $msg = "Section '{$section}' not found in {$file}.";
+
+                if ($closest !== null) {
+                    $msg .= " Did you mean: \"{$closest}\"?";
+                }
+
+                return ToolResult::error($msg . ' Available sections: ' . implode(', ', $headings));
+            },
+        );
+    }
+
+    /**
+     * Return a whole doc, or — when it exceeds the read cap — its section list.
+     *
+     * Truncating silently returned ~46% of docs/API.md with no signal that
+     * anything was missing. An honest section list is strictly more useful
+     * than a headless half of a file.
+     */
+    private function readWholeDoc(string $file, string $filePath): ToolResult
+    {
+        $content = file_get_contents($filePath);
+
+        if ($content === false) {
+            return ToolResult::error("Failed to read file: {$file}");
+        }
+
+        if (strlen($content) <= self::MAX_READ_BYTES) {
+            return ToolResult::success($content);
+        }
+
+        $headings = $this->extractHeadings($filePath);
+
+        if ($headings === []) {
+            return ToolResult::error(sprintf(
+                '%s is %d bytes, over the %d byte read limit, and has no headings to select from.',
+                $file,
+                strlen($content),
+                self::MAX_READ_BYTES,
+            ));
+        }
+
+        return ToolResult::success(sprintf(
+            "%s is %d bytes — too large to return whole. Re-read it with a `section` from this list:\n\n%s",
+            $file,
+            strlen($content),
+            implode("\n", array_map(static fn (string $h): string => "- {$h}", $headings)),
+        ));
+    }
+
     // ──────────────────────────────────────────────
     //  Documentation Helpers
     // ──────────────────────────────────────────────
@@ -450,29 +552,19 @@ final class CoquiSourceToolkit implements ToolkitInterface
      * Extract a section using line ranges from the documentation index.
      *
      * Matching priority: exact heading (case-insensitive) → substring match.
+     *
+     * Sourced from DocumentationIndex rather than config/documentation.json so a
+     * fresh checkout — where the generated index does not exist — still gets
+     * index-based line ranges instead of silently losing them.
      */
     private function extractSectionFromIndex(string $file, string $section, string $filePath): ?string
     {
-        if (!file_exists($this->docMapPath)) {
-            return null;
-        }
-
-        $mapContent = file_get_contents($this->docMapPath);
-        if ($mapContent === false) {
-            return null;
-        }
-
-        $map = json_decode($mapContent, true);
-        if (!is_array($map) || !isset($map['files'])) {
-            return null;
-        }
-
         $sectionLower = strtolower($section);
         $fileSections = null;
 
-        foreach ($map['files'] as $entry) {
-            if (($entry['path'] ?? '') === $file) {
-                $fileSections = $entry['sections'] ?? [];
+        foreach ($this->docsIndex->load()['files'] as $entry) {
+            if ($entry['path'] === $file) {
+                $fileSections = $entry['sections'];
                 break;
             }
         }
@@ -483,7 +575,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
 
         // Pass 1: exact match (case-insensitive, backtick-stripped)
         foreach ($fileSections as $sec) {
-            $heading = $sec['heading'] ?? '';
+            $heading = $sec['heading'];
             $headingLower = strtolower($heading);
             $headingStripped = strtolower(trim($heading, '`'));
 
@@ -494,8 +586,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
 
         // Pass 2: substring match (first heading containing the search term)
         foreach ($fileSections as $sec) {
-            $heading = $sec['heading'] ?? '';
-            $headingStripped = strtolower(trim($heading, '`'));
+            $headingStripped = strtolower(trim($sec['heading'], '`'));
 
             if (str_contains($headingStripped, $sectionLower)) {
                 return $this->readSectionLines($sec, $filePath);

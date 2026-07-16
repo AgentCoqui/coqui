@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Config\DocumentationIndex;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 
 // ---------------------------------------------------------------
@@ -99,6 +100,26 @@ The final section.
 MD;
     file_put_contents($this->root . '/docs/CONFIGURATION.md', $docContent);
 
+    // A doc larger than MAX_READ_BYTES, mirroring docs/API.md at ~144 KB.
+    $huge = "# Huge Doc\n\nIntro.\n\n## First Big Section\n\n"
+        . str_repeat("Filler line of prose to exceed the read cap.\n", 2000)
+        . "\n## Second Big Section\n\nTail content.\n";
+    file_put_contents($this->root . '/docs/HUGE.md', $huge);
+
+    // Coqui ships 20 docs whose combined index runs to ~27K tokens. A fixture of
+    // one doc indexes to well under any byte ceiling, which would let a regression
+    // that dumps the whole index pass the ceiling test. Mirror the real scale so
+    // the ceiling actually gates.
+    for ($i = 1; $i <= 8; $i++) {
+        $filler = "# Filler Doc {$i}\n\nDescription of filler doc {$i}.\n";
+
+        for ($s = 1; $s <= 30; $s++) {
+            $filler .= "\n## Filler Doc {$i} Section {$s}\n\nContent for section {$s}.\n";
+        }
+
+        file_put_contents($this->root . "/docs/FILLER{$i}.md", $filler);
+    }
+
     // Generated index for the fixture docs — mirrors what composer regen-docs produces.
     file_put_contents(
         $this->root . '/config/documentation.json',
@@ -141,9 +162,9 @@ afterEach(function () {
 // Tool registration
 // ---------------------------------------------------------------
 
-// coqui_docs_map coexists with the older doc tools until Task 6 retires them.
-test('provides 7 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(7);
+// coqui_docs_map and coqui_docs_read coexist with the older doc tools until Task 6 retires them.
+test('provides 8 tools', function () {
+    expect($this->toolkit->tools())->toHaveCount(8);
 });
 
 test('tool names are correct', function () {
@@ -159,6 +180,7 @@ test('tool names are correct', function () {
     expect($names)->toContain('coqui_doc_map');
     expect($names)->toContain('coqui_doc_read');
     expect($names)->toContain('coqui_docs_map');
+    expect($names)->toContain('coqui_docs_read');
 });
 
 test('guidelines contain COQUI-SOURCE-GUIDELINES tags', function () {
@@ -365,8 +387,8 @@ test('coqui_doc_map returns full index', function () {
     $data = json_decode($result->content, true);
     expect($data)->toHaveKey('version');
     expect($data)->toHaveKey('files');
-    expect($data['files'])->toHaveCount(1);
-    expect($data['files'][0]['path'])->toBe('docs/CONFIGURATION.md');
+    expect($data['files'])->not->toBeEmpty();
+    expect(array_column($data['files'], 'path'))->toContain('docs/CONFIGURATION.md');
 });
 
 test('coqui_doc_map filters by file', function () {
@@ -665,8 +687,15 @@ it('coqui_docs_map returns a compact summary with no arguments', function () {
 it('coqui_docs_map stays under a hard byte ceiling with no arguments', function () {
     $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_map');
 
-    // The full index is ~27K tokens. Discovery must cost ~600, not 27,000.
-    expect(strlen($tool->execute([])->content))->toBeLessThan(8192);
+    $compact = strlen($tool->execute([])->content);
+    $full = strlen((string) json_encode((new DocumentationIndex($this->root))->load()));
+
+    // Measured against the same doc set the tool just read, so the gate holds
+    // whatever the fixture grows into: dumping the index verbatim fails here.
+    expect($full)->toBeGreaterThan(8192)
+        ->and($compact)->toBeLessThan(intdiv($full, 4))
+        // The full index is ~27K tokens. Discovery must cost ~600, not 27,000.
+        ->and($compact)->toBeLessThan(8192);
 });
 
 it('coqui_docs_map returns full sections for a named file', function () {
@@ -700,4 +729,78 @@ it('coqui_docs_map works when config/documentation.json is absent', function () 
     // A fresh checkout has no generated index. Discovery must still work.
     expect($result->status)->toBe(ToolResultStatus::Success)
         ->and(array_column($data['files'], 'path'))->toContain('docs/CONFIGURATION.md');
+});
+
+// ---------------------------------------------------------------
+// coqui_docs_read
+// ---------------------------------------------------------------
+
+it('coqui_docs_read returns a section by exact heading', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Model Configuration']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('Set the model in openclaw.json')
+        ->and($result->content)->not->toContain('Configure shell access');
+});
+
+it('coqui_docs_read matches headings case- and backtick-insensitively', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'shellallowedcommands']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('An array of allowed commands');
+});
+
+it('coqui_docs_read suggests the closest heading when a section is not found', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Model Configurashun']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->toContain('Did you mean')
+        ->and($result->content)->toContain('Model Configuration');
+});
+
+it('coqui_docs_read returns the section list instead of truncating an oversized file', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/HUGE.md']);
+
+    // The old behaviour returned ~46% of docs/API.md with no signal at all.
+    expect($result->content)->not->toContain('truncated at')
+        ->and($result->content)->toContain('First Big Section')
+        ->and($result->content)->toContain('Second Big Section')
+        ->and($result->content)->toContain('section')
+        ->and(strlen($result->content))->toBeLessThan(65536);
+});
+
+it('coqui_docs_read returns a whole small file unchanged', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('# Configuration Guide')
+        ->and($result->content)->toContain('An array of allowed commands');
+});
+
+it('coqui_docs_read falls back to direct parsing when the index is absent', function () {
+    unlink($this->root . '/config/documentation.json');
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => 'docs/CONFIGURATION.md', 'section' => 'Model Configuration']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('Set the model in openclaw.json');
+});
+
+it('coqui_docs_read rejects paths escaping the project root', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_read');
+
+    $result = $tool->execute(['file' => '../../../etc/passwd']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
 });
