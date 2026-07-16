@@ -158,6 +158,7 @@ May be two dispatches (C+B, then A) under one spec.
 2. Frontmatter key names and whether an existing parser can be reused (`SkillParser` already parses SKILL.md frontmatter — check before writing a second one).
 3. Whether `coqui_docs_search` searches section bodies only, or also headings/titles/descriptions (recommend all, ranked heading-first).
 4. Result bound for `coqui_docs_search` (recommend 10–20, explicit, and reported when truncated — never a silent cap).
+5. **Cross-repo risk: the docs website is generated from these files, and its generator is not in this repo** (no in-repo site config; `docs/*.md` is consumed externally). Adding YAML frontmatter to 18 docs may render as literal text, or change page titles, on the published site. **Verify against the website's generator before Part C lands.** If it does not strip frontmatter, fall back to the H1 + first-paragraph derivation (Part C's stated fallback) and skip frontmatter entirely — the glob is the load-bearing half of the fix; frontmatter is the optional half.
 
 ## Build Process
 
