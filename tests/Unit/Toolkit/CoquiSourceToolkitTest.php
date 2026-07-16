@@ -49,7 +49,15 @@ beforeEach(function () {
         ],
     ], JSON_PRETTY_PRINT));
 
-    // Create a doc file with several headings (including H4)
+    // Create a doc file with several headings (including H4).
+    //
+    // The "Shell Configuration" cross-reference under Model Configuration is
+    // load-bearing for the search ranking test: it puts a body occurrence of that
+    // term at a LOWER line number than the heading carrying it, which is the only
+    // shape where rank has to beat line-order. It sits outside the first paragraph
+    // on purpose — DocumentationIndex derives the doc description from that
+    // paragraph, and a description hit ranks every line in the file as a meta hit,
+    // erasing the distinction the test exists to prove.
     mkdir($this->root . '/docs', 0755, true);
     $docContent = <<<'MD'
 # Configuration Guide
@@ -59,6 +67,8 @@ Overview of configuration options.
 ## Model Configuration
 
 Set the model in openclaw.json.
+
+Shell Configuration is covered later in this guide.
 
 ### Provider Setup
 
@@ -836,7 +846,19 @@ it('coqui_docs_search ranks heading matches above body matches', function () {
 
     $data = json_decode($tool->execute(['query' => 'Shell Configuration'])->content, true);
 
-    expect($data['results'][0]['heading'])->toBe('Shell Configuration');
+    // The fixture cross-references "Shell Configuration" from the body of Model
+    // Configuration, above the heading of the same name. Both hits are in one file,
+    // so path cannot break the tie and the body hit has the lower line: only rank
+    // can put the heading first. Assert the shape too — if the fixture ever loses
+    // the earlier body hit, this test silently stops gating anything.
+    $headingHit = $data['results'][0];
+    $bodyHit = $data['results'][1];
+
+    expect($headingHit['heading'])->toBe('Shell Configuration')
+        ->and($headingHit['snippet'])->toBe('## Shell Configuration')
+        ->and($bodyHit['heading'])->toBe('Model Configuration')
+        ->and($bodyHit['line'])->toBeLessThan($headingHit['line'])
+        ->and($bodyHit['path'])->toBe($headingHit['path']);
 });
 
 it('coqui_docs_search is case-insensitive', function () {
@@ -882,6 +904,19 @@ it('coqui_docs_search caps limit at 50', function () {
     $data = json_decode($tool->execute(['query' => 'Filler', 'limit' => 9999])->content, true);
 
     expect($data['results'])->toHaveCount(50);
+});
+
+it('coqui_docs_search clamps a limit below 1 up to a single result', function () {
+    $tool = coquiSourceFindTool(new CoquiSourceToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    $result = $tool->execute(['query' => 'Filler', 'limit' => 0]);
+    $data = json_decode($result->content, true);
+
+    // The schema carries no minimum, so an out-of-range limit reaches the callback.
+    // It must clamp — neither erroring nor falling through to every match.
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($data['results'])->toHaveCount(1)
+        ->and($data['truncated'])->toBeTrue();
 });
 
 it('coqui_docs_search keeps long multibyte lines encodable', function () {
