@@ -387,7 +387,15 @@ test('coqui_doc_map returns full index', function () {
     $data = json_decode($result->content, true);
     expect($data)->toHaveKey('version');
     expect($data)->toHaveKey('files');
-    expect($data['files'])->not->toBeEmpty();
+
+    // The gate: every doc in the index must come back, not just the first. Derived
+    // from the index rather than hardcoded so enriching the fixture cannot silently
+    // reduce this to a membership check.
+    $expected = (new DocumentationIndex($this->root))->load()['files'];
+    expect($expected)->not->toBeEmpty();
+    expect($data['files'])->toHaveCount(count($expected));
+    expect(array_column($data['files'], 'path'))
+        ->toEqualCanonicalizing(array_column($expected, 'path'));
     expect(array_column($data['files'], 'path'))->toContain('docs/CONFIGURATION.md');
 });
 
