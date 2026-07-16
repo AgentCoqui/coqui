@@ -1,3 +1,8 @@
+---
+title: Commands Reference
+description: All REPL slash commands, CLI commands, launcher modes, signal handling, and exit code behavior
+---
+
 # Commands Reference
 
 Coqui provides two interfaces: an interactive **REPL** with slash commands, and a **CLI** with subcommands. This document covers both.

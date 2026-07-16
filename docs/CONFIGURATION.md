@@ -1,3 +1,8 @@
+---
+title: Configuration
+description: openclaw.json schema, agent defaults, model providers, API config, environment overrides, and setup wizard
+---
+
 # Configuration
 
 Coqui uses an `openclaw.json` file as its single source of configuration. This format is fully compatible with the [OpenClaw](https://github.com/openclaw/openclaw) standard, meaning you can use an existing OpenClaw config file with Coqui without any modifications.

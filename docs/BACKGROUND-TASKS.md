@@ -1,3 +1,8 @@
+---
+title: Background Tasks
+description: "Background task system: lifecycle, concurrency, crash recovery, agent tools, REPL commands, and API endpoints"
+---
+
 # Background Tasks
 
 Background tasks are the execution substrate that runs a single unit of agent work in an isolated child process while the main conversation stays responsive. They are **not** something the orchestrator agent creates directly — the LLM has no background-task tools. Instead, background tasks are the shared engine that **loops, schedules, and the `/tasks` HTTP API** all run on.

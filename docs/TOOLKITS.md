@@ -1,3 +1,8 @@
+---
+title: Coqui Toolkits
+description: "Toolkit development guide: anatomy, parameter types, credential management, auto-discovery, testing, and API reference"
+---
+
 # Coqui Toolkits
 
 A toolkit is a group of related tools that extend Coqui's capabilities. Toolkits are Composer packages that implement `ToolkitInterface` — they are auto-discovered at boot, their tools are registered with the agent, and their guidelines are injected into the system prompt.

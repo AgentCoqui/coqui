@@ -1,3 +1,8 @@
+---
+title: Chat Flow
+description: "How context is assembled for a turn: system prompt assembly, history loading, summarization, memory injection, provider payload order, and REPL/API differences"
+---
+
 # Chat Flow
 
 This document explains how Coqui assembles chat context for a single turn, how conversation summaries are created and re-injected, and how that differs between the REPL and API execution paths.

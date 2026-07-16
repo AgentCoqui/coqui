@@ -1,3 +1,8 @@
+---
+title: Data Flow
+description: "How projects, artifacts, and loops fit together: entity relationships, common workflow patterns, session propagation, active project context, and cleanup lifecycle"
+---
+
 # Data Flow
 
 How Projects, Artifacts, and Loops work together to manage complex workflows in Coqui.

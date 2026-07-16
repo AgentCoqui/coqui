@@ -1,3 +1,8 @@
+---
+title: Coqui Features
+description: "High-level overview of all Coqui capabilities: multi-model orchestration, memory, extensibility, scheduling, vision, and more"
+---
+
 # Coqui Features
 
 Coqui is a personal operating system — a lightweight, hackable agent runtime that adapts to how you work. It handles coding, research, automation, and anything else that benefits from persistent AI agents with long-term memory and structured workflows.

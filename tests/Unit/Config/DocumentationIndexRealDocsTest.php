@@ -1,0 +1,69 @@
+<?php
+
+declare(strict_types=1);
+
+use CoquiBot\Coqui\Config\DocumentationIndex;
+
+$projectRoot = dirname(__DIR__, 3);
+
+it('indexes every docs/*.md that exists on disk', function () use ($projectRoot) {
+    $onDisk = array_map(
+        fn (string $path): string => 'docs/' . basename($path),
+        glob($projectRoot . '/docs/*.md') ?: [],
+    );
+    sort($onDisk);
+
+    $indexed = array_values(array_filter(
+        array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path'),
+        fn (string $path): bool => str_starts_with($path, 'docs/'),
+    ));
+    sort($indexed);
+
+    // A doc that exists but is not indexed is invisible to the agent — the exact
+    // regression that hid LOOPS.md and PROFILES.md behind a hardcoded allowlist.
+    expect($indexed)->toBe($onDisk)
+        ->and($indexed)->toHaveCount(18);
+});
+
+it('indexes the docs that the old hardcoded allowlist omitted', function () use ($projectRoot) {
+    $indexed = array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path');
+
+    expect($indexed)
+        ->toContain('docs/LOOPS.md')
+        ->toContain('docs/PROFILES.md')
+        ->toContain('docs/QUESTIONS.md')
+        ->toContain('docs/ARTIFACTS.md')
+        ->toContain('docs/PROJECTS.md')
+        ->toContain('docs/CHAT.md')
+        ->toContain('docs/DATA_FLOW.md')
+        ->toContain('docs/TOOLKIT-EXTENSIBILITY.md');
+});
+
+it('includes README.md and AGENTS.md', function () use ($projectRoot) {
+    $indexed = array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path');
+
+    expect($indexed)->toContain('README.md')->toContain('AGENTS.md');
+});
+
+it('gives every indexed doc a non-empty title and description', function () use ($projectRoot) {
+    foreach ((new DocumentationIndex($projectRoot))->build()['files'] as $file) {
+        expect($file['title'])->not->toBe('', "{$file['path']} has no title")
+            ->and($file['description'])->not->toBe('', "{$file['path']} has no description");
+    }
+});
+
+it('gives every docs/*.md frontmatter-sourced metadata', function () use ($projectRoot) {
+    foreach (glob($projectRoot . '/docs/*.md') ?: [] as $path) {
+        $content = file_get_contents($path);
+
+        expect($content)->toStartWith("---\n", basename($path) . ' is missing frontmatter');
+    }
+});
+
+it('never indexes working artefacts under docs/superpowers', function () use ($projectRoot) {
+    $indexed = array_column((new DocumentationIndex($projectRoot))->build()['files'], 'path');
+
+    foreach ($indexed as $path) {
+        expect($path)->not->toContain('superpowers/');
+    }
+});

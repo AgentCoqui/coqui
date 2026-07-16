@@ -1,3 +1,8 @@
+---
+title: Toolkit REPL Extensibility
+description: "Self-registering REPL slash commands from toolkits: the ReplCommandProvider and ToolkitCommandHandler contracts, discovery, lifecycle, help rules, and available services"
+---
+
 # Toolkit REPL Extensibility
 
 Toolkits can register their own slash commands in the Coqui REPL without modifying core code. This guide explains the contract, lifecycle, and implementation pattern.

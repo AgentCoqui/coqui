@@ -1,3 +1,8 @@
+---
+title: Loops
+description: "Hands-off multi-role iteration cycles: built-in and custom definitions, termination conditions, session context propagation, monitoring, agent tools, REPL commands, and API endpoints"
+---
+
 # Loops
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.

@@ -1,3 +1,8 @@
+---
+title: Testing
+description: Test layout, local commands, coverage workflow, and PCOV/Xdebug setup for Linux and macOS
+---
+
 # Testing
 
 Coqui uses a small number of test layers with different goals:

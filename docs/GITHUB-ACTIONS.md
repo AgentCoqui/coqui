@@ -1,3 +1,8 @@
+---
+title: GitHub Actions CI
+description: CI workflow overview, PHP version matrix, local testing instructions, and troubleshooting
+---
+
 # GitHub Actions CI
 
 Coqui uses GitHub Actions for continuous integration. The workflow runs on every pull request targeting `main` and on direct pushes to `main`, ensuring tests and static analysis pass before code is merged. Coverage is reported on a dedicated lane, but it is not enforced as a merge gate yet.
