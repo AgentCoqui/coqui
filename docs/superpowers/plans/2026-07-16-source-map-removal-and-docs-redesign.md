@@ -675,6 +675,8 @@ Expected: FAIL — the frontmatter test fails for all 18 docs (none have frontma
 
 Prepend a `---` block to each `docs/*.md`, **above the existing H1, leaving the H1 in place**. Reuse the curated `description` text from the old generator allowlist where one exists (`scripts/generate-documentation-index.php:13-24`) — those descriptions are good and must not be lost when the allowlist dies. Write fresh ones for the eight docs the allowlist never covered.
 
+**Quoting rule — follow it exactly.** Any `description` whose text contains a colon **must** be double-quoted. `SkillParser`'s regex would tolerate it unquoted (it splits on the first colon and takes the rest as the value), but `description: Background task system: lifecycle` is invalid YAML for any strict parser, and these files are read by tools outside this repo. Quote defensively; `SkillParser::stripQuotes()` (`:375`) removes the quotes on the way in, so the indexed value is unaffected.
+
 Exact blocks to prepend:
 
 ```yaml
@@ -687,7 +689,7 @@ description: Complete REST API reference with all endpoints, authentication, SSE
 # docs/BACKGROUND-TASKS.md
 ---
 title: Background Tasks
-description: Background task system: lifecycle, concurrency, crash recovery, agent tools, REPL commands, and API endpoints
+description: "Background task system: lifecycle, concurrency, crash recovery, agent tools, REPL commands, and API endpoints"
 ---
 
 # docs/COMMANDS.md
@@ -705,7 +707,7 @@ description: openclaw.json schema, agent defaults, model providers, API config, 
 # docs/FEATURES.md
 ---
 title: Coqui Features
-description: High-level overview of all Coqui capabilities: multi-model orchestration, memory, extensibility, scheduling, vision, and more
+description: "High-level overview of all Coqui capabilities: multi-model orchestration, memory, extensibility, scheduling, vision, and more"
 ---
 
 # docs/GITHUB-ACTIONS.md
@@ -723,7 +725,7 @@ description: Built-in role definitions, access levels, role-to-model mapping, cu
 # docs/SKILLS.md
 ---
 title: Coqui Skills
-description: Skills system: SKILL.md format, creation workflow, discovery, validation, progressive disclosure, and examples
+description: "Skills system: SKILL.md format, creation workflow, discovery, validation, progressive disclosure, and examples"
 ---
 
 # docs/TESTING.md
@@ -735,7 +737,7 @@ description: Test layout, local commands, coverage workflow, and PCOV/Xdebug set
 # docs/TOOLKITS.md
 ---
 title: Coqui Toolkits
-description: Toolkit development guide: anatomy, parameter types, credential management, auto-discovery, testing, and API reference
+description: "Toolkit development guide: anatomy, parameter types, credential management, auto-discovery, testing, and API reference"
 ---
 ```
 
@@ -745,13 +747,13 @@ For the eight docs the allowlist hid, derive the description from each doc's own
 # docs/LOOPS.md
 ---
 title: Loops
-description: Loop system: definitions, stages, iteration control, on_question policy, REPL commands, and API endpoints
+description: "Loop system: definitions, stages, iteration control, on_question policy, REPL commands, and API endpoints"
 ---
 
 # docs/PROFILES.md
 ---
 title: Personality Profiles
-description: Profile system: built-in profiles, tone and behavior shaping, profile files, and selection at runtime
+description: "Profile system: built-in profiles, tone and behavior shaping, profile files, and selection at runtime"
 ---
 
 # docs/QUESTIONS.md
@@ -763,35 +765,37 @@ description: The ask_user tool, question responders, and on_question loop policy
 # docs/ARTIFACTS.md
 ---
 title: Artifacts
-description: Artifact lifecycle: creation, promotion to memory, storage, and usage from agents and the REPL
+description: "Artifact lifecycle: creation, promotion to memory, storage, and usage from agents and the REPL"
 ---
 
 # docs/PROJECTS.md
 ---
 title: Projects
-description: Lean project working scopes: creation, activation, project context, and per-project session isolation
+description: "Lean project working scopes: creation, activation, project context, and per-project session isolation"
 ---
 
 # docs/CHAT.md
 ---
 title: Chat
-description: The chat surface: conversation flow, session handling, and interaction model
+description: "The chat surface: conversation flow, session handling, and interaction model"
 ---
 
 # docs/DATA_FLOW.md
 ---
 title: Data Flow
-description: How a turn moves through Coqui: boot, orchestration, tool execution, storage, and context-window handling
+description: "How a turn moves through Coqui: boot, orchestration, tool execution, storage, and context-window handling"
 ---
 
 # docs/TOOLKIT-EXTENSIBILITY.md
 ---
 title: Toolkit Extensibility
-description: Self-registering REPL commands from toolkits: registration contract, discovery, and command lifecycle
+description: "Self-registering REPL commands from toolkits: registration contract, discovery, and command lifecycle"
 ---
 ```
 
-**Verify each description against the doc's actual content before writing it** — an invented description is exactly the drift this change exists to kill. If a doc's real content contradicts the line above, write what the doc actually says.
+**These eight descriptions are drafted, not verified.** Unlike the ten above — which are lifted verbatim from the old generator's curated allowlist — these were written from filenames and the spec, because no curated description for them has ever existed. **Read each of the eight docs and rewrite its description to match what the doc actually says.** Keep the register of the ten above. An invented description is exactly the drift this whole change exists to kill; do not simply transcribe the drafts.
+
+**Do not add frontmatter to `README.md`.** GitHub renders a README's YAML frontmatter as visible page content, so it would deface the repo's front page. README and AGENTS both fall back to H1 + first paragraph, which is why the fallback exists. `AGENTS.md` may stay frontmatter-free for the same consistency; the Task 2 frontmatter test covers `docs/*.md` only.
 
 - [ ] **Step 4: Rewrite the generator as a wrapper**
 
