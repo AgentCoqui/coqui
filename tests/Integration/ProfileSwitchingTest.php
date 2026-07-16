@@ -24,7 +24,7 @@ beforeEach(function () {
     mkdir($this->workspace, 0755, true);
     file_put_contents($this->workspace . '/.env', '');
 
-    $this->projectRoot = dirname(__DIR__, 3);
+    $this->projectRoot = dirname(__DIR__, 2);
 
     $this->config = OpenClawConfig::fromArray([
         'agents' => [

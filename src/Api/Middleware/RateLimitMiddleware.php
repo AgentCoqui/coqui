@@ -32,7 +32,11 @@ final class RateLimitMiddleware
     public function __construct(
         private readonly int $maxRequests = 30,
         private readonly int $windowSeconds = 60,
-    ) {}
+    ) {
+        if ($maxRequests < 1 || $windowSeconds < 1) {
+            throw new \InvalidArgumentException('maxRequests and windowSeconds must be >= 1.');
+        }
+    }
 
     /**
      * @param callable(ServerRequestInterface): Response $next

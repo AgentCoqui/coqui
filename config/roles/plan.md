@@ -27,7 +27,7 @@ Cycle through these phases based on the task. This is iterative, not linear.
 ### Discovery
 - Use `coqui_source_map` and `coqui_search` to understand the codebase.
 - Read files to trace architecture and conventions.
-- For large tasks, use `start_background_task(role: "explorer")` to investigate subsystems in parallel.
+- For large tasks, use `loop_start` with a goal to drive multi-stage investigation of subsystems.
 
 ### Design
 Draft the plan in the artifact. Reference specific classes, methods, and patterns. Describe changes precisely — which files, which methods, what modifications — without writing code.

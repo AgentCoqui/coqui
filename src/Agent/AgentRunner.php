@@ -34,6 +34,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\AgentTurnRunnerInterface;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
@@ -67,7 +68,7 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
  * Extracted from RunCommand to isolate agent orchestration from
  * the REPL loop and session management concerns.
  */
-final class AgentRunner
+final class AgentRunner implements AgentTurnRunnerInterface
 {
     private readonly ?SkillDiscovery $skillDiscovery;
     private readonly ?RoleDiscovery $roleDiscovery;

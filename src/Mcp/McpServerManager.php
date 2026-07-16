@@ -7,7 +7,6 @@ namespace CoquiBot\Coqui\Mcp;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Tool\Parameter\Parameter;
 use CoquiBot\Coqui\Mcp\Config\EnvResolver;
 use CoquiBot\Coqui\Mcp\Config\McpConfig;
 use CoquiBot\Coqui\Mcp\Exception\McpConnectionException;

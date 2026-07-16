@@ -36,7 +36,7 @@ final class Router
     /**
      * Register a route handler.
      *
-     * @param callable(ServerRequestInterface, array<string, string>): Response $handler
+     * @param callable(ServerRequestInterface, string ...): Response $handler
      */
     public function addRoute(string $method, string $path, callable $handler): void
     {
@@ -60,7 +60,7 @@ final class Router
      * size, and content-type middleware — only the API-key check is lifted, and
      * securing it (signature/HMAC/etc.) is the registrant's responsibility.
      *
-     * @param callable(ServerRequestInterface, array<string, string>): Response $handler
+     * @param callable(ServerRequestInterface, string ...): Response $handler
      */
     public function addPublicRoute(string $method, string $path, callable $handler): void
     {

@@ -14,7 +14,6 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SkillParser;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Exception\SkillNotFoundException;
-use CoquiBot\Coqui\Exception\SkillValidationException;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 
 /**

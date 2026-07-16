@@ -3,6 +3,7 @@
 Coqui uses a small number of test layers with different goals:
 
 - Pest unit tests under `tests/Unit/` cover PHP classes directly.
+- Pest integration tests under `tests/Integration/` exercise cross-component flows (API handlers, loops, profile switching). They run as part of `composer test`.
 - Bash tests under `tests/bash/` cover launcher, installer helper, and other shell-specific behavior.
 - PHPStan runs separately as static analysis and should be treated as part of the test gate.
 
@@ -15,7 +16,10 @@ The current suite is mostly SQLite-backed and filesystem-backed unit testing. Mo
 - `tests/Unit/Config/` — config parsing, guards, discovery, role/toolkit resolution
 - `tests/Unit/Storage/` — SQLite persistence and query behavior
 - `tests/Unit/Toolkit/` and `tests/Unit/Tool/` — tool and toolkit behavior
+- `tests/Integration/` — cross-component flows (API handlers, loops, artifact/memory promotion, profile switching); run by `composer test`
 - `tests/bash/` — launcher, mock-installer, and signal-handling tests
+
+Most integration tests are deterministic (in-memory SQLite). The one exception is `tests/Integration/OllamaDiscoverThenCallTest.php`, which is skipped unless you set `COQUI_OLLAMA_IT=1` with a running Ollama endpoint (optionally `COQUI_OLLAMA_MODEL`); that skip is expected in a normal `composer test` run.
 
 ## Default Commands
 

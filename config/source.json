@@ -1,9 +1,11 @@
 {
-    "description": "Coqui source map — describes every core source file so the agent can understand its own codebase.",
+    "description": "Coqui source map — a selective, load-bearing map of the core source so the agent can navigate its own codebase. Intentionally excludes fine-grained subtrees (src/Renderer/Ansi/*, Stub* test doubles) and minor support/observer/React-provider files; not exhaustive.",
     "version": "1.0.0",
     "layers": {
         "agent": "Agent classes — the orchestrator and child agent implementations",
         "command": "Symfony Console commands — CLI entry points and REPL loop",
+        "api": "HTTP API request handlers and API-server support (routing, middleware, endpoint handlers).",
+        "provider": "LLM provider adapters and provider-selection support.",
         "config": "Configuration, safety, and discovery — workspace management, credential resolution, toolkit discovery",
         "contract": "Interfaces and value objects — the contracts that define extensibility points",
         "exception": "Exceptions — typed runtime failures surfaced across API and REPL boundaries",
@@ -184,6 +186,24 @@
             ]
         },
         {
+            "path": "src/Command/AgentRunnerFactory.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\AgentRunnerFactory",
+            "layer": "command",
+            "description": "Builds an AgentRunner and its dependencies from a booted BootManager. Static factory shared by REPL, API, and turn/task commands.",
+            "methods": [
+                "create(BootManager $boot, string $projectRoot, SessionStorage $storage, ?SplObserver $observer = null, bool $unsafeMode = false, ...): AgentRunner — assembles an AgentRunner from a booted BootManager"
+            ]
+        },
+        {
+            "path": "src/Command/TurnRunCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\TurnRunCommand",
+            "layer": "command",
+            "description": "Runs a single interactive agent turn in an isolated child process (spawned via proc_open) and persists events for SSE streaming.",
+            "methods": [
+                "execute(InputInterface, OutputInterface): int — runs one agent turn in the child process and persists events"
+            ]
+        },
+        {
             "path": "src/Repl/AgentTurnExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnExecutor",
             "layer": "command",
@@ -355,6 +375,48 @@
             "methods": [
                 "handle(SymfonyStyle, string, string, ?string): void — show status or persist a reasoning-effort level for the active model"
             ]
+        },
+        {
+            "path": "src/Contract/BackgroundTaskSummary.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\BackgroundTaskSummary",
+            "layer": "contract",
+            "description": "Immutable snapshot of active background tasks for footer rendering (separates agent vs tool tasks).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/CodeReviewResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CodeReviewResult",
+            "layer": "contract",
+            "description": "Immutable result of a code review cycle returned by CodeReviewCycle::run() (output, verdict, usage).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/DeferredWorkQueue.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\DeferredWorkQueue",
+            "layer": "contract",
+            "description": "Holds cheap in-process closures to run after the stats summary renders.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/LoopParameterDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopParameterDefinition",
+            "layer": "contract",
+            "description": "Declares a template parameter for a loop definition ({{variable}} substitution).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ReviewVerdict.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ReviewVerdict",
+            "layer": "contract",
+            "description": "Enum verdict from an automated code review pass; parses a structured marker from reviewer text.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ToolkitVisibility.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitVisibility",
+            "layer": "contract",
+            "description": "Three-tier visibility enum (Enabled/Stub/Disabled) for toolkits and tools, with ALWAYS_ENABLED / CANNOT_DISABLE protection tiers.",
+            "methods": []
         },
         {
             "path": "src/Contract/ReplCommandProvider.php",
@@ -655,6 +717,46 @@
             "description": "ToolExecutionPolicyInterface implementation. Auto-approves all tool executions except catastrophic blacklist matches. Used when --auto-approve CLI flag is passed. All decisions are logged to the audit_log table with turn_id linkage.",
             "methods": [
                 "shouldExecute(string $toolName, array $arguments): true|string — returns true to allow, or denial reason string. Forwards turnId to logAudit."
+            ]
+        },
+        {
+            "path": "src/Config/BootManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\BootManager",
+            "layer": "config",
+            "description": "Handles the Coqui boot sequence: config loading, workspace init, credential resolution, storage, roles, toolkit discovery, and memory. Extracted from RunCommand.",
+            "methods": [
+                "boot(OutputInterface|SymfonyStyle|null $io = null, ?string $configPath = null, bool $skipMaintenance = false): bool — runs the full boot sequence",
+                "config(): CoquiOpenClawConfig — returns the resolved runtime config"
+            ]
+        },
+        {
+            "path": "src/Config/ConfigManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ConfigManager",
+            "layer": "config",
+            "description": "Single source of truth for openclaw.json — resolves path, loads, saves; seeds from project root/DefaultsLoader on first boot.",
+            "methods": [
+                "load(?string $explicitPath = null): OpenClawConfig — resolves path and loads config, seeding defaults on first boot",
+                "save(array $data): array — persists config data to openclaw.json"
+            ]
+        },
+        {
+            "path": "src/Config/ConfigValidator.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ConfigValidator",
+            "layer": "config",
+            "description": "Validates openclaw.json data; returns a list of human-readable error strings (empty list = valid).",
+            "methods": [
+                "validate(array $data): array — returns a list of error strings (empty = valid)",
+                "isValidModelString(string $model): bool — checks a provider/model string"
+            ]
+        },
+        {
+            "path": "src/Config/ConfigGuard.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ConfigGuard",
+            "layer": "config",
+            "description": "Security guardrails for agent-driven config edits; denies sensitive sections (blacklist, shell allowlist, API keys, workspace path, mounts).",
+            "methods": [
+                "canModify(string $dotKey): bool — whether an agent may write this config key",
+                "denyReason(string $dotKey): ?string — human-readable reason a key is protected, or null"
             ]
         },
         {
@@ -1639,7 +1741,7 @@
             "path": "src/Contract/OutputRendererInterface.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\OutputRendererInterface",
             "layer": "contract",
-            "description": "Interface separating result rendering from agent execution. Implementations render AgentTurnResult to terminal (TerminalRenderer), JSON (JsonRenderer), or nowhere (NullRenderer).",
+            "description": "Interface separating result rendering from agent execution. Implementations render AgentTurnResult to terminal (TerminalRenderer) or JSON (JsonRenderer).",
             "methods": [
                 "render(AgentTurnResult $result): void — render a successful turn result",
                 "renderError(string $message): void — render an error message"
@@ -1684,16 +1786,6 @@
             "methods": [
                 "render(AgentTurnResult $result): void",
                 "renderError(string $message): void"
-            ]
-        },
-        {
-            "path": "src/Renderer/NullRenderer.php",
-            "fqcn": "CoquiBot\\Coqui\\Renderer\\NullRenderer",
-            "layer": "observer",
-            "description": "OutputRendererInterface implementation that discards output. Used in API mode where SSE handles streaming.",
-            "methods": [
-                "render(AgentTurnResult $result): void — no-op",
-                "renderError(string $message): void — no-op"
             ]
         },
         {
@@ -1777,20 +1869,6 @@
             "description": "Immutable value object for prompt-preview budget telemetry. Captures role/model identity, prompt and tool token totals, prompt-section rationale and pinning metadata, toolkit breakdown, serialized applied loading modes, toolkit loading decisions, deferred toolkit metadata, and optional context-window headroom.",
             "methods": [
                 "toArray(): array — serialize prompt-budget telemetry for REPL/API surfaces"
-            ]
-        },
-        {
-            "path": "src/Api/AgentFiberExecutor.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\AgentFiberExecutor",
-            "layer": "agent",
-            "description": "Manages Fiber-based agent execution for the API server. Each prompt runs inside a PHP Fiber. Provides both SSE streaming (execute) and blocking Promise-based execution (executeBlocking) for stream=false mode. After completion, generates a session title via TitleGenerator on the first turn. Error messages are sanitized before reaching clients.",
-            "methods": [
-                "execute(string $sessionId, string $prompt): ThroughStream — runs agent in Fiber, returns SSE stream",
-                "executeBlocking(string $sessionId, string $prompt): PromiseInterface — runs agent in Fiber with NullObserver, resolves with turn result array",
-                "activeCount(): int — number of currently running Fibers",
-                "isActive(string $sessionId): bool — whether a session has an active agent run",
-                "maybeGenerateTitle(string $sessionId, string $prompt, SseObserver $observer): void — generates+stores+streams title on first turn",
-                "maybeGenerateTitleBlocking(string $sessionId, string $prompt): void — blocking title generation for non-SSE mode"
             ]
         },
         {
@@ -2074,19 +2152,10 @@
             ]
         },
         {
-            "path": "src/Api/Handler/SummarizeHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
-            "layer": "command",
-            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via utility model resolution. Queries ArtifactStore to inject workflow context into summarization. Returns summary text, message count, and token metrics.",
-            "methods": [
-                "summarize(request, id): Response — validates session, builds workflow context, summarizes conversation, returns JSON metrics"
-            ]
-        },
-        {
             "path": "src/Api/Handler/BudgetHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\BudgetHandler",
-            "layer": "command",
-            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, recent toolkit loading decisions, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible without exporting the full system prompt.",
+            "layer": "api",
+            "description": "Prompt-budget HTTP endpoint. Returns a JSON PromptBudgetSnapshot: prompt/token totals, context-window headroom, toolkit budget sources, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible over the API. Distinct from the REPL /budget command handler at src/Repl/Handler/BudgetHandler.php.",
             "methods": [
                 "get(request): Response — returns a serialized PromptBudgetSnapshot"
             ]
@@ -2107,6 +2176,36 @@
             "description": "GET /api/v1/server/commands — returns the runtime slash-command catalog that powers REPL help output, grouped by section for API clients and UI surfaces.",
             "methods": [
                 "get(request): Response — returns grouped and flat slash-command metadata"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/ProjectHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ProjectHandler",
+            "layer": "api",
+            "description": "Project discovery/management API endpoints: list, create, get, patch, delete, archive, activate.",
+            "methods": [
+                "list(ServerRequestInterface): Response — GET /api/v1/projects",
+                "create(ServerRequestInterface): Response — POST /api/v1/projects"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/SessionProjectHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionProjectHandler",
+            "layer": "api",
+            "description": "Session-scoped active-project endpoints: GET/PATCH /sessions/{id}/project.",
+            "methods": [
+                "get(ServerRequestInterface, string $id): Response — GET /sessions/{id}/project",
+                "update(ServerRequestInterface, string $id): Response — PATCH /sessions/{id}/project"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/ToolkitHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ToolkitHandler",
+            "layer": "api",
+            "description": "Toolkit visibility management endpoints: list toolkits and set visibility.",
+            "methods": [
+                "list(ServerRequestInterface): Response — list toolkits with visibility state",
+                "setVisibility(ServerRequestInterface): Response — set a toolkit's visibility"
             ]
         },
         {
@@ -3132,18 +3231,6 @@
             ]
         },
         {
-            "path": "src/Api/ScheduleManager.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
-            "layer": "agent",
-            "description": "ReactPHP timer-driven scheduler that evaluates cron schedules on each tick. Queries ready schedules, creates background tasks via SessionStorage, handles one-shot schedule disabling, and tracks task completion status.",
-            "methods": [
-                "tick(): void — evaluate ready schedules and spawn background tasks",
-                "checkCompletedTasks(): void — poll pending tasks and update schedule status",
-                "trigger(string): ?string — force immediate execution of a schedule",
-                "setOnNotify(Closure): void — set callback for scheduler events"
-            ]
-        },
-        {
             "path": "src/Api/Handler/ScheduleHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ScheduleHandler",
             "layer": "agent",
@@ -3237,15 +3324,6 @@
             "methods": [
                 "tools(): array — return all 5 loop tools",
                 "guidelines(): string — dynamic active loop status and definition list"
-            ]
-        },
-        {
-            "path": "src/Utility/SecretMasker.php",
-            "fqcn": "CoquiBot\\Coqui\\Utility\\SecretMasker",
-            "layer": "config",
-            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between.",
-            "methods": [
-                "mask(string, int, int): string — mask a secret, showing prefix/suffix with asterisks"
             ]
         },
         {
