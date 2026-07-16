@@ -61,7 +61,7 @@ it('gives every docs/*.md frontmatter-sourced metadata', function () use ($proje
 });
 
 it('finds a loops-only term in the real docs/LOOPS.md', function () use ($projectRoot) {
-    $toolkit = new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $projectRoot);
+    $toolkit = new \CoquiBot\Coqui\Toolkit\CoquiDocsToolkit(projectRoot: $projectRoot);
     $tool = null;
 
     foreach ($toolkit->tools() as $candidate) {

@@ -38,7 +38,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiDocsToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -316,7 +316,7 @@ final class SpawnAgentTool implements ToolInterface
                     parentSessionId: $this->sessionId,
                     workspacePath: $this->workspacePath,
                 ),
-                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiDocsToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
@@ -330,12 +330,12 @@ final class SpawnAgentTool implements ToolInterface
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
                     scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($this->config),
                 ),
-                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiDocsToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
-                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiDocsToolkit(projectRoot: $this->projectRoot),
             ],
 
             // 'minimal' — no toolkits

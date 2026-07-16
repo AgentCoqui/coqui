@@ -8,61 +8,46 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\DocumentationIndex;
 
 /**
- * Read-only toolkit providing structured access to the Coqui project source code and documentation.
+ * Read-only access to Coqui's own documentation.
  *
- * Gives the agent self-awareness of its own codebase through nine tools:
- * - coqui_source_map: Returns the structured codebase map (config/source.json)
- * - coqui_read: Reads any file from the project root (read-only, sandboxed)
- * - coqui_list: Lists directory contents in the project
- * - coqui_search: Glob-based file search across the project (supports ** recursive)
- * - coqui_doc_map: Returns a structured map of documentation sections (config/documentation.json)
- * - coqui_doc_read: Reads specific sections of documentation by heading
- * - coqui_docs_map: Compact documentation discovery — one line per doc, sections on request
- * - coqui_docs_read: Reads one documentation section by heading; oversized files return their section list
- * - coqui_docs_search: Full-text search across the documentation, ranked heading-first
+ * FileSystemToolkit is sandboxed to the workspace and cannot reach the install
+ * directory, so these three tools are how an agent reaches the docs that ship
+ * with it:
+ * - coqui_docs_map: what documentation exists (compact) and what sections a doc has
+ * - coqui_docs_read: one section of one doc
+ * - coqui_docs_search: full-text search across all docs
  *
- * All operations are read-only. Writing to project files is not permitted —
- * file writes are restricted to the workspace directory via FilesystemToolkit.
+ * Everything served here is generated or curated-and-reviewed. There is no
+ * hand-authored structural map: the 340-entry config/source.json this toolkit
+ * used to serve drifted faster than it could be maintained and was removed.
  */
-final class CoquiSourceToolkit implements ToolkitInterface
+final class CoquiDocsToolkit implements ToolkitInterface
 {
-    private const int MAX_GLOB_RESULTS = 500;
     private const int MAX_READ_BYTES = 65536;
     private const int SEARCH_DEFAULT_LIMIT = 20;
     private const int SEARCH_MAX_LIMIT = 50;
     private const int SEARCH_SNIPPET_CHARS = 200;
 
-    private readonly string $sourceMapPath;
-    private readonly string $docMapPath;
     private readonly string $normalizedRoot;
+
     private readonly DocumentationIndex $docsIndex;
 
     public function __construct(
         private readonly string $projectRoot,
     ) {
-        $root = PathHelper::trimTrailingSlash($this->projectRoot);
-        $this->normalizedRoot = $root;
-        $this->sourceMapPath = $root . '/config/source.json';
-        $this->docMapPath = $root . '/config/documentation.json';
-        $this->docsIndex = new DocumentationIndex($root);
+        $this->normalizedRoot = PathHelper::trimTrailingSlash($this->projectRoot);
+        $this->docsIndex = new DocumentationIndex($this->normalizedRoot);
     }
 
     public function tools(): array
     {
         return [
-            $this->sourceMapTool(),
-            $this->readTool(),
-            $this->listTool(),
-            $this->searchTool(),
-            $this->docMapTool(),
-            $this->docReadTool(),
             $this->docsMapTool(),
             $this->docsReadTool(),
             $this->docsSearchTool(),
@@ -72,271 +57,23 @@ final class CoquiSourceToolkit implements ToolkitInterface
     public function guidelines(): string
     {
         return <<<'GUIDELINES'
-            <COQUI-SOURCE-GUIDELINES>
+            <COQUI-DOCS-GUIDELINES>
             Mode: READ-ONLY
-            These tools provide structured access to the Coqui project source code and documentation.
+            These tools read Coqui's own shipped documentation.
 
-            Source Code:
-            - Start with `coqui_source_map` to understand the codebase structure before reading individual files.
-            - Use `coqui_read` to read specific source files (paths relative to project root).
-            - Use `coqui_list` to explore directory contents.
-            - Use `coqui_search` with glob patterns to find files (e.g. "src/**/*.php", "config/*.json").
+            - Reach for them when asked about Coqui's configuration, commands, features, or usage — the docs answer those better than guessing.
+            - `coqui_docs_search` is the fastest way in when you know roughly what you are looking for. It returns a doc path and heading; pass both to `coqui_docs_read`.
+            - `coqui_docs_map` lists what documentation exists when you do not yet know which doc is relevant.
+            - `coqui_docs_read` retrieves one section. Prefer a section over a whole file.
 
-            Documentation:
-            - Use `coqui_doc_map` to see all available documentation sections and their topics.
-            - Use `coqui_doc_read` to read specific documentation sections by heading (e.g. file: "docs/CONFIGURATION.md", section: "model").
-            - When asked about configuration, features, or usage, check the docs first.
-
-            General:
-            - All operations are read-only — use workspace file tools to write files.
-            - When extending Coqui, study relevant source files first to understand existing patterns.
-            - The source map describes every core file, its class, layer, and key methods.
-            </COQUI-SOURCE-GUIDELINES>
+            Read only what the question needs. These tools are read-only — use the workspace file tools to write.
+            </COQUI-DOCS-GUIDELINES>
             GUIDELINES;
-    }
-
-    // ──────────────────────────────────────────────
-    //  Source Code Tools
-    // ──────────────────────────────────────────────
-
-    private function sourceMapTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_source_map',
-            description: 'Returns the Coqui codebase map (config/source.json) — a structured index of every core source file with descriptions, layers, and key methods. Use this first to understand where to look.',
-            parameters: [
-                new StringParameter('section', 'Optional section to filter: "files", "layers", "externalDependencies". If omitted, returns the full map.', required: false),
-            ],
-            callback: function (array $input): ToolResult {
-                if (!file_exists($this->sourceMapPath)) {
-                    return ToolResult::error('Source map not found at config/source.json');
-                }
-
-                $content = file_get_contents($this->sourceMapPath);
-                if ($content === false) {
-                    return ToolResult::error('Failed to read source map');
-                }
-
-                $data = json_decode($content, true);
-                if (!is_array($data)) {
-                    return ToolResult::error('Failed to parse source map JSON');
-                }
-
-                $section = $input['section'] ?? '';
-                if ($section !== '') {
-                    if (!isset($data[$section])) {
-                        $available = implode(', ', array_keys($data));
-                        return ToolResult::error("Unknown section '{$section}'. Available: {$available}");
-                    }
-
-                    /** @var array<string, mixed> $sectionData */
-                    $sectionData = $data[$section];
-
-                    return ToolResult::json($sectionData);
-                }
-
-                return ToolResult::json($data);
-            },
-        );
-    }
-
-    private function readTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_read',
-            description: 'Read a file from the Coqui project root (read-only). Use for studying source code, configs, or documentation.',
-            parameters: [
-                new StringParameter('path', 'Path to the file relative to project root (e.g. "src/Agent/OrchestratorAgent.php")', required: true),
-            ],
-            callback: function (array $input): ToolResult {
-                $relativePath = $input['path'] ?? '';
-                if ($relativePath === '') {
-                    return ToolResult::error('Path is required');
-                }
-
-                $path = $this->resolvePath($relativePath);
-                if ($path === null) {
-                    return ToolResult::error("Path escapes project root: {$relativePath}");
-                }
-
-                if (!file_exists($path)) {
-                    return ToolResult::error("File not found: {$relativePath}");
-                }
-
-                if (!is_file($path)) {
-                    return ToolResult::error("Not a file: {$relativePath}");
-                }
-
-                $content = file_get_contents($path);
-                if ($content === false) {
-                    return ToolResult::error("Failed to read file: {$relativePath}");
-                }
-
-                // Truncate very large files to prevent context overflow
-                if (strlen($content) > self::MAX_READ_BYTES) {
-                    $content = substr($content, 0, self::MAX_READ_BYTES) . "\n\n[… truncated at " . self::MAX_READ_BYTES . ' bytes]';
-                }
-
-                return ToolResult::success($content);
-            },
-        );
-    }
-
-    private function listTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_list',
-            description: 'List files and directories in the Coqui project (read-only).',
-            parameters: [
-                new StringParameter('path', 'Path to the directory relative to project root', required: false),
-                new BoolParameter('recursive', 'List recursively (default: false)', required: false),
-            ],
-            callback: function (array $input): ToolResult {
-                $relativePath = $input['path'] ?? '.';
-                $recursive = $input['recursive'] ?? false;
-
-                $path = $this->resolvePath($relativePath);
-                if ($path === null) {
-                    return ToolResult::error("Path escapes project root: {$relativePath}");
-                }
-
-                if (!is_dir($path)) {
-                    return ToolResult::error("Directory not found: {$relativePath}");
-                }
-
-                $entries = [];
-
-                if ($recursive) {
-                    $iterator = new \RecursiveIteratorIterator(
-                        new \RecursiveDirectoryIterator($path, \RecursiveDirectoryIterator::SKIP_DOTS),
-                    );
-
-                    foreach ($iterator as $file) {
-                        $relPath = $this->makeRelative($file->getPathname());
-                        if ($relPath === null) {
-                            continue;
-                        }
-
-                        // Skip vendor/ and workspace/ in recursive listings
-                        if (str_starts_with($relPath, 'vendor/') || str_starts_with($relPath, 'workspace/')) {
-                            continue;
-                        }
-
-                        $type = $file->isDir() ? 'd' : 'f';
-                        $entries[] = "[{$type}] {$relPath}";
-                    }
-                } else {
-                    $items = scandir($path);
-                    if ($items === false) {
-                        return ToolResult::error("Failed to list directory: {$relativePath}");
-                    }
-
-                    foreach ($items as $item) {
-                        if ($item === '.' || $item === '..') {
-                            continue;
-                        }
-
-                        $fullPath = "{$path}/{$item}";
-                        $type = is_dir($fullPath) ? 'd' : 'f';
-                        $entries[] = "[{$type}] {$item}";
-                    }
-                }
-
-                if ($entries === []) {
-                    return ToolResult::success("Directory is empty: {$relativePath}");
-                }
-
-                sort($entries);
-
-                return ToolResult::success(implode("\n", $entries));
-            },
-        );
-    }
-
-    private function searchTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_search',
-            description: 'Search for files in the Coqui project matching a glob pattern (read-only). Supports ** for recursive directory traversal.',
-            parameters: [
-                new StringParameter('pattern', 'Glob pattern to match (e.g. "src/**/*.php", "config/*.json", "**/*Test.php")', required: true),
-            ],
-            callback: function (array $input): ToolResult {
-                $pattern = $input['pattern'] ?? '';
-                if ($pattern === '') {
-                    return ToolResult::error('Pattern is required');
-                }
-
-                $pattern = ltrim($pattern, "/\\");
-
-                $matches = str_contains($pattern, '**')
-                    ? $this->resolveGlobRecursive($pattern)
-                    : $this->resolveGlobStandard($pattern);
-
-                if ($matches === []) {
-                    return ToolResult::success("No files found matching: {$pattern}");
-                }
-
-                $relativePaths = [];
-                foreach ($matches as $file) {
-                    $rel = $this->makeRelative($file);
-                    if ($rel !== null) {
-                        $relativePaths[] = $rel;
-                    }
-                }
-
-                sort($relativePaths);
-
-                return ToolResult::success(implode("\n", $relativePaths) . "\n\n[" . count($relativePaths) . ' files found]');
-            },
-        );
     }
 
     // ──────────────────────────────────────────────
     //  Documentation Tools
     // ──────────────────────────────────────────────
-
-    private function docMapTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_doc_map',
-            description: 'Returns a structured map of Coqui documentation sections (config/documentation.json). Shows all available docs with their section headings and descriptions. Use this to discover what documentation is available before reading specific sections.',
-            parameters: [
-                new StringParameter('file', 'Optional: filter to show sections of a specific doc file (e.g. "docs/CONFIGURATION.md"). If omitted, returns the full index.', required: false),
-            ],
-            callback: function (array $input): ToolResult {
-                if (!file_exists($this->docMapPath)) {
-                    return ToolResult::error('Documentation map not found at config/documentation.json');
-                }
-
-                $content = file_get_contents($this->docMapPath);
-                if ($content === false) {
-                    return ToolResult::error('Failed to read documentation map');
-                }
-
-                $file = $input['file'] ?? '';
-                $data = json_decode($content, true);
-                if (!is_array($data) || !isset($data['files'])) {
-                    return ToolResult::error('Failed to parse documentation map JSON');
-                }
-
-                if ($file === '') {
-                    return ToolResult::json($data);
-                }
-
-                foreach ($data['files'] as $entry) {
-                    if (($entry['path'] ?? '') === $file) {
-                        /** @var array<string, mixed> $entry */
-                        return ToolResult::json($entry);
-                    }
-                }
-
-                $available = array_column($data['files'], 'path');
-
-                return ToolResult::error("File not found in documentation index: {$file}. Available: " . implode(', ', $available));
-            },
-        );
-    }
 
     private function docsMapTool(): ToolInterface
     {
@@ -374,78 +111,6 @@ final class CoquiSourceToolkit implements ToolkitInterface
                 $available = implode(', ', array_column($index['files'], 'path'));
 
                 return ToolResult::error("File not found in documentation index: {$file}. Available: {$available}");
-            },
-        );
-    }
-
-    private function docReadTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'coqui_doc_read',
-            description: 'Read specific sections of Coqui documentation by heading. Returns the content of a documentation section without needing to read the entire file. Use coqui_doc_map first to discover available sections.',
-            parameters: [
-                new StringParameter('file', 'Path to the documentation file relative to project root (e.g. "docs/CONFIGURATION.md", "AGENTS.md")', required: true),
-                new StringParameter('section', 'Section heading to extract (case-insensitive, e.g. "model", "mounts", "shellAllowedCommands"). If omitted, returns the full file.', required: false),
-            ],
-            callback: function (array $input): ToolResult {
-                $file = $input['file'] ?? '';
-                if ($file === '') {
-                    return ToolResult::error('File path is required');
-                }
-
-                $filePath = $this->resolvePath($file);
-                if ($filePath === null) {
-                    return ToolResult::error("Path escapes project root: {$file}");
-                }
-
-                if (!file_exists($filePath) || !is_file($filePath)) {
-                    return ToolResult::error("File not found: {$file}");
-                }
-
-                $section = $input['section'] ?? '';
-
-                // No section requested — return the full file (truncated)
-                if ($section === '') {
-                    $content = file_get_contents($filePath);
-                    if ($content === false) {
-                        return ToolResult::error("Failed to read file: {$file}");
-                    }
-
-                    if (strlen($content) > self::MAX_READ_BYTES) {
-                        $content = substr($content, 0, self::MAX_READ_BYTES) . "\n\n[… truncated at " . self::MAX_READ_BYTES . ' bytes]';
-                    }
-
-                    return ToolResult::success($content);
-                }
-
-                // Look up section in the documentation index for line ranges
-                $sectionContent = $this->extractSectionFromIndex($file, $section, $filePath);
-                if ($sectionContent !== null) {
-                    return ToolResult::success($sectionContent);
-                }
-
-                // Fallback: parse the file directly for the heading
-                $sectionContent = $this->extractSectionFromFile($filePath, $section);
-                if ($sectionContent !== null) {
-                    return ToolResult::success($sectionContent);
-                }
-
-                // Section not found — suggest closest match or list available sections
-                $headings = $this->extractHeadings($filePath);
-                if ($headings !== []) {
-                    $closest = $this->findClosestHeading($section, $headings);
-                    $msg = "Section '{$section}' not found in {$file}.";
-
-                    if ($closest !== null) {
-                        $msg .= " Did you mean: \"{$closest}\"?";
-                    }
-
-                    $msg .= ' Available sections: ' . implode(', ', $headings);
-
-                    return ToolResult::error($msg);
-                }
-
-                return ToolResult::error("Section '{$section}' not found in {$file}");
             },
         );
     }
@@ -889,81 +554,6 @@ final class CoquiSourceToolkit implements ToolkitInterface
     }
 
     // ──────────────────────────────────────────────
-    //  Glob Helpers
-    // ──────────────────────────────────────────────
-
-    /**
-     * Standard glob for patterns without **.
-     *
-     * @return list<string>
-     */
-    private function resolveGlobStandard(string $pattern): array
-    {
-        $globPattern = $this->normalizedRoot . '/' . $pattern;
-        $matches = glob($globPattern, GLOB_NOSORT | GLOB_BRACE) ?: [];
-
-        return array_values(array_filter(
-            $matches,
-            fn(string $path): bool => $this->isWithinProjectRoot($path),
-        ));
-    }
-
-    /**
-     * Recursive glob for patterns with **. Uses RecursiveDirectoryIterator + fnmatch().
-     *
-     * Mirrors the pattern from FileSystemOperations::resolveGlobRecursive() for consistency.
-     *
-     * @return list<string>
-     */
-    private function resolveGlobRecursive(string $pattern): array
-    {
-        $realRoot = realpath($this->projectRoot);
-        if ($realRoot === false || !is_dir($realRoot)) {
-            return [];
-        }
-
-        $matches = [];
-
-        try {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator(
-                    $realRoot,
-                    \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::FOLLOW_SYMLINKS,
-                ),
-                \RecursiveIteratorIterator::SELF_FIRST,
-            );
-        } catch (\UnexpectedValueException) {
-            return [];
-        }
-
-        foreach ($iterator as $file) {
-            if (count($matches) >= self::MAX_GLOB_RESULTS) {
-                break;
-            }
-
-            $absolutePath = $file->getPathname();
-            $relativePath = $this->makeRelative($absolutePath);
-
-            if ($relativePath === null) {
-                continue;
-            }
-
-            // Skip heavy directories
-            if (str_starts_with($relativePath, 'vendor/') || str_starts_with($relativePath, 'node_modules/') || str_starts_with($relativePath, 'BUILD/')) {
-                continue;
-            }
-
-            if (fnmatch($pattern, $relativePath, FNM_PATHNAME)) {
-                if ($this->isWithinProjectRoot($absolutePath)) {
-                    $matches[] = $absolutePath;
-                }
-            }
-        }
-
-        return $matches;
-    }
-
-    // ──────────────────────────────────────────────
     //  Path Resolution
     // ──────────────────────────────────────────────
 
@@ -999,44 +589,5 @@ final class CoquiSourceToolkit implements ToolkitInterface
         }
 
         return $realPath;
-    }
-
-    /**
-     * Check if a path falls within the project root.
-     */
-    private function isWithinProjectRoot(string $absolutePath): bool
-    {
-        $realRoot = realpath($this->projectRoot);
-        if ($realRoot === false) {
-            return false;
-        }
-
-        $realPath = realpath($absolutePath);
-        if ($realPath === false) {
-            return false;
-        }
-
-        return str_starts_with($realPath, $realRoot);
-    }
-
-    /**
-     * Convert an absolute path to a path relative to the project root.
-     */
-    private function makeRelative(string $absolutePath): ?string
-    {
-        $realRoot = realpath($this->projectRoot);
-        if ($realRoot === false) {
-            return null;
-        }
-
-        $realPath = realpath($absolutePath) ?: $absolutePath;
-
-        if (!str_starts_with($realPath, $realRoot)) {
-            return null;
-        }
-
-        $relative = substr($realPath, strlen($realRoot));
-
-        return ltrim($relative, '/');
     }
 }

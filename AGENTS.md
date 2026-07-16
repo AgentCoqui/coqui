@@ -192,20 +192,22 @@ Update docs whenever you change:
 - dependency requirements
 - contributor workflow
 
-## Source Map Maintenance
-
-`config/source.json` is the structured codebase map used by Coqui to understand its own source.
-
-Update it when you:
-
-- add a source file,
-- remove or rename a source file,
-- significantly change a class responsibility,
-- add a new important external dependency that agents interact with.
-
 ## Generated: `config/documentation.json`
 
-`config/documentation.json` is a **generated** index (produced by `scripts/generate-documentation-index.php` from the doc headings). It is intentionally **not tracked in git** — never hand-edit or commit it. It is regenerated automatically in the release and Docker builds, so shipped artifacts always carry a current index. Run `composer regen-docs` to refresh it locally. Keeping it out of version control stops parallel doc branches from colliding on a machine-generated file.
+`config/documentation.json` is a **generated** index of the project's documentation, produced by `scripts/generate-documentation-index.php` (a thin wrapper over `src/Config/DocumentationIndex.php`). It is intentionally **not tracked in git** — never hand-edit or commit it.
+
+The file list is **globbed**, not listed: every `docs/*.md` plus `README.md` and `AGENTS.md` is indexed the moment it exists. Per-doc `title` and `description` come from each doc's own YAML frontmatter, falling back to its H1 and first paragraph. There is no allowlist to update — adding a doc is enough.
+
+When you add a doc under `docs/`, give it frontmatter:
+
+```yaml
+---
+title: Loops
+description: Loop system: definitions, stages, iteration control, and API endpoints
+---
+```
+
+The index is regenerated automatically in the release and Docker builds, so shipped artifacts always carry a current one. Run `composer regen-docs` to refresh it locally. `CoquiDocsToolkit` treats it as a cache — when it is absent (a fresh checkout), the index is derived from disk at call time. Keeping it out of version control stops parallel doc branches from colliding on a machine-generated file.
 
 ## Practical Change Checklist
 
@@ -215,8 +217,7 @@ Before finishing a change:
 2. Update the nearest canonical doc.
 3. Update `README.md` only if the change is user-facing.
 4. Update this file only if contributor workflow or project rules changed.
-5. Update `config/source.json` if source structure or responsibility changed.
-6. Run targeted validation.
+5. Run targeted validation.
 
 ## Keep This File Lean
 

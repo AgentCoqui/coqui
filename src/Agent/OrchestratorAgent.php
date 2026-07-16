@@ -55,7 +55,7 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Support\StringHelper;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiDocsToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
@@ -159,7 +159,7 @@ final class OrchestratorAgent extends AbstractAgent
         'MemoryToolkit' => 'memory',
         'ArtifactToolkit' => 'artifacts',
         'ProjectToolkit' => 'projects',
-        'CoquiSourceToolkit' => 'coqui-source',
+        'CoquiDocsToolkit' => 'coqui-docs',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
     ];
@@ -480,8 +480,8 @@ final class OrchestratorAgent extends AbstractAgent
             $this->excludeToolkitPromptSlug('projects');
         }
 
-        // Project source toolkit — read-only access to the Coqui project codebase
-        $this->addSystemToolkit('CoquiSourceToolkit', "Read Coqui's own source", new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+        // Docs toolkit — read-only access to Coqui's own shipped documentation
+        $this->addSystemToolkit('CoquiDocsToolkit', "Read Coqui's own documentation", new CoquiDocsToolkit(projectRoot: $this->projectRoot));
 
         // Schedule toolkit — cron-style task scheduling (top-level agents only)
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {

@@ -62,11 +62,11 @@ test('deny-all with explicit toolkit allow', function () {
 });
 
 test('deny-all with multiple explicit allows', function () {
-    $resolver = new RoleToolkitResolver('-*, +MemoryToolkit, +SkillToolkit, +CoquiSourceToolkit');
+    $resolver = new RoleToolkitResolver('-*, +MemoryToolkit, +SkillToolkit, +CoquiDocsToolkit');
 
     expect($resolver->isToolkitAllowed('MemoryToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('SkillToolkit'))->toBeTrue();
-    expect($resolver->isToolkitAllowed('CoquiSourceToolkit'))->toBeTrue();
+    expect($resolver->isToolkitAllowed('CoquiDocsToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('FilesystemToolkit'))->toBeFalse();
 });
 
