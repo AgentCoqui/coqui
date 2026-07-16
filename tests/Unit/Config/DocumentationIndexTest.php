@@ -76,6 +76,68 @@ it('falls back to the H1 and first paragraph when frontmatter is absent', functi
         ->and($index['files'][0]['description'])->toBe('The first paragraph describes the doc.');
 });
 
+it('skips HTML comments and blocks to reach the first real prose paragraph', function () {
+    // Mirrors README.md, which cannot adopt frontmatter: GitHub renders it as a
+    // visible table on the repo front page.
+    writeDoc($this->root, 'docs/MARKUP.md', <<<'MD'
+        # Markup Doc
+
+        <!-- markdownlint-disable MD033 -->
+        <p align="center">
+            <picture>
+                <img src="logo.webp" alt="Logo" width="256" />
+            </picture>
+        </p>
+
+        <!--
+          A comment that spans
+          several lines.
+        -->
+
+        <p align="center">
+          <a href="https://example.com">Website</a> ·
+          <a href="https://example.com/docs">Docs</a>
+        </p>
+        <!-- markdownlint-enable MD033 -->
+
+        The prose paragraph that actually describes the doc.
+        MD);
+
+    $index = (new DocumentationIndex($this->root))->build();
+
+    expect($index['files'][0]['title'])->toBe('Markup Doc')
+        ->and($index['files'][0]['description'])
+        ->toBe('The prose paragraph that actually describes the doc.');
+});
+
+it('pins the index version so a stale cache shape cannot be mistaken for current', function () {
+    writeDoc($this->root, 'docs/ANY.md', "# Any\n\nText.\n");
+
+    expect((new DocumentationIndex($this->root))->build()['version'])->toBe('1.0.0');
+});
+
+it('load() falls back to build() when the generated index version does not match', function () {
+    writeDoc($this->root, 'docs/ONDISK.md', "# On Disk\n\nText.\n");
+    file_put_contents($this->root . '/config/documentation.json', json_encode([
+        'version' => '2.0.0',
+        'files' => [['path' => 'docs/CACHED.md', 'title' => 'Cached', 'description' => 'From cache', 'sections' => []]],
+    ]));
+
+    $index = (new DocumentationIndex($this->root))->load();
+
+    expect(array_column($index['files'], 'path'))->toBe(['docs/ONDISK.md']);
+});
+
+it('load() falls back to build() when the generated index has no version at all', function () {
+    writeDoc($this->root, 'docs/ONDISK.md', "# On Disk\n\nText.\n");
+    file_put_contents($this->root . '/config/documentation.json', '{"files":[]}');
+
+    $index = (new DocumentationIndex($this->root))->load();
+
+    expect($index['version'])->toBe('1.0.0')
+        ->and(array_column($index['files'], 'path'))->toBe(['docs/ONDISK.md']);
+});
+
 it('strips frontmatter from the H1 fallback search but keeps line numbers absolute', function () {
     writeDoc($this->root, 'docs/FM.md', <<<'MD'
         ---

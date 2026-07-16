@@ -34,10 +34,10 @@ final class DocumentationIndex
     private readonly SkillParser $frontmatter;
 
     public function __construct(
-        private readonly string $projectRoot,
+        string $projectRoot,
         ?SkillParser $frontmatter = null,
     ) {
-        $this->normalizedRoot = PathHelper::trimTrailingSlash($this->projectRoot);
+        $this->normalizedRoot = PathHelper::trimTrailingSlash($projectRoot);
         $this->frontmatter = $frontmatter ?? new SkillParser();
     }
 
@@ -123,22 +123,25 @@ final class DocumentationIndex
             return null;
         }
 
-        $meta = $this->extractMetadata($content, $relativePath);
+        $sections = $this->extractSections($lines);
+        $meta = $this->extractMetadata($content, $sections, $relativePath);
 
         return [
             'path' => $relativePath,
             'title' => $meta['title'],
             'description' => $meta['description'],
-            'sections' => $this->extractSections($lines),
+            'sections' => $sections,
         ];
     }
 
     /**
      * Resolve title/description from frontmatter, falling back to H1 + first paragraph.
      *
+     * @param list<DocSection> $sections
+     *
      * @return array{title: string, description: string}
      */
-    private function extractMetadata(string $content, string $relativePath): array
+    private function extractMetadata(string $content, array $sections, string $relativePath): array
     {
         $body = $content;
         $title = null;
@@ -162,39 +165,80 @@ final class DocumentationIndex
         }
 
         return [
-            'title' => $title ?? $this->firstHeading($body) ?? basename($relativePath),
+            'title' => $title ?? $this->firstH1($sections) ?? basename($relativePath),
             'description' => $description ?? $this->firstParagraph($body) ?? '',
         ];
     }
 
     /**
-     * The first H1 in the body, or null.
+     * The first H1 from the section list, or null.
+     *
+     * Derived from the sections rather than re-scanned, so the title inherits
+     * extractSections' fence awareness instead of needing a second tracker.
+     *
+     * @param list<DocSection> $sections
      */
-    private function firstHeading(string $body): ?string
+    private function firstH1(array $sections): ?string
     {
-        if (preg_match('/^#\s+(.+)$/m', $body, $matches) === 1) {
-            return trim($matches[1], " `");
+        foreach ($sections as $section) {
+            if ($section['level'] === 1) {
+                return trim($section['heading'], " `");
+            }
         }
 
         return null;
     }
 
     /**
-     * The first non-heading, non-fence, non-empty paragraph in the body, or null.
+     * The first prose paragraph in the body, or null.
+     *
+     * Skips headings, fenced code, and HTML. README.md cannot carry frontmatter
+     * — GitHub renders it as a visible table on the repo front page — so this
+     * fallback is the only thing standing between the agent and a description of
+     * "<!-- markdownlint-disable MD033 -->".
      */
     private function firstParagraph(string $body): ?string
     {
         $inCodeBlock = false;
+        $inHtmlComment = false;
+        $inHtmlBlock = false;
 
         foreach (explode("\n", $body) as $line) {
             $trimmed = trim($line);
+
+            // Comments run to their terminator across any number of lines.
+            if ($inHtmlComment) {
+                $inHtmlComment = !str_contains($trimmed, '-->');
+                continue;
+            }
 
             if (str_starts_with($trimmed, '```')) {
                 $inCodeBlock = !$inCodeBlock;
                 continue;
             }
 
-            if ($inCodeBlock || $trimmed === '' || str_starts_with($trimmed, '#')) {
+            if ($inCodeBlock) {
+                continue;
+            }
+
+            // An HTML block closes at the next blank line, so the text inside it
+            // (badge rows, centred link lists) never wins over the real intro.
+            if ($inHtmlBlock) {
+                $inHtmlBlock = $trimmed !== '';
+                continue;
+            }
+
+            if (str_starts_with($trimmed, '<!--')) {
+                $inHtmlComment = !str_contains(substr($trimmed, 4), '-->');
+                continue;
+            }
+
+            if (preg_match('/^<\/?[a-zA-Z]/', $trimmed) === 1) {
+                $inHtmlBlock = true;
+                continue;
+            }
+
+            if ($trimmed === '' || str_starts_with($trimmed, '#')) {
                 continue;
             }
 
@@ -278,6 +322,13 @@ final class DocumentationIndex
         $data = json_decode($content, true);
 
         if (!is_array($data) || !isset($data['files']) || !is_array($data['files'])) {
+            return null;
+        }
+
+        // VERSION is pinned so a cache written against a different index shape is
+        // rebuilt rather than trusted. Without this the cast below is a lie: a
+        // versionless cache flows out typed as DocIndex with no version key.
+        if (!isset($data['version']) || $data['version'] !== self::VERSION) {
             return null;
         }
 
