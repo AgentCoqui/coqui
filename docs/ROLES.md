@@ -1,3 +1,8 @@
+---
+title: Roles Reference
+description: Built-in role definitions, access levels, role-to-model mapping, custom role creation, and frontmatter schema
+---
+
 # Roles Reference
 
 Roles control how Coqui agents behave. Each role defines an access level, a category, available toolkits, iteration budget, and instruction set. The orchestrator delegates work to child agents by spawning them with a specific role.

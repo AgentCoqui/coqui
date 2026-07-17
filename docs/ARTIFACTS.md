@@ -1,3 +1,8 @@
+---
+title: Artifacts
+description: "File-backed durable deliverables: when to create one, updating, ownership-based retention, memory-on-promotion, cross-agent sharing, agent tools, and API endpoints"
+---
+
 # Artifacts
 
 Durable deliverables saved as plain files on disk, with a lightweight database index.

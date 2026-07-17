@@ -197,7 +197,7 @@ final class CoquiDefaults
         'MemoryToolkit',
         'ArtifactToolkit',
         'ProjectToolkit',
-        'CoquiSourceToolkit',
+        'CoquiDocsToolkit',
         'McpToolkit',
         'LoopToolkit',
         'ScheduleToolkit',

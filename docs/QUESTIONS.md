@@ -1,3 +1,8 @@
+---
+title: Structured Questions
+description: "The ask_user tool: answer formats, suggested defaults, per-surface responders, the on_question policy for non-interactive loops, and the audit trail"
+---
+
 # Structured Questions
 
 Structured questions let an agent pause and ask the user **one** well-formed question — with a fixed answer shape and a required best-guess default — and receive a *validated* answer back. They replace ad-hoc "type your answer in free-form prose" prompts with a small, typed contract that every surface (REPL, HTTP API, autonomous loop) understands.

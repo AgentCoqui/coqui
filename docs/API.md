@@ -1,3 +1,8 @@
+---
+title: Coqui HTTP API
+description: Complete REST API reference with all endpoints, authentication, SSE streaming, rate limiting, CORS, and safety documentation
+---
+
 # Coqui HTTP API
 
 > **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Most loop, schedule, and config-editing control flows remain REPL-first or tool-driven, while launcher-managed API restarts are now exposed over HTTP with explicit restart-state metadata.

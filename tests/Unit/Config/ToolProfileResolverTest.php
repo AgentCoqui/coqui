@@ -25,6 +25,11 @@ it('defaults to the lean profile and lean core sets', function () {
     expect($r->coreTools())->toBe(CoquiDefaults::LEAN_CORE_TOOLS);
 });
 
+it('defers the docs toolkit under the lean profile', function () {
+    expect(CoquiDefaults::SYSTEM_TOOLKITS)->toContain('CoquiDocsToolkit')
+        ->and(CoquiDefaults::LEAN_CORE_TOOLKITS)->not->toContain('CoquiDocsToolkit');
+});
+
 it('resolves the full profile to every system toolkit and no tool deferral', function () {
     $r = new ToolProfileResolver(leanConfig(['toolProfile' => 'full']));
 

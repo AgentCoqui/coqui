@@ -131,14 +131,14 @@ name: scoped
 display_name: Scoped
 description: Uses a restricted toolkit set
 access_level: readonly
-toolkits: "-*, +MemoryToolkit, +CoquiSourceToolkit"
+toolkits: "-*, +MemoryToolkit, +CoquiDocsToolkit"
 ---
 Instructions here.
 MD);
 
     $props = $this->parser->readProperties($path);
 
-    expect($props->toolkits)->toBe('-*, +MemoryToolkit, +CoquiSourceToolkit');
+    expect($props->toolkits)->toBe('-*, +MemoryToolkit, +CoquiDocsToolkit');
 });
 
 test('falls back to allowed-tools when toolkits is absent', function () {

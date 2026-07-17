@@ -1,3 +1,8 @@
+---
+title: Projects
+description: "Cross-session working scopes: creation, lifecycle status, active project context injection, workspace directories, agent tools, REPL commands, and cleanup"
+---
+
 # Projects
 
 Lightweight, cross-session working scopes for organizing development work.

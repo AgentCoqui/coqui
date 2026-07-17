@@ -1,3 +1,8 @@
+---
+title: Personality Profiles
+description: "Distinct agent identities sharing one runtime: soul.md and backstory files, preferences and prompt overrides, profile-scoped memory, REPL commands, CLI flag, and API"
+---
+
 # Personality Profiles
 
 Coqui supports multiple personality profiles — distinct identities the agent can adopt while sharing the same underlying memories and toolkits.

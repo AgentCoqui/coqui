@@ -1,3 +1,8 @@
+---
+title: Coqui Skills
+description: "Skills system: SKILL.md format, creation workflow, discovery, validation, progressive disclosure, and examples"
+---
+
 # Coqui Skills
 
 A skill is a reusable set of instructions that teaches Coqui how to handle specific tasks. Skills are plain Markdown files with structured metadata — no code required. When a user's request matches a skill, the agent loads the instructions and follows them.
