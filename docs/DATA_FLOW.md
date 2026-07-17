@@ -11,7 +11,6 @@ How Projects, Artifacts, and Loops work together to manage complex workflows in 
 erDiagram
     Project ||--o{ Artifact : "scopes"
     Project ||--o{ Loop : "auto-created by"
-    Artifact ||--o{ ArtifactVersion : "versioned"
     Loop ||--o{ LoopIteration : "repeats"
     LoopIteration ||--o{ LoopStage : "role sequence"
     Session ||--o{ Artifact : "owns"
@@ -27,31 +26,26 @@ erDiagram
     Artifact {
         text id PK
         text session_id FK
-        text project_id FK
-        text type "code | document | config | plan | data | other"
-        text stage "draft → review → final"
-        int version
-        bool persistent
-    }
-    ArtifactVersion {
-        text id PK
-        text artifact_id FK
-        int version
-        text content
+        text project_id
+        text type "plan | document | code | config | loop_output"
+        text path "canonical file on disk"
+        text content_hash
+        text created_by
+        int version "times updated"
     }
     Loop {
         text id PK
-        text session_id FK
-        text project_id FK
+        text session_id
+        text project_id
         text definition_name
         text goal
-        text status "running | paused | completed | failed | cancelled"
+        text status "running | paused | blocked | completed | failed | cancelled"
     }
     LoopIteration {
         text id PK
         text loop_id FK
         int iteration_number
-        text status
+        text status "pending | running | completed | failed | needs_rework"
     }
     LoopStage {
         text id PK
@@ -59,19 +53,23 @@ erDiagram
         int stage_index
         text role
         text status
+        text verdict
+        text artifact_id
     }
     Session {
         text id PK
-        text active_project_id FK
+        text active_project_id
     }
 ```
+
+Only `PK`/`FK` markers reflect real constraints — see [Foreign Key Map](#foreign-key-map). An artifact's content is **not** in the database: the row is an index and `path` points at the file that holds it. See [ARTIFACTS.md](ARTIFACTS.md).
 
 ## Component Overview
 
 | Component | Purpose | Scope | Storage |
 | --- | --- | --- | --- |
 | [Projects](PROJECTS.md) | Named working scope backed by a workspace directory | Persistent | `projects` table |
-| [Artifacts](ARTIFACTS.md) | Structured outputs (plans, docs, code) — files on disk for filesystem-backed types, indexed in the DB | Session or persistent | `artifacts` table + canonical files under `projects/{dir}/artifacts/` |
+| [Artifacts](ARTIFACTS.md) | Structured outputs (plans, docs, code) — every artifact's content is a file on disk; the DB row is a pure index | Session-owned; survives via a project link | `artifacts` table + files under `artifacts/<type>/<slug>-<shortid>.<ext>` |
 | [Loops](LOOPS.md) | Automated multi-role iteration cycles | Session-linked | `loops` + `loop_iterations` + `loop_stages` tables |
 
 All tables reside in a shared SQLite database (WAL mode) managed by `SessionStorage`.
@@ -81,7 +79,7 @@ All tables reside in a shared SQLite database (WAL mode) managed by `SessionStor
 ```
 Project (active | completed | archived)
 │   working directory: workspace/projects/slug-hash/
-├── Artifact: plan (draft → review → final)
+├── Artifact: plan (file on disk, version counter bumped per update)
 ├── Artifact: loop_output (from loop stage)
 └── Loop (harness: plan → coder → reviewer)
     ├── Iteration 1
@@ -96,14 +94,26 @@ Project (active | completed | archived)
 
 ### Foreign Key Map
 
-| From | Column | To | Cascade |
+Foreign keys are enforced (`PRAGMA foreign_keys=ON`), so the distinction below is
+load-bearing: only the first three links cascade. The rest are plain columns that
+happen to hold an id — nothing at the database level keeps them honest.
+
+**Real `FOREIGN KEY` constraints:**
+
+| From | Column | To | On delete |
 | --- | --- | --- | --- |
-| `artifacts` | `session_id` | `sessions.id` | — |
-| `artifacts` | `project_id` | `projects.id` | — |
-| `loops` | `session_id` | `sessions.id` | — |
-| `loops` | `project_id` | `projects.id` | — |
-| `loop_iterations` | `loop_id` | `loops.id` | CASCADE delete |
-| `loop_stages` | `iteration_id` | `loop_iterations.id` | CASCADE delete |
+| `artifacts` | `session_id` | `sessions.id` | CASCADE |
+| `loop_iterations` | `loop_id` | `loops.id` | CASCADE |
+| `loop_stages` | `iteration_id` | `loop_iterations.id` | CASCADE |
+
+**Logical links — no constraint, no cascade:**
+
+| From | Column | Points at | Consequence |
+| --- | --- | --- | --- |
+| `artifacts` | `project_id` | `projects.id` | Deleting a project leaves its artifacts in place |
+| `loops` | `session_id` | `sessions.id` | Nullable; not cleaned up with the session |
+| `loops` | `project_id` | `projects.id` | Nullable; not cleaned up with the project |
+| `sessions` | `active_project_id` | `projects.id` | Cleared explicitly on project delete — the guarantee is application-level, not a cascade |
 
 ## Common Workflow Patterns
 
@@ -116,19 +126,22 @@ User → /role plan → "Build a caching layer"
                 ↓
     Plan agent: artifact_create(type: "plan")
                 ↓ discovery, design, iteration
-    Plan agent: artifact_stage("review")
-                ↓ user approves
-    Plan agent: artifact_stage("final")
-                ↓
+    Plan agent: artifact_update(id, content)   ← full rewrite, bumps version
+                ↓ user approves in conversation
 User → /role coder
                 ↓
-    Coder agent: reads the finalized plan artifact
+    Coder agent: artifact_get(id) → reads the plan
     Coder agent: implements each step
                 ↓
 User → /role reviewer (or spawn_agent)
                 ↓
     Reviewer: reads artifacts, provides feedback
 ```
+
+Approval is a conversation, not a database state: there is no stage machine and no
+`artifact_stage` tool. `artifact_update` is a full rewrite that bumps a `version`
+counter; per-version snapshots are not kept, since the file's history lives in the
+user's own VCS.
 
 ### 2. Automated Harness Loop
 
@@ -156,11 +169,11 @@ For work spanning multiple sessions, scope it to a project so artifacts persist 
 ```
 Plan agent: project_create(title: "Auth System", slug: "auth")
                 ↓ project becomes active, workspace dir created
-Plan agent: artifact_create(type: "plan", project_id)
-                ↓ iterates on plan
-Plan agent: artifact_stage("final")
+Plan agent: artifact_create(type: "plan")
+                ↓ inherits the active project's link — there is no project_id param
+Plan agent: artifact_update(id, content)
                 ↓
-Coder agent: reads the finalized plan artifact, implements
+Coder agent: artifact_get(id) → reads the plan, implements
                 ↓
 Reviewer agent: reviews artifacts, provides feedback
                 ↓ when work is done
@@ -186,15 +199,22 @@ See [PROJECTS.md](PROJECTS.md#active-project-context) for details.
 
 ## Cleanup Lifecycle
 
-| Component | Cleanup Trigger | Behavior |
+Ownership decides cleanup: an artifact belongs to its session unless a project link
+gives it a longer life.
+
+| Component | Cleanup trigger | Behavior |
 | --- | --- | --- |
-| Session-scoped artifacts | Session deletion | Deleted with session (non-persistent only) |
-| Persistent artifacts | Manual deletion | Survive session deletion when `project_id` is set |
-| Loops | Manual or loop completion | Loop records persist; stages cascade with iterations |
+| Session-only artifacts | Session deletion | Files removed, index rows cascade with the session |
+| Project-linked artifacts | Never automatic | They **block** session deletion — `DELETE /sessions/{id}` returns `409 CONFLICT` rather than removing them |
+| Loops | Manual or loop completion | Loop records persist (no FK on `loops.session_id`); iterations and stages cascade with the loop |
+| Projects | Manual | Deleting a project leaves its artifacts and loops in place — neither link is a constraint |
+
+See [ARTIFACTS.md](ARTIFACTS.md#retention-ownership-based) for the retention rules
+themselves; this table covers only how they play out across components.
 
 ## Further Reading
 
 - [PROJECTS.md](PROJECTS.md) — Projects as working scopes: creation and lifecycle
-- [ARTIFACTS.md](ARTIFACTS.md) — Versioned artifacts: staging, persistence, and plan handoff
+- [ARTIFACTS.md](ARTIFACTS.md) — Artifacts as files: creation, retention, and plan handoff
 - [LOOPS.md](LOOPS.md) — Automated workflows: definitions, termination, and session context
-- [AGENTS.md](../AGENTS.md) — Full architecture reference for all systems
+- [AGENTS.md](../AGENTS.md) — Contributor guide: project model, coding boundaries, and workflow

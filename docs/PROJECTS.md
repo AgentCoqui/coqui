@@ -88,7 +88,7 @@ project_delete(id: "auth", delete_directory: true)
 - `project_delete` always removes the database record and clears any session `active_project_id` references pointing at that project
 - `delete_directory: true` additionally removes `workspace/projects/<directory>` for the project
 - Project directory deletion is optional and intended for full cleanup workflows
-- Deleting a project does not automatically delete related artifacts; clean those up with `artifact_delete(project_id: ...)`
+- Deleting a project does not automatically delete related artifacts; find them with `artifact_list(project_id: ...)` and remove each with `artifact_delete(id: ...)` — there is no bulk delete-by-project
 
 ## Recommended Workflow
 
@@ -96,11 +96,11 @@ For substantial tasks (multi-file features, new systems):
 
 1. **Create a project** — `project_create(title, slug)`
 2. **Switch to it** — `/projects <slug>` (injects context into prompts)
-3. **Create a plan artifact** — `artifact_create(type: "plan", project_id: "...")` with the plan role
+3. **Create a plan artifact** — `artifact_create(type: "plan")` with the plan role; the active project's link is inherited, so there is no `project_id` argument
 4. **Implement** — switch to coder role and work against the project's directory
-5. **Finalize** — `artifact_stage("final")` and mark the project `completed` when done
+5. **Finalize** — mark the project `completed` via `project_update(id, status: "completed")` when done
 
 ## Related
 
 - [DATA_FLOW.md](DATA_FLOW.md) — How all components connect
-- [ARTIFACTS.md](ARTIFACTS.md) — Versioned artifacts and plan handoff
+- [ARTIFACTS.md](ARTIFACTS.md) — Artifacts as files: retention and plan handoff
