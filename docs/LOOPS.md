@@ -22,19 +22,16 @@ The most common pattern is **generator-evaluator**: a plan agent designs, a code
 | `harness` | plan → coder → reviewer | `evaluation_bound` | 5 | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound` | 3 | Research-driven investigation and synthesis |
 | `diverge-converge` | muse → philosopher → plan → coder → reviewer | `evaluation_bound` | 3 | Creative divergence before convergent implementation |
+| `goal-driven` | plan → coder | `goal_bound` | 10 | LLM-evaluated goal completion without a reviewer role |
+| `reflection` | explorer → philosopher → identity-curator → muse | `iteration_bound` | 1 | Periodic self-examination: review recent work, reflect on patterns, record observations |
 
 View available definitions with `loop_definitions` or `GET /api/v1/loops/definitions`.
 
-### Currently non-loading definitions
-
-Two further definition files ship in `config/loops/` but **fail to parse and are silently dropped by discovery**, so they do not appear in `loop_definitions` and cannot be started:
-
-| Definition | Intended termination | Why it fails to load |
-| --- | --- | --- |
-| `goal-driven` | `goal_bound` | Declares `"max_iterations": "{{max_iterations}}"`. Discovery parses the raw file *before* template substitution, and `goal_bound` rejects a non-numeric `max_iterations`. |
-| `reflection` | `iteration_bound` | Declares `"value": {"max_iterations": 1}`, but `iteration_bound` accepts only a scalar, not an object. |
-
-`loop_start(definition: "goal-driven", …)` returns `not found`, and `POST /api/v1/loops` returns 404 for both. Consequently **`goal_bound` has no working built-in as shipped**, so the `goal_bound` example later in this document is currently unreachable. This is a defect in the two JSON files rather than in the loop engine; the surrounding machinery works.
+Definitions are validated at discovery time, before template substitution, so a
+templated `{{...}}` value must still satisfy its termination type's type rules
+when read literally. Use a literal number where a numeric value is required, and
+pass `max_iterations` to `loop_start` (or `POST /api/v1/loops`) to override it
+per run.
 
 ## Starting a Loop
 

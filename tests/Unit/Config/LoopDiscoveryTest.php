@@ -437,3 +437,30 @@ test('isBuiltin distinguishes built-in from custom', function (): void {
     expect($discovery->isBuiltin('my-custom-thing'))->toBeFalse();
 });
 
+
+// ──────────────────────────────────────────────
+//  Shipped built-in definitions
+// ──────────────────────────────────────────────
+
+// Regression guard: discoverAll() validates definitions *before* template
+// substitution and silently swallows the failures, so a shipped definition
+// whose `{{...}}` placeholder violates its termination type's rules simply
+// vanishes from the catalog with no error anywhere. `goal-driven` and
+// `reflection` were both unreachable this way while the suite stayed green —
+// every other test in this file uses synthetic fixtures, so nothing exercised
+// the files we actually ship.
+test('every shipped built-in definition survives discovery', function (): void {
+    $shipped = array_map(
+        static fn (string $path): string => basename($path, '.json'),
+        glob(dirname(__DIR__, 3) . '/config/loops/*.json') ?: [],
+    );
+
+    expect($shipped)->not->toBeEmpty();
+
+    $ws = sys_get_temp_dir() . '/coqui-shipped-loops-' . bin2hex(random_bytes(8));
+    mkdir($ws . '/loops', 0755, true);
+    $discovery = new LoopDiscovery($ws);
+    $discovery->seedBuiltinLoops();
+
+    expect($discovery->availableLoops())->toEqualCanonicalizing($shipped);
+});

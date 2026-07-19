@@ -3,12 +3,6 @@
     "description": "LLM-evaluated goal completion loop. A coder implements towards the goal, and an LLM evaluator judges whether the goal has been achieved after each iteration. Stops when the evaluator determines the goal is met or the iteration limit is reached.",
     "parameters": [
         {
-            "name": "max_iterations",
-            "description": "Maximum number of iterations before the loop stops regardless of goal completion",
-            "required": false,
-            "default": "10"
-        },
-        {
             "name": "goal_evaluation_prompt",
             "description": "Custom evaluation criteria the LLM uses to judge goal achievement",
             "required": false,
@@ -33,7 +27,7 @@
         "type": "goal_bound",
         "value": {
             "goal_prompt": "{{goal_evaluation_prompt}}",
-            "max_iterations": "{{max_iterations}}"
+            "max_iterations": 10
         }
     }
 }
