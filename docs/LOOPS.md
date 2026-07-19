@@ -7,7 +7,7 @@ description: "Hands-off multi-role iteration cycles: built-in and custom definit
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.
 
-> Loop orchestration uses `LoopExecutor` as the shared engine. Loop creation and control remain REPL-first or tool-driven, while the API exposes read-only inspection and advances loop stages asynchronously via `LoopManager` on a 5-second ReactPHP timer.
+> Loop orchestration uses `LoopExecutor` as the shared engine. The API is a full control surface — create, update, delete, pause, resume, stop, retry, skip-stage, and definition CRUD — and it also advances loop stages asynchronously via `LoopManager` on a 5-second ReactPHP timer. Only the conversational entry points are REPL-side.
 
 ## Overview
 
@@ -21,9 +21,20 @@ The most common pattern is **generator-evaluator**: a plan agent designs, a code
 | --- | --- | --- | --- | --- |
 | `harness` | plan → coder → reviewer | `evaluation_bound` | 5 | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound` | 3 | Research-driven investigation and synthesis |
-| `goal-driven` | plan → coder | `goal_bound` | 10 | LLM-evaluated goal completion without a reviewer role |
+| `diverge-converge` | muse → philosopher → plan → coder → reviewer | `evaluation_bound` | 3 | Creative divergence before convergent implementation |
 
 View available definitions with `loop_definitions` or `GET /api/v1/loops/definitions`.
+
+### Currently non-loading definitions
+
+Two further definition files ship in `config/loops/` but **fail to parse and are silently dropped by discovery**, so they do not appear in `loop_definitions` and cannot be started:
+
+| Definition | Intended termination | Why it fails to load |
+| --- | --- | --- |
+| `goal-driven` | `goal_bound` | Declares `"max_iterations": "{{max_iterations}}"`. Discovery parses the raw file *before* template substitution, and `goal_bound` rejects a non-numeric `max_iterations`. |
+| `reflection` | `iteration_bound` | Declares `"value": {"max_iterations": 1}`, but `iteration_bound` accepts only a scalar, not an object. |
+
+`loop_start(definition: "goal-driven", …)` returns `not found`, and `POST /api/v1/loops` returns 404 for both. Consequently **`goal_bound` has no working built-in as shipped**, so the `goal_bound` example later in this document is currently unreachable. This is a defect in the two JSON files rather than in the loop engine; the surrounding machinery works.
 
 ## Starting a Loop
 
@@ -62,7 +73,7 @@ POST /api/v1/loops
 { "definition": "harness", "goal": "Build a Redis caching layer for the API" }
 ```
 
-With no `session_id`, Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project. This restores the same project propagation and cross-stage artifact scoping that chat-started loops get (see [Session Context Propagation](#session-context-propagation)). Headless loops record `metadata.origin: "headless"` (conversation-started loops record `"conversation"`), surfaced on the loop read endpoints as `origin` and a derived `headless` flag — see [docs/API.md](API.md).
+With no `session_id`, Coqui auto-provisions a hidden, loop-owned work-scope session whose active project is the loop's project. This restores the same project propagation and cross-stage artifact scoping that chat-started loops get (see [Session Context Propagation](#session-context-propagation)). Headless loops record `metadata.origin: "headless"` (conversation-started loops record `"conversation"`), surfaced as a derived `headless` flag on the list endpoint (`GET /api/v1/loops`) and as `origin` on the single-loop read endpoints — no endpoint returns both. See [docs/API.md](API.md).
 
 ## How a Loop Executes
 
@@ -116,7 +127,7 @@ This gives each agent full context of where the loop is, what happened before, a
 
 A loop can always be stopped explicitly with `loop_control(action: "stop", id: ...)` regardless of its termination type.
 
-For `evaluation_bound`, the loop's gate stage is judged by `StageGateEvaluator` — a single-shot utility-LLM call that returns a structured verdict (`requirements_met` + `quality_pass` + severity-tagged findings). Approval requires both verdicts true and no Critical/Important findings. When no utility model is configured (or its output is unparseable), the evaluator falls back to keyword matching against the last stage's output — approval signals (`approved`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) cross-checked against rejection signals. For `goal_bound`, the executor asks the utility LLM whether the goal is met; if no utility model is configured, the loop runs to its `max_iterations` limit. See [Stage verdicts and the gate](#stage-verdicts-and-the-gate).
+For `evaluation_bound`, the loop's gate stage is judged by `StageGateEvaluator` — a single-shot utility-LLM call that returns a structured verdict (`requirements_met` + `quality_pass` + severity-tagged findings). Approval requires both verdicts true and no Critical/Important findings. When no utility model is configured (or its output is unparseable), the evaluator falls back to keyword matching against the last stage's output — approval signals (`approved`, `approve`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) cross-checked against rejection signals (`rejected`, `needs changes`, `needs_changes`, `needs work`, `not approved`, `revisions needed`). For `goal_bound`, the executor asks the utility LLM whether the goal is met; if no utility model is configured, the loop runs to its `max_iterations` limit. See [Stage verdicts and the gate](#stage-verdicts-and-the-gate).
 
 ### Stage verdicts and the gate
 
@@ -125,7 +136,7 @@ Every completed stage resolves to a machine-readable `StageStatus`:
 | Status | Meaning |
 | --- | --- |
 | `done` | Stage succeeded; the loop advances |
-| `done_with_concerns` | Gate did not approve, or a soft (Minor) concern was recorded — surfaced, not halting |
+| `done_with_concerns` | Gate evaluation did not approve — surfaced, not halting. Produced only by the gate; a producer stage that merely accrues a soft Minor finding stays `done` |
 | `blocked` | Stage cannot proceed; the loop halts into escalation |
 | `needs_context` | Stage needs more input; the loop halts into escalation |
 
@@ -149,7 +160,7 @@ A producer stage that self-signals `blocked`/`needs_context`, or fails a hard `a
 Two per-role flags add stage-level guarantees:
 
 - `artifact_required: true` — a **hard** gate. If the stage produces no durable artifact, it resolves to `blocked` (a Critical finding) and the loop escalates.
-- `memory_required: true` — a **soft** check. If the stage records no memory pointer, it accrues a single Minor finding (`done_with_concerns`); it never blocks the loop.
+- `memory_required: true` — a **soft** check. If the stage records no memory pointer, it accrues a single Minor finding; the stage status stays `done` and the loop is never blocked.
 
 ### Unblocking
 
@@ -197,12 +208,12 @@ Stage agents receive toolkits based on their role's access level:
 
 | Access Level | Capabilities |
 | --- | --- |
-| `full` (e.g., coder) | Read/write files, full shell, web access, memory, auto-discovered toolkits |
+| `full` (e.g., coder) | Read/write files, full shell, web access, auto-discovered toolkits |
 | `readonly-shell` (e.g., explorer) | Read-only files, restricted shell (grep/find/cat/etc.) |
 | `readonly` (e.g., plan, reviewer) | Read-only files only |
-| `minimal` | No toolkits |
+| `minimal` | No file or shell access |
 
-All access levels receive: `ArtifactToolkit` and `SkillToolkit` (except minimal).
+Access level gates file, shell, web, and auto-discovered toolkits only. Independently of access level — including `minimal` — every stage agent also receives `CoquiDocsToolkit` (unconditional), `MemoryToolkit` (whenever a memory store is configured), `ArtifactToolkit` (storage + session + the `artifacts` profile feature), and the always-loaded `CoquiSkillsTool`. `SkillToolkit` is never constructed for stage agents; it is only wired for `spawn_agent` children.
 
 ### Excluded from Stage Agents
 
@@ -211,7 +222,7 @@ Stage agents intentionally do **not** receive:
 - `LoopToolkit` — prevents infinite loop recursion
 - `ScheduleToolkit` — prevents unbounded schedule creation
 
-This is an architectural constraint, not configuration — these toolkits are only constructed by `OrchestratorAgent` and never passed to loop stages.
+Stage agents run through the same `OrchestratorAgent` class as top-level agents; the exclusion comes from a guard inside it. Both toolkits require `access_level === 'full'` **and** `workScopeSessionId === null`, and a stage agent always has a work-scope session set. `LoopToolkit` additionally requires the `loops` profile feature, and both consult the role's toolkit allowlist — so two of the three gates are configuration.
 
 ## Custom Loop Definitions
 
@@ -298,7 +309,7 @@ Use the loop goal for the main subject matter. Parameters should refine behavior
 loop_status(id: "loop123")
 ```
 
-Returns: current iteration/stage, status, elapsed time, and stage results.
+Returns: `id`, `definition`, `status`, `goal`, `current_iteration`, `max_iterations`, `started_at`, `completed_at`, loop `metadata`, `current_iteration_status`, and a `stages` array. Elapsed time and budget are not included here — they are available from `GET /api/v1/loops/{id}/live`.
 
 ### Observing a Running Loop
 
@@ -376,14 +387,14 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 
 ## Execution Modes
 
-Loops execute differently depending on the interface:
+There is **one** execution mode. Whatever creates a loop, its stages always run as API-driven background tasks:
 
-| Mode | Driver | Behavior |
+| Surface | Role | Behavior |
 | --- | --- | --- |
-| REPL | `LoopExecutor` | Synchronous — spawns `ChildAgent` per stage, attaches observers for live output |
-| API | `LoopManager` | Asynchronous — 5-second ReactPHP timer advances one stage per tick |
+| REPL / agent tools | Create and control loops | `loop_start` and `/loops` require a reachable API server; they never execute stages themselves |
+| API | `LoopManager` | Asynchronous — a 5-second ReactPHP timer advances one stage per tick |
 
-Both modes use `LoopExecutor` as the shared orchestration engine for state management, prompt composition, and termination evaluation.
+`LoopExecutor` is mode-agnostic and handles state management, prompt composition, and termination evaluation. It does **not** execute agents — each stage is dispatched as a background task, and `ChildAgent` is not used anywhere in the loop path.
 
 ## Known Limitations
 

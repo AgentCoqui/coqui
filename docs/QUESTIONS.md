@@ -30,7 +30,7 @@ Each option is either a bare string (used directly as the label) or an object `{
 | `prompt` | string | Yes | The question text. |
 | `format` | enum | Yes | `single_select` \| `multi_select` \| `free_text`. |
 | `options` | array | Selects only | Choices: objects `{"label","description"?}` or bare strings. Omit for `free_text`. |
-| `suggested` | object | Yes | Best-guess default: `{"selected":["label"]}` for selects or `{"text":"..."}` for free-text. Must be a valid answer for the question. |
+| `suggested` | object | Yes (callback-enforced) | Best-guess default: `{"selected":["label"]}` for selects or `{"text":"..."}` for free-text. Must be a valid answer for the question. Declared optional in the parameter schema; the tool callback rejects the call when it is missing. |
 | `header` | string | No | Short chip/label shown above the prompt. |
 | `allow_other` | bool | Selects only | Allow a free-text "Other" answer. |
 
@@ -101,7 +101,7 @@ If no responder is wired for a context, the `ask_user` tool is simply not presen
 
 A loop definition carries an `on_question` field (`block` | `default`, default `block`) that decides what happens when a stage calls `ask_user`. See [LOOPS.md](LOOPS.md) for where it sits in the definition file.
 
-- **`block` (default)** — the stage escalates the whole loop to the `blocked` state, carrying the question as the escalation payload, and the `ask_user` call returns a hard-STOP sentinel (`QUESTION_BLOCKED`) that instructs the agent to stop immediately and take no further action. The stage is later re-run from the start with the operator's answer injected.
+- **`block` (default)** — the stage escalates the whole loop to the `blocked` state, carrying the question as the escalation payload, and the `ask_user` call returns a hard-STOP sentinel (`QUESTION_BLOCKED`) that instructs the agent to stop immediately and take no further action. The whole iteration is later reopened from stage 0 with the operator's answer injected.
 - **`default`** — the agent's `suggested` answer is auto-taken and logged, and the stage continues without interruption.
 
 Role-level `on_question` override is **not** supported in v1 — the policy is set per loop definition only.
@@ -112,7 +112,7 @@ When a `block`-mode loop stage asks a question:
 
 1. The loop transitions to `blocked` (an actionable `loop.blocked` escalation), exactly like the circuit-breaker escalation, so the existing blocked-loop UI and notifications surface it.
 2. An operator lists pending questions with `GET /api/v1/sessions/{id}/questions` and answers with `POST /api/v1/sessions/{id}/questions/{questionId}/answer`.
-3. Answering a block-mode loop question **reopens** the blocked stage (like a retry): the escalation is cleared, the rework breaker is reset, and the answer is staged for one-shot injection into the reopened stage prompt. The stage re-runs from the start.
+3. Answering a block-mode loop question **reopens** the iteration (like a retry): the escalation is cleared, the rework breaker is reset, and the answer is staged for one-shot injection into the reopened stage prompt. Every stage in the current iteration is reset and the iteration re-runs from stage 0 — the same sequence as `LoopHandler::retryIteration` — so completed work from earlier stages in that iteration is discarded too.
 
 Both endpoints are CORE authenticated. Their request/response shapes and status codes are documented in [API.md](API.md).
 
