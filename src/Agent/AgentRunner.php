@@ -130,7 +130,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
     /**
      * Run a single agent turn with a per-turn observer override.
      *
-     * Used by the API server where each request gets its own SseObserver.
+     * Used by the `turn:run` child process, which passes a TurnProcessObserver
+     * that persists turn events for the API's SSE endpoints to poll.
      * Falls through to run() after temporarily overriding the observer.
      *
      * @param string[]|null $filePaths  Optional file paths to attach as context.
@@ -1829,14 +1830,19 @@ final class AgentRunner implements AgentTurnRunnerInterface
      * Auto-summarize conversation history when it approaches the context window limit
      * or the conversation has grown too many turns.
      *
-     * Two independent triggers (whichever fires first):
-     *   1. Token usage exceeds threshold % of context window (default: 50%)
-     *   2. User turn count exceeds turn threshold (default: 20 turns)
+     * `autoSummarizeMode` selects exactly ONE trigger — the modes are mutually
+     * exclusive, not racing:
+     *   - 'token'  — estimated token usage reaches autoSummarizeThreshold (% of window)
+     *   - 'turn'   — user turn count reaches autoSummarizeTurnThreshold
+     *   - 'manual' — pre-turn summarization is disabled entirely; only the
+     *                per-iteration SummarizePruningStrategy safety net remains
      *
-     * Thresholds are configurable via openclaw.json:
-     *   agents.defaults.context.autoSummarizeMode            (default: 'token')
-     *   agents.defaults.context.autoSummarizeThreshold       (default: 70)
-     *   agents.defaults.context.autoSummarizeTurnThreshold   (default: 20)
+     * Configurable via openclaw.json under agents.defaults.context:
+     *   autoSummarizeMode, autoSummarizeThreshold, autoSummarizeTurnThreshold,
+     *   autoSummarizeKeepRecent (clamped to 1-20).
+     *
+     * Defaults live in CoquiDefaults::AUTO_SUMMARIZE_* — deliberately not
+     * restated here, since duplicated values are what let this block drift.
      */
     private function autoSummarizeIfNeeded(
         OrchestratorAgent $agent,

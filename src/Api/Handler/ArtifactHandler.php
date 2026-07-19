@@ -36,7 +36,10 @@ final readonly class ArtifactHandler
     ) {}
 
     /**
-     * GET /api/v1/sessions/{id}/artifacts?type=code&stage=draft
+     * GET /api/v1/sessions/{id}/artifacts?type=code
+     *
+     * `type` is the only supported filter. There is no `stage` parameter —
+     * the stage machine was removed and the column is dormant.
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
