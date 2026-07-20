@@ -587,3 +587,47 @@ function bootstrapRunningLoop(\CoquiBot\Coqui\Storage\LoopStore $loopStore): str
 
     return $loopId;
 }
+
+/**
+ * @param array<string, string> $values
+ */
+function fakeCredentials(array $values): CoquiBot\Coqui\Contract\CredentialResolverInterface
+{
+    return new class($values) implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        /** @param array<string, string> $values */
+        public function __construct(private array $values) {}
+
+        public function get(string $key): ?string
+        {
+            return $this->values[$key] ?? null;
+        }
+
+        public function has(string $key): bool
+        {
+            return isset($this->values[$key]);
+        }
+
+        public function set(string $key, string $value): void
+        {
+            $this->values[$key] = $value;
+        }
+
+        public function delete(string $key): void
+        {
+            unset($this->values[$key]);
+        }
+
+        public function loadIntoProcessEnv(): void {}
+
+        /** @return string[] */
+        public function keys(): array
+        {
+            return array_keys($this->values);
+        }
+
+        public function envPath(): string
+        {
+            return '/tmp/.env';
+        }
+    };
+}
