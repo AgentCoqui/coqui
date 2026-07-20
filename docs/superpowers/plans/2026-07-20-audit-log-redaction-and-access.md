@@ -64,34 +64,34 @@ Also note: `CredentialResolver::keys()` reads only workspace `.env` keys, **not*
 ## Task 1: AuditRedactor
 
 **Files:**
+- Create: `src/Contract/AuditRedactorInterface.php`
 - Create: `src/Storage/AuditRedactor.php`
+- Modify: `tests/Pest.php` (add the `fakeCredentials()` helper)
 - Test: `tests/Unit/Storage/AuditRedactorTest.php`
 
 **Interfaces:**
 - Consumes: `CoquiBot\Coqui\Contract\CredentialResolverInterface` — `get(string $key): ?string`, `keys(): array` (`@return string[]`).
 - Produces:
+  - `CoquiBot\Coqui\Contract\AuditRedactorInterface` — `redact(array $arguments): array`, `redactScalar(?string $value): ?string`
+  - `AuditRedactor implements AuditRedactorInterface`
   - `AuditRedactor::__construct(?CredentialResolverInterface $credentials = null, ?\Closure $toolkitCredentialNames = null, array $extraNames = [])`
-  - `AuditRedactor::redact(array $arguments): array`
-  - `AuditRedactor::redactScalar(?string $value): ?string`
   - `AuditRedactor::PLACEHOLDER` = `'[REDACTED]'`
 
-- [ ] **Step 1: Write the failing test**
+**Why an interface:** `AuditRedactor` is `final` per the global constraints, so Task 2's fail-closed test cannot subclass it to simulate a throwing redactor. `SessionStorage` therefore depends on the interface, and the test supplies a throwing implementation. This matches the existing `src/Contract/` convention (`CredentialResolverInterface`).
 
-Create `tests/Unit/Storage/AuditRedactorTest.php`:
+- [ ] **Step 1: Add the shared test helper**
+
+Append to `tests/Pest.php` (it is autoloaded for the whole suite, so every test
+file can use it — this is required because Task 2's tests run standalone):
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-use CoquiBot\Coqui\Contract\CredentialResolverInterface;
-use CoquiBot\Coqui\Storage\AuditRedactor;
-
-covers(AuditRedactor::class);
-
-function fakeCredentials(array $values): CredentialResolverInterface
+/**
+ * @param array<string, string> $values
+ */
+function fakeCredentials(array $values): CoquiBot\Coqui\Contract\CredentialResolverInterface
 {
-    return new class($values) implements CredentialResolverInterface {
+    return new class($values) implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        /** @param array<string, string> $values */
         public function __construct(private array $values) {}
 
         public function get(string $key): ?string
@@ -116,6 +116,7 @@ function fakeCredentials(array $values): CredentialResolverInterface
 
         public function loadIntoProcessEnv(): void {}
 
+        /** @return string[] */
         public function keys(): array
         {
             return array_keys($this->values);
@@ -127,6 +128,20 @@ function fakeCredentials(array $values): CredentialResolverInterface
         }
     };
 }
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/Unit/Storage/AuditRedactorTest.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use CoquiBot\Coqui\Storage\AuditRedactor;
+
+covers(AuditRedactor::class);
 
 test('L1 redacts a known credential value embedded in an exec command', function (): void {
     $redactor = new AuditRedactor(fakeCredentials(['GITHUB_TOKEN' => 'supersecretvalue123']));
@@ -264,12 +279,42 @@ test('object values are stringified rather than crashing', function (): void {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Unit/Storage/AuditRedactorTest.php`
 Expected: FAIL — `Class "CoquiBot\Coqui\Storage\AuditRedactor" not found`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the interface**
+
+Create `src/Contract/AuditRedactorInterface.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Contract;
+
+/**
+ * Removes secrets from audit-log payloads before they are persisted.
+ *
+ * SessionStorage depends on this contract rather than the concrete redactor so
+ * the fail-closed write path can be tested with a deliberately throwing
+ * implementation.
+ */
+interface AuditRedactorInterface
+{
+    /**
+     * @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    public function redact(array $arguments): array;
+
+    public function redactScalar(?string $value): ?string;
+}
+```
+
+- [ ] **Step 5: Write the implementation**
 
 Create `src/Storage/AuditRedactor.php`:
 
@@ -280,6 +325,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Contract\AuditRedactorInterface;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 
 /**
@@ -296,7 +342,7 @@ use CoquiBot\Coqui\Contract\CredentialResolverInterface;
  * values resolved through the resolver, which re-reads the workspace .env on
  * every lookup for hot-reload.
  */
-final class AuditRedactor
+final class AuditRedactor implements AuditRedactorInterface
 {
     public const string PLACEHOLDER = '[REDACTED]';
 
@@ -481,20 +527,20 @@ final class AuditRedactor
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Unit/Storage/AuditRedactorTest.php`
 Expected: PASS, 12 tests.
 
-- [ ] **Step 5: Static analysis**
+- [ ] **Step 7: Static analysis**
 
-Run: `./vendor/bin/phpstan analyse src/Storage/AuditRedactor.php --memory-limit=512M`
+Run: `./vendor/bin/phpstan analyse src/Contract/AuditRedactorInterface.php src/Storage/AuditRedactor.php --memory-limit=512M`
 Expected: `[OK] No errors`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/Storage/AuditRedactor.php tests/Unit/Storage/AuditRedactorTest.php
+git add src/Contract/AuditRedactorInterface.php src/Storage/AuditRedactor.php tests/Pest.php tests/Unit/Storage/AuditRedactorTest.php
 git commit -m "feat(audit): add AuditRedactor with known-value, key-name, and pattern layers"
 ```
 
@@ -507,8 +553,8 @@ git commit -m "feat(audit): add AuditRedactor with known-value, key-name, and pa
 - Test: `tests/Unit/Storage/AuditLogRedactionTest.php`
 
 **Interfaces:**
-- Consumes: `AuditRedactor::redact()`, `AuditRedactor::redactScalar()`, `AuditRedactor::PLACEHOLDER` from Task 1.
-- Produces: `SessionStorage::__construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null, ?AuditRedactor $auditRedactor = null)`. The third parameter **must** be passed as the named argument `auditRedactor:` at every production call site — Task 3 adds a test that enforces this.
+- Consumes: `AuditRedactorInterface::redact()`, `AuditRedactorInterface::redactScalar()`, `AuditRedactor::PLACEHOLDER` from Task 1.
+- Produces: `SessionStorage::__construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null, ?AuditRedactorInterface $auditRedactor = null)`. The third parameter **must** be passed as the named argument `auditRedactor:` at every production call site — Task 3 adds a test that enforces this.
 
 **This task contains the required negative control.** The first test below fails if the redactor is removed, stubbed, or silently no-ops.
 
@@ -598,7 +644,7 @@ test('logAudit redacts the reason field, which carries question prompts', functi
 test('a throwing redactor is fail-closed and never writes raw arguments', function (): void {
     $dbPath = auditRedactionDb();
 
-    $exploding = new class extends AuditRedactor {
+    $exploding = new class implements CoquiBot\Coqui\Contract\AuditRedactorInterface {
         public function redact(array $arguments): array
         {
             throw new RuntimeException('redaction bug');
@@ -674,8 +720,6 @@ test('storage without a redactor still writes valid rows', function (): void {
 });
 ```
 
-`fakeCredentials()` is defined in `tests/Unit/Storage/AuditRedactorTest.php` from Task 1. Pest loads all test files, so it is available. If PHPStan or a redeclaration error complains, move `fakeCredentials()` into `tests/Pest.php` and delete it from the Task 1 file.
-
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Unit/Storage/AuditLogRedactionTest.php`
@@ -686,18 +730,18 @@ Expected: FAIL — `SessionStorage::__construct()` does not accept `auditRedacto
 In `src/Storage/SessionStorage.php`, add the property near the other private properties and change the constructor at `:37`:
 
 ```php
-    private ?AuditRedactor $auditRedactor;
+    private ?AuditRedactorInterface $auditRedactor;
 
     public function __construct(
         string $dbPath,
         ?\Closure $expectedCoquiProcessChecker = null,
-        ?AuditRedactor $auditRedactor = null,
+        ?AuditRedactorInterface $auditRedactor = null,
     ) {
         $this->auditRedactor = $auditRedactor;
         $this->processChecker = new CoquiProcessChecker($expectedCoquiProcessChecker);
 ```
 
-Leave the rest of the constructor body untouched. `AuditRedactor` is in the same namespace, so no `use` statement is needed.
+Leave the rest of the constructor body untouched. Add `use CoquiBot\Coqui\Contract\AuditRedactorInterface;` to the imports.
 
 - [ ] **Step 4: Apply redaction inside logAudit**
 
