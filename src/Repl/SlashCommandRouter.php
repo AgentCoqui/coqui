@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitReplContext;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
+use CoquiBot\Coqui\Repl\Handler\AuditHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -61,6 +62,7 @@ final class SlashCommandRouter
         private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
         private readonly LoopHandler $loop,
+        private readonly AuditHandler $audit,
         private readonly AgentRunner $agentRunner,
         private readonly PromptInspectionService $promptInspection,
         private readonly OutputInterface $output,
@@ -120,6 +122,7 @@ final class SlashCommandRouter
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
+            '/audit' => $this->handleAudit($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
@@ -395,6 +398,13 @@ final class SlashCommandRouter
     private function handleLoops(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
     {
         $this->loop->handle($io, $arg, $sessionId);
+        return RouteResult::continue();
+    }
+
+    private function handleAudit(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
+    {
+        $this->audit->handle($io, $arg, $sessionId);
+
         return RouteResult::continue();
     }
 

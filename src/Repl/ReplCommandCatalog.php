@@ -38,6 +38,7 @@ final class ReplCommandCatalog
             new ReplCommandSpec('/budget', '/budget [role]', 'Show prompt-budget and toolkit loading decisions.', section: 'Context & Inspection'),
             new ReplCommandSpec('/prompt', '/prompt [export]', 'Show the rendered system prompt, source breakdowns, or export it to the workspace.', firstArguments: ['export'], section: 'Context & Inspection'),
             new ReplCommandSpec('/summarize', '/summarize [recent N|focus topic]', 'Summarize older conversation history to reclaim context.', firstArguments: ['recent', 'focus'], section: 'Context & Inspection'),
+            new ReplCommandSpec('/audit', '/audit [tool|session|action|limit] <value>', 'Browse the audit log of approval decisions and questions.', firstArguments: ['tool', 'session', 'action', 'limit'], section: 'Context & Inspection'),
             new ReplCommandSpec('/tasks', '/tasks [status]', 'List background tasks, optionally filtered by status.', firstArguments: ['all', 'pending', 'running', 'cancelling', 'completed', 'failed', 'cancelled'], section: 'Work Tracking'),
             new ReplCommandSpec('/task', '/task <task-id>', 'Show task status, metadata, and recent events.', section: 'Work Tracking'),
             new ReplCommandSpec('/projects', '/projects [status|slug|clear]', 'List projects, filter by status, switch the active project, or clear it.', firstArguments: ['active', 'completed', 'archived', 'clear'], section: 'Work Tracking'),
