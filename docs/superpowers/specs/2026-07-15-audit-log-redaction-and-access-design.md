@@ -23,9 +23,9 @@ The removed `SecretMasker::mask()` only redacted a single known substring and co
 
 ## Goal
 
-Make the audit log both **safe** (never stores secrets, historically or going forward) and **useful** (readable/queryable), as two coupled parts:
+Make the audit log both **safe** (never stores secrets) and **useful** (readable/queryable), as two parts:
 
-- **Part A — Write-time redaction + legacy migration:** `audit_log` never persists a secret, and existing rows are redacted before any reader exists. This is the security precondition for Part B.
+- **Part A — Write-time redaction:** `audit_log` never persists a secret. This is the security precondition for Part B.
 - **Part B — Read/query access:** one shared query store exposed as a rich authenticated API and a thin REPL `/audit` browser, with no duplicated logic, no TUI, and no export.
 
 ## Part A — Write-Time Redaction
@@ -53,9 +53,11 @@ $safeReason = $this->redactor?->redactScalar($reason) ?? $reason;
 
 Keep the key; replace the value (or, for L1/L3 substring hits, the matched substring) with `"[REDACTED]"`. The trail still shows *that* a secret passed through and *where*, without the value.
 
-### Legacy-row migration (must precede Part B)
+### No legacy-row migration (resolved 2026-07-20)
 
-Existing `audit_log` rows already contain raw secrets. Before any read surface ships, run a **one-time migration** that applies the redactor to the stored `arguments` and `reason` of every historical row (with the same fail-closed behavior and a safe fallback for malformed legacy JSON). This is the single most important sequencing constraint: **exposing an un-migrated audit log would serve historical secrets.**
+An earlier revision of this spec required a one-time pass to redact pre-existing `audit_log` rows, and treated it as the hardest sequencing constraint. **That is dropped.** Coqui is pre-release and not deployed anywhere, so there is no installed base and no historical `audit_log` data to protect — the migration would guard rows that do not exist. No migration, no deprecation path, no legacy support.
+
+This deletes the migration code, its fail-closed handling for malformed legacy JSON, and its test surface.
 
 ### Wiring — all construction paths
 
@@ -81,7 +83,7 @@ Introduce a dedicated **`AuditLogStore`** owning read/query/count. `SessionStora
 - **Bounded** `limit` (e.g. 1–500, default 100) and `offset` (>= 0).
 - **Deterministic** ordering: `ORDER BY created_at DESC, id DESC` (`created_at` is second-resolution `date('c')`, so `id` is the required tiebreaker for stable pagination).
 - Return structured rows **including `turn_id`** (currently omitted by `getAuditLog`'s SELECT at `:1811`) plus a **total count**.
-- **Decode `arguments` into structured JSON** for API responses, with a safe fallback (`{"_raw": "…"}` or similar) for malformed legacy rows.
+- **Decode `arguments` into structured JSON** for API responses, with a safe fallback (`{"_raw": "…"}` or similar) if a row fails to decode. Defensive only — every row is written as valid JSON by the redacted write path, including the fail-closed placeholder.
 - **Add indexes** for the new query paths: `idx_audit_log_created_at` and `idx_audit_log_tool` (`session`/`action`/`turn` already exist at `SessionStorage.php:137-149`).
 
 ### API (authenticated, core — never public)
@@ -100,15 +102,14 @@ All audit routes are normal authenticated routes (API-key), never `addPublicRout
 
 ## Sequencing
 
-1. **Part A first:** redactor + fail-closed write path + **legacy-row migration** (redact all existing rows).
-2. **Part B second, never ahead of A:** `AuditLogStore` + query + API + `/audit`. Exposure must not ship until both the write path and historical rows are redacted.
+1. **Part A first:** redactor + fail-closed write path, wired at all seven construction sites.
+2. **Part B second, never ahead of A:** `AuditLogStore` + query + API + `/audit`. No read surface ships until the write path redacts.
 
 Builds off the post-tech-debt-sweep `main`. May be two SDD dispatches (A then B) under one spec.
 
 ## Testing
 
 - **Redactor:** a case per layer (L1 known-value incl. inside a shell string; L2 nested sensitive key; L3 Bearer/PEM/prefix); golden "`shell` command with inline `Bearer` token"; **`credentials(set)` before the value exists in the resolver**; **credential added after redactor construction** (name-set refresh / resolve-at-write); **`reason` redaction + question-payload minimization**; "no-secret args pass through unchanged"; **redactor/encode failure is fail-closed** (never writes raw).
-- **Legacy migration:** historical rows with raw secrets end up redacted; malformed legacy JSON handled safely.
 - **AuditLogStore/query:** filters, deterministic pagination, invalid/out-of-bounds `limit`/`offset`, `turn_id` present, structured-JSON decode + malformed fallback.
 - **API:** each filter, pagination envelope, `401` without key.
 - **Negative control (required):** at least one test that **fails if the redactor is removed or stubbed out**. Redaction that silently no-ops is indistinguishable from redaction that works, and every row it writes is a secret on disk. Assert on redacted *output*, never on "the code path ran."
@@ -117,6 +118,7 @@ Builds off the post-tech-debt-sweep `main`. May be two SDD dispatches (A then B)
 ## Non-Goals
 
 - **No export surface of any kind (resolved 2026-07-20).** No `/api/v1/audit/export`, no CSV writer, no `?format=` flag, no `Content-Disposition`/streaming path, and correspondingly no export size cap or mandatory time range. The paginated list endpoint already exposes the full trail via `limit`/`offset`, so export was a convenience format rather than a distinct capability. If it is ever wanted, it is a new spec with its own justification — `AuditLogStore` is deliberately **not** shaped to accommodate a future exporter.
+- **No migration, deprecation, or legacy support of any kind.** Coqui is pre-release with no installed base; the codebase moves forward only.
 - No read-time / display-time redaction (write-time only).
 - No retention / TTL / pruning; no destructive audit operations (delete/prune).
 - No fullscreen TUI or bespoke audit screen; no REPL-over-HTTP.
@@ -136,6 +138,6 @@ Update `docs/API.md` (the two new `/audit` endpoints + error/auth shape) and `do
 
 ## Build Process
 
-Brainstorm (done) → this spec → user review → `/prompt-agent-task` → plan (STOP for review) → SDD (Opus implementer + reviewer, two-verdict gate, whole-branch review) → independent verification → merge. Two phases (A then B) under one spec; A (incl. legacy migration) must precede B.
+Brainstorm (done) → this spec → user review → `/prompt-agent-task` → plan (STOP for review) → SDD (Opus implementer + reviewer, two-verdict gate, whole-branch review) → independent verification → merge. Two phases (A then B) under one spec; A must precede B.
 
 Cross-references: tech-debt sweep spec `docs/superpowers/specs/2026-07-15-tech-debt-sweep-design.md`; API-first direction (rich API, thin REPL consumer, shared store — same shape as loops).
