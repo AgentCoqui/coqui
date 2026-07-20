@@ -37,8 +37,8 @@ This means the summary is injected before the preserved recent conversation, and
 | `OrchestratorAgent` | Builds the current system prompt, including memory, project, toolkit, and notification context. |
 | `SessionStorage` | Persists messages and turns, reloads conversation history, and hides summarized rows from future loads. |
 | `ConversationSummarizer` | Replaces older history with a summary while preserving recent user turns and their associated replies. |
-| `MemoryStore` | Stores long-lived memories, including `session_summary` memories created during summarization. |
-| `MemorySummarizer` | Compresses stored memories into `# CORE MEMORIES` for system-prompt injection. |
+| `MemoryStore` | Stores long-lived memories, including facts `MemoryExtractor` captures during summarization. |
+| `MemorySummarizer` | Compresses stored memories into `## BACKGROUND KNOWLEDGE (Core Memories)` for system-prompt injection. |
 | `AbstractAgent` | Builds the final provider payload: system prompt, history, then current input. |
 
 ## End-to-End Turn Flow
@@ -66,7 +66,7 @@ sequenceDiagram
     Runner->>Runner: autoSummarizeIfNeeded(history)
     opt history exceeds threshold
         Runner->>Summ: summarizeAndPersist(sessionId, keepRecentTurns)
-        Summ->>Store: getMessages(sessionId)
+        Summ->>Store: getActiveMessages(sessionId)
         Summ->>Store: loadConversation(sessionId)
         Summ->>Store: markMessagesAsSummarized(old rows)
         Summ->>Store: addMessage(role=user, summary marker message)
@@ -91,12 +91,18 @@ The system prompt is rebuilt for each turn by `OrchestratorAgent::instructions()
 
 `OrchestratorAgent::instructions()` builds the base instruction text in this order:
 
-1. The role prompt or orchestrator prompt.
-2. Deferred toolkit hints.
-3. `# CORE MEMORIES` prepended at the start of the instructions block.
-4. `# KEY CONTEXT REMINDER` appended at the end of the instructions block.
-5. Active project context appended after memory context.
-6. Notification prompt section appended at render time when present.
+1. Profile `soul.md` (identity — first for primacy attention).
+2. Profile `backstory.md`.
+3. Profile `context/*.md`.
+4. `## BACKGROUND KNOWLEDGE (Core Memories)`.
+5. Profile preferences (`## Preferences`).
+6. The body — the role prompt or orchestrator prompt, carrying operational instructions, tools, security, and done rules.
+
+Those parts are joined, and three injections then run over the joined text in order:
+
+7. Deferred toolkit hints.
+8. Active project context.
+9. Notification prompt section at render time when present.
 
 `OrchestratorAgent::getSystemPromptText()` then wraps those instructions with `SystemPrompt` in this order:
 
@@ -108,9 +114,12 @@ Unlike tool schemas, toolkit guidelines are embedded in the system prompt text. 
 
 ```mermaid
 flowchart TD
-    A[Role or Orchestrator Prompt] --> B[Inject Deferred Toolkit Hint]
-    B --> C[Prepend CORE MEMORIES]
-    C --> D[Append KEY CONTEXT REMINDER]
+    A[soul.md] --> B[backstory.md]
+    B --> B2[context/*.md]
+    B2 --> C[BACKGROUND KNOWLEDGE Core Memories]
+    C --> C2[Profile Preferences]
+    C2 --> A2[Body: Role or Orchestrator Prompt]
+    A2 --> D[Inject Deferred Toolkit Hint]
     D --> E[Append ACTIVE PROJECT]
     E --> F[Append Notification Prompt Section]
     F --> G[Wrap as IDENTITY AND PURPOSE]
@@ -138,10 +147,13 @@ That produces a clean separation between the fresh system prompt for the current
 
 ### Trigger
 
-Auto-summarization can fire before the turn when either of these thresholds is crossed:
+Auto-summarization can fire before the turn. `agents.defaults.context.autoSummarizeMode` selects **exactly one** trigger — the modes are mutually exclusive, not racing:
 
-1. Estimated token usage exceeds `agents.defaults.context.autoSummarizeThreshold`.
-2. User-turn count exceeds `agents.defaults.context.autoSummarizeTurnThreshold` when turn-based mode is enabled.
+1. `token` (default) — estimated token usage reaches `agents.defaults.context.autoSummarizeThreshold`.
+2. `turn` — user-turn count reaches `agents.defaults.context.autoSummarizeTurnThreshold`.
+3. `manual` — pre-turn auto-summarization is disabled entirely, leaving only the in-loop fallback below.
+
+`agents.defaults.context.autoSummarizeKeepRecent` controls how many recent user turns are preserved (clamped to 1–20).
 
 There is also an in-loop fallback through `SummarizePruningStrategy` if the conversation still exceeds budget during the agent loop.
 
@@ -167,7 +179,7 @@ After summarization:
 1. Old rows before the cut point are marked `is_summarized = 1`.
 2. A new summary message is persisted as a `user` message.
 3. The summary marker tells the model to treat the summary as background context and focus on the most recent messages below it.
-4. The summary is also stored in `MemoryStore` as a `session_summary` memory entry.
+4. Before compressing, `MemoryExtractor` captures discrete facts from the messages being summarized into the user-facing memory areas. The summary prose itself is not saved as a memory.
 
 ```mermaid
 flowchart TD
@@ -179,7 +191,7 @@ flowchart TD
     F --> G[Create summary marker user message]
     G --> H[Persist summary to messages table]
     D --> I[Mark old rows is_summarized = 1]
-    F --> J[Save session_summary memory]
+    F --> J[Extract memories via MemoryExtractor]
     E --> K[Preserved recent history remains intact]
     H --> L[Next loadConversation returns summary + preserved recent history]
     I --> L
@@ -221,9 +233,11 @@ The persisted summary is inserted into message history as a `user` message. On t
 
 ### Channel 2: Persistent memory
 
-The same summary content is also saved as a `session_summary` memory entry. `MemoryStore::getCoreSummary()` includes active memories across all areas, and `MemorySummarizer::getSummary()` compresses those memories into `# CORE MEMORIES`.
+The summary text itself is **not** saved as a memory. Instead, immediately before compressing, `MemoryExtractor` runs over the messages about to be summarized — the last chance to capture noteworthy facts — and saves discrete memories into the user-facing areas (`identity`, `preferences`, `facts`, `context`, …).
 
-That means a session summary can reappear in the system prompt even before history is injected.
+`MemoryStore::getCoreSummary()` then feeds active memories to `MemorySummarizer::getSummary()`, which compresses them into the `## BACKGROUND KNOWLEDGE (Core Memories)` block. `getCoreSummary()` excludes archived rows, expired rows, `memory_type = 'task'`, and the legacy `session_summary` area, and is capped by an entry limit.
+
+A legacy `session_summary` area exists in the schema but is dormant: nothing writes it, `getCoreSummary()` explicitly filters it out, and `BootManager` deletes the area on every boot. So extracted *facts* can resurface in the system prompt, but the summary prose cannot.
 
 ```mermaid
 sequenceDiagram
@@ -235,12 +249,12 @@ sequenceDiagram
     participant LLM as Provider
 
     Summ->>Store: addMessage(role=user, summary marker)
-    Summ->>Mem: save(area=session_summary, content=summary)
+    Summ->>Mem: MemoryExtractor saves discrete facts
     Agent->>MemSum: getSummary()
     MemSum->>Mem: getCoreSummary()
     Mem-->>MemSum: grouped active memories
-    MemSum-->>Agent: compressed CORE MEMORIES text
-    Agent->>LLM: system prompt includes CORE MEMORIES
+    MemSum-->>Agent: compressed BACKGROUND KNOWLEDGE text
+    Agent->>LLM: system prompt includes BACKGROUND KNOWLEDGE
     Agent->>LLM: history includes summary marker user message
 ```
 
@@ -248,13 +262,13 @@ sequenceDiagram
 
 Even though the ordering is correct, the model can still appear to drift toward older work for a few reasons.
 
-### 1. Summary content can be seen twice
+### 1. Facts extracted from summarized messages can echo the summary
 
-The summary can appear once in history and again through `session_summary` memory injection into `# CORE MEMORIES`.
+The summary prose reaches the model exactly once, via history. But `MemoryExtractor` runs over the same messages just before they are compressed, so facts drawn from that stretch of conversation can also surface in the `## BACKGROUND KNOWLEDGE (Core Memories)` block.
 
-### 2. Memory is injected before history
+### 2. Memory is injected before the body and before history
 
-`# CORE MEMORIES` is prepended to the instruction block before any history is appended. This gives persistent memory a very prominent position in the current turn.
+The `## BACKGROUND KNOWLEDGE (Core Memories)` block sits between the identity sections and the operational body, ahead of any history. This gives persistent memory a prominent position in the current turn.
 
 ### 3. Recent preservation is based on user-turn count
 
@@ -271,7 +285,7 @@ The core chat assembly path is the same in both modes. The differences are mostl
 | Concern | REPL | API |
 | --- | --- | --- |
 | Turn execution | Synchronous in the REPL process | Started by the API server and streamed through SSE |
-| Observer | `TerminalObserver` streams to stdout | `SseObserver` streams structured events |
+| Observer | `EscCancellationObserver` in the REPL (the one-shot `coqui run` CLI uses `TerminalObserver`) | Turns run in a child process observed by `TurnProcessObserver`, which persists events that the SSE endpoints poll and re-emit via `SseStream` |
 | Chat-context assembly | Same `AgentRunner` and `AbstractAgent` flow | Same `AgentRunner` and `AbstractAgent` flow |
 | Background execution | REPL can create tasks but does not execute them | API server executes tasks, loops, and schedules |
 
@@ -300,8 +314,8 @@ The current implementation already guarantees the following:
 
 The following are not ordering bugs, but they can still affect perceived focus:
 
-1. `session_summary` memories can make old summary content reappear in `# CORE MEMORIES`.
-2. Core memory injection happens before history, so memory can be more salient than expected.
+1. Facts extracted from messages just before they are summarized can echo summary content in `## BACKGROUND KNOWLEDGE (Core Memories)`.
+2. Core memory injection happens before the body and before history, so memory can be more salient than expected.
 3. Preserved recency is measured by user messages, not by total conversational detail.
 4. Summaries intentionally compress detail, especially large tool outputs.
 

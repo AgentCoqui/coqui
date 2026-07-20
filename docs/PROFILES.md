@@ -170,10 +170,10 @@ Additional ready-to-copy examples live in `examples/preferences/`, including a s
 
 Supported `prompts` fields:
 
-- **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, and `background_tasks`. These gates now affect real runtime capability exposure, not just prompt text. For example, disabling `projects` removes project tooling and active project prompt context.
+- **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, and `background_tasks`. The first three affect real runtime capability exposure, not just prompt text — for example, disabling `projects` removes project tooling and active project prompt context. `background_tasks` is accepted and validated by the parser but is currently read by nothing, so setting it has no effect.
 - **prompt_sections**: Optional per-section policy. Recognized sections are `soul`, `backstory`, `context`, `base`, `memory`, `preferences`, `tools`, `security`, `done`, `deferred_toolkits`, and `project_context`. Values may be `true`, `false`, or `"stub"`, except `security`, which is pinned and must remain `true`. `project` and `deferred` are accepted as aliases for `project_context` and `deferred_toolkits`. When `tools` is set to `"stub"`, Coqui also condenses non-core runtime tool and toolkit schemas so prompt text and actual tool exposure stay aligned.
 - **roles**: Optional `allow` and `deny` arrays for profile-specific role restrictions. Role names are normalized to lowercase, overlapping entries are reported as invalid, and the restrictions are enforced in REPL role switching, API session/task creation, background task execution, and child-agent delegation.
-- **labels**: Optional display labels for pinned identity content. `labels.backstory` changes the `backstory.md` heading from `## Backstory` to a profile-specific heading such as `## Lore`. `labels.context` changes the `context/*.md` heading from `## Context` to a profile-specific heading such as `## Field Notes`.
+- **labels**: Optional display labels for pinned identity content. `labels.context` changes the `context/*.md` heading from `## Context` to a profile-specific heading such as `## Field Notes`. `labels.backstory` is parsed, validated, and surfaced in the inspection summary, but is **not** applied to prompt rendering: core emits `backstory.md` verbatim and never synthesizes a heading for it, so whatever heading appears comes from inside the file itself.
 
 Validation rules:
 
@@ -184,7 +184,7 @@ Validation rules:
 - `labels.backstory` must be a non-empty string.
 - `labels.context` must be a non-empty string.
 
-Inspection surfaces such as `/prompt` and `GET /api/v1/toolkits?profile=name` expose the effective parsed profile policy so you can confirm which sections were stubbed, which feature families were disabled, and which role restrictions are active.
+`GET /api/v1/toolkits?profile=name` and `GET /api/v1/server/prompt?profile=name` expose the effective parsed profile policy so you can confirm which sections were stubbed, which feature families were disabled, and which role restrictions are active. REPL `/prompt` renders the prompt text with its source and budget breakdown, but does not print the parsed policy.
 
 ### samples/responses/
 
@@ -282,7 +282,7 @@ You can configure a default startup profile in `openclaw.json`:
 }
 ```
 
-When set, Coqui reattaches the current `.coqui-session` if it already belongs to that profile. If not, it resumes the latest session for that profile or creates a new one.
+When set, Coqui resumes the most recently active interactive session belonging to that profile — archiving any older active duplicates — or creates a new one if there is none. `.coqui-session` does not influence that selection; it only determines which status message is printed.
 
 Session selection is SQLite-backed: Coqui picks the most recently active interactive session for the requested scope. Plain startup with no profile uses the unprofiled session pool, while profiled startup uses the matching profile pool. `.coqui-session` remains a convenience pointer for the currently attached session.
 

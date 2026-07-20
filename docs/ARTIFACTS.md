@@ -9,7 +9,7 @@ Durable deliverables saved as plain files on disk, with a lightweight database i
 
 ## Overview
 
-Artifacts are the outputs an agent produces that are worth keeping — plans, documents, code, configs. Every artifact's content is a **file on disk** under `artifacts/<type>/<slug>-<shortid>.<ext>`; the database row is a pure index (`id, session_id, project_id, created_by, title, type, path, content_hash, version, timestamps`). The file is the source of truth, so content history comes from the user's own version control (e.g. `git`). There is no hybrid file/DB engine and no draft→review→final stage machine — those were removed.
+Artifacts are the outputs an agent produces that are worth keeping — plans, documents, code, configs. Every artifact's content is a **file on disk** under `artifacts/<type>/<slug>-<shortid>.<ext>`; the database row is a pure index (`id, session_id, project_id, created_by, title, type, language, path, content_hash, version, metadata, timestamps`). The file is the source of truth, so content history comes from the user's own version control (e.g. `git`). There is no hybrid file/DB engine, and no draft→review→final stage machine: nothing reads or writes a stage. The `stage`, `persistent`, `storage_mode`, and `canonical_path` columns are still declared — SQLite cannot cheaply drop columns — but are dormant and never read by current code.
 
 Referencing an artifact by its path instead of re-pasting its content reduces context-window pressure, which is the point of the subsystem.
 
@@ -34,6 +34,8 @@ artifact_create(
 | `type` | no | `document` | `plan`, `document`, `code`, `config` |
 | `language` | no | — | Language hint for `code`/`config` — sets the file extension |
 
+`artifact_create` accepts exactly those four types. A fifth type, `loop_output`, is created by the loop engine after each stage and can be *filtered* on via `artifact_list`, but it cannot be created directly.
+
 The tool returns the artifact `id` and its file `path`. Project linking is inherited from the active project of the session; there is no per-call `project_id`/`filepath`/`stage` matrix.
 
 Path convention: `artifacts/<type>/<slug>-<shortid>.<ext>`, where the extension derives from the type (`plan`/`document` → `.md`; `code` → the language's extension or `.txt`; `config` → `.json`/`.yaml`/`.txt`). The path is stable for the life of the artifact.
@@ -48,7 +50,7 @@ artifact_update(id: "art123", content: "...")
 
 ## Retention (ownership-based)
 
-- **Project-linked artifacts persist.** An artifact created while a project is active is linked to that project and survives.
+- **Project-linked artifacts persist.** An artifact created while a project is active is linked to that project. Deleting a session that still holds project-linked artifacts is **refused** with a `CONFLICT` — detach them from the project first.
 - **Session-only artifacts are cleaned up when their session is deleted** — their files and index rows are removed.
 
 There is no boot-time cleanup sweep and no `final`-deletes-on-restart footgun.
@@ -56,7 +58,7 @@ There is no boot-time cleanup sweep and no `final`-deletes-on-restart footgun.
 | Scenario | Artifact survives? |
 | --- | --- |
 | Session deleted, no project link | No |
-| Session deleted, project-linked | Yes |
+| Session deleted, project-linked | N/A — the session deletion is refused (`CONFLICT`) while such artifacts exist |
 | Project deleted | Artifact remains (no cascade) |
 
 ### Memory-on-promotion
@@ -87,7 +89,7 @@ Artifacts are shared between agents through session-ID propagation:
 | `artifact_create` | yes | Create a new artifact (writes a file, returns id + path) |
 | `artifact_update` | yes | Full-rewrite content (bumps the version counter) |
 | `artifact_get` | yes | Retrieve content (read from the file) and metadata |
-| `artifact_list` | yes | List artifacts with `type`/`project_id`/`created_after` filters |
+| `artifact_list` | yes | List artifacts with `type`/`project_id`/`created_after` filters (its `type` filter also accepts `loop_output`) |
 | `artifact_delete` | no | Delete an artifact and its file (single `id`) |
 
 There are no stage or bulk-management tools.
@@ -106,7 +108,7 @@ All routes under `/api/v1/sessions/{id}/artifacts`:
 
 ## Pinned recent-artifacts index
 
-Rather than pruning artifact guidance under budget pressure, the when-to-use guidance and a small **recent-artifacts index** are injected as a *pinned* prompt section (the same priority as core memories), so they survive context compaction. The index lists pointers only — `- **title** (id) [type] path — by <created_by>` — capped at ~10 most-recently-updated within scope (narrowed to the active project when one is loaded). It never inlines content; the agent reads or greps the file by path.
+Rather than pruning artifact guidance under budget pressure, the when-to-use guidance and a small **recent-artifacts index** are injected as a *pinned* prompt section (the same priority as core memories), so they survive context compaction. The index lists pointers only — `- **title** (id) [type] path — by <created_by>` — capped at ~10 most-recently-updated within scope. Scope is session→project: with no project loaded it lists the session's own artifacts; when a project is active the scope **widens** to that project's most-recently-updated artifacts across all sessions, since artifacts are shared rather than session-private. It never inlines content; the agent reads or greps the file by path.
 
 ## Related
 

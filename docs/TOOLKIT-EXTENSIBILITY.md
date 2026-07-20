@@ -98,7 +98,7 @@ A readonly services object passed to `handle()`:
 | `$context->workspacePath` | Absolute workspace directory |
 | `$context->activeProfile` | Current personality profile (nullable) |
 | `$context->sessionId` | Current session ID |
-| `$context->createSpinner(string $label)` | Returns an `AnimatedTickCallback` for progress |
+| `$context->createSpinner(string $context = '')` | Returns an `AnimatedTickCallback` for progress |
 | `$context->openDatabase(string $name)` | Returns a WAL-mode SQLite PDO |
 
 ## Minimal Example
@@ -138,7 +138,7 @@ Add `coquibot/coqui` to your toolkit's `composer.json` `require` section for the
 ```json
 {
     "require": {
-        "coquibot/coqui": "^0.12"
+        "coquibot/coqui": "^0.0.28"
     }
 }
 ```

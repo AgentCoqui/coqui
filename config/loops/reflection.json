@@ -43,8 +43,6 @@
     ],
     "termination_condition": {
         "type": "iteration_bound",
-        "value": {
-            "max_iterations": 1
-        }
+        "value": 1
     }
 }
