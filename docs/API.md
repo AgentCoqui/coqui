@@ -3932,6 +3932,80 @@ Returned when:
 - the loop is still `running`
 - the iteration is not in `failed` or `needs_rework`
 
+### Audit Log
+
+The audit log records approval decisions and questions — auto-approvals, approvals, denials, blocks, and structured questions — **not** all tool or API activity. Secrets are redacted at write time before any entry is stored, so both `arguments` and `reason` are already sanitized when read back. These endpoints are read-only; there is no export endpoint.
+
+#### `GET /api/v1/audit`
+
+List audit entries across all sessions, filtered and paginated. Entries are ordered newest first.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `session_id` | string | Filter to a single session |
+| `tool_name` | string | Filter by tool name (exact match) |
+| `action` | string | Filter by action (exact match), e.g. `auto_approved`, `approved`, `denied`, `blocked`, `question_asked`, `question_answered` |
+| `after` | string | Only entries at or after this timestamp (inclusive, `>=`). Any string parseable as a date/time; a non-parseable value returns `400 validation_error` |
+| `before` | string | Only entries strictly before this timestamp (exclusive, `<`). Same parsing and error behavior as `after` |
+| `limit` | integer | Maximum entries to return. Clamped to `1`–`500`; defaults to `100` |
+| `offset` | integer | Number of entries to skip; floored at `0`; defaults to `0` |
+
+**Response `200`**
+
+```json
+{
+  "entries": [
+    {
+      "id": 128,
+      "session_id": "sess_123",
+      "turn_id": "turn_456",
+      "tool_name": "shell",
+      "action": "approved",
+      "reason": "User approved shell execution",
+      "arguments": {
+        "command": "ls -la"
+      },
+      "created_at": "2026-02-16T14:30:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+`entries` holds the current page; `total` is the count of all entries matching the filters, ignoring `limit`/`offset`. Each entry's `arguments` is the decoded JSON object; if the stored payload cannot be decoded it is returned as `{"_raw": "..."}`.
+
+**Response `400`**
+
+Returned when `after` or `before` is not a parseable timestamp (`validation_error`).
+
+#### `GET /api/v1/sessions/{id}/audit`
+
+Session-scoped convenience view. Identical to `GET /api/v1/audit` except the session is taken from the path; a `session_id` query parameter is ignored. All other filters (`tool_name`, `action`, `after`, `before`, `limit`, `offset`) apply.
+
+**Response `200`**
+
+Same envelope as the global route, with an added `session_id` key echoing the path segment:
+
+```json
+{
+  "session_id": "sess_123",
+  "entries": [],
+  "total": 0,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+**Response `404`**
+
+Returned when the session does not exist (`session_not_found`).
+
+Both routes require authentication; requests without a valid API key return `401 unauthorized`, like every other authenticated route.
+
 ## Toolkit Management
 
 Toolkit visibility controls which tools appear in the agent's context window and how they are represented. Each toolkit (Composer package) and each individual tool can be set to one of three visibility tiers:
@@ -4477,6 +4551,7 @@ The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-m
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
+| `/audit` | `GET /api/v1/audit` | Lists audit entries (approval decisions and questions) with filters |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
 | `/loops status <id>` | `GET /api/v1/loops/{id}` | Detailed status of a specific loop |
@@ -4598,6 +4673,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
 | `POST` | `/api/v1/loops/{id}/iterations/{iterationId}/retry` | Yes | Retry the latest failed iteration |
+| `GET` | `/api/v1/audit` | Yes | List audit entries with filters and pagination |
+| `GET` | `/api/v1/sessions/{id}/audit` | Yes | List audit entries for one session |
 | `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |

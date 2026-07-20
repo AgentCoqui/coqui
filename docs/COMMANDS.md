@@ -201,6 +201,16 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 
 Options can be combined: `/summarize recent 5 focus "database schema"`.
 
+| Command | Description |
+| --- | --- |
+| `/audit` | Browse the most recent audit entries (approval decisions and questions) |
+| `/audit tool <name>` | Filter the audit log by tool name |
+| `/audit session <id>` | Filter the audit log by session id |
+| `/audit action <name>` | Filter the audit log by action (e.g. `approved`, `denied`, `blocked`, `question_asked`) |
+| `/audit limit <n>` | Show up to `n` entries (clamped to 1–500) |
+
+`/audit` is browse-only: it reads the audit log, which records approval decisions and questions — not all tool or API activity. Secrets are redacted at write time. For the full set of query filters use the HTTP API (`GET /api/v1/audit`; see [docs/API.md](API.md)).
+
 ### Marketplace
 
 Marketplace management now lives in external toolkits.
