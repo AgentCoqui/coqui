@@ -153,3 +153,66 @@ test('storage without a redactor still writes valid rows', function (): void {
         cleanupSqliteTestDb($dbPath);
     }
 });
+
+// END-TO-END FAIL-CLOSED COMPOSITION: a REAL AuditRedactor wrapping a resolver
+// whose keys() throws must, through logAudit, yield a placeholder row — never
+// the raw arguments. This proves Task 1's "propagate on resolver failure" and
+// Task 2's "catch and write a placeholder" actually compose, rather than each
+// half being green in isolation while the seam leaks.
+test('a real redactor over a throwing resolver is fail-closed end to end', function (): void {
+    $dbPath = auditRedactionDb();
+
+    $throwingResolver = new class implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        public function get(string $key): ?string
+        {
+            throw new RuntimeException('.env read failed');
+        }
+
+        public function has(string $key): bool
+        {
+            return false;
+        }
+
+        public function set(string $key, string $value): void {}
+
+        public function delete(string $key): void {}
+
+        public function loadIntoProcessEnv(): void {}
+
+        public function keys(): array
+        {
+            throw new RuntimeException('.env read failed');
+        }
+
+        public function envPath(): string
+        {
+            return '/tmp/.env';
+        }
+    };
+
+    $storage = new SessionStorage($dbPath, null, auditRedactor: new AuditRedactor($throwingResolver));
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'test/model');
+
+        $id = $storage->logAudit(
+            sessionId: $sessionId,
+            toolName: 'exec',
+            arguments: ['command' => 'echo raw-secret-must-not-survive'],
+            action: 'auto_approved',
+            reason: 'context raw-secret-must-not-survive here',
+        );
+
+        $row = readAuditRow($storage, $id);
+
+        // The raw text never reaches disk in either field...
+        expect($row['arguments'])->not->toContain('raw-secret-must-not-survive');
+        expect($row['reason'])->not->toContain('raw-secret-must-not-survive');
+        // ...and the fail-closed placeholder is what landed instead.
+        expect($row['arguments'])->toContain('redaction-failed');
+        expect($row['reason'])->toContain('redaction-failed');
+    } finally {
+        $storage = null;
+        cleanupSqliteTestDb($dbPath);
+    }
+});
