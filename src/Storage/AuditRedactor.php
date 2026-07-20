@@ -101,7 +101,14 @@ final class AuditRedactor implements AuditRedactorInterface
             $out = [];
             foreach ($node as $key => $child) {
                 $sensitive = is_string($key) && $this->isSensitiveKey($key);
-                $out[$key] = $this->redactNode($child, $values, $sensitive);
+                $value = $this->redactNode($child, $values, $sensitive);
+
+                // Keys carry secrets too (env maps are keyed BY the variable value in
+                // some payloads). Redact the key with the same string layers, then make
+                // sure two keys collapsing to the same placeholder do not drop a row.
+                $outKey = is_string($key) ? $this->uniqueKey($out, $this->redactString($key, $values)) : $key;
+
+                $out[$outKey] = $value;
             }
 
             return $out;
@@ -120,6 +127,25 @@ final class AuditRedactor implements AuditRedactorInterface
         }
 
         return $node;
+    }
+
+    /**
+     * Disambiguate a redacted key that already exists, so no entry is silently lost.
+     *
+     * @param array<array-key, mixed> $out
+     */
+    private function uniqueKey(array $out, string $key): string
+    {
+        if (!array_key_exists($key, $out)) {
+            return $key;
+        }
+
+        $suffix = 2;
+        while (array_key_exists($key . '#' . $suffix, $out)) {
+            $suffix++;
+        }
+
+        return $key . '#' . $suffix;
     }
 
     private function isSensitiveKey(string $key): bool
@@ -150,9 +176,15 @@ final class AuditRedactor implements AuditRedactorInterface
         // L3 — pattern backstop.
         foreach (self::VALUE_PATTERNS as $pattern) {
             $replaced = preg_replace($pattern, self::PLACEHOLDER, $text);
-            if (is_string($replaced)) {
-                $text = $replaced;
+
+            // A PCRE failure (backtrack/recursion limit on a large input) returns null.
+            // We cannot know what the pattern would have matched, so over-redact the
+            // whole string rather than persisting text that may still hold the secret.
+            if ($replaced === null) {
+                return self::PLACEHOLDER;
             }
+
+            $text = $replaced;
         }
 
         return $text;
@@ -169,29 +201,29 @@ final class AuditRedactor implements AuditRedactorInterface
             return [];
         }
 
-        $names = $this->extraNames;
-
-        try {
-            $names = [...$names, ...$this->credentials->keys()];
-        } catch (\Throwable) {
-            // A broken resolver must not stop L2/L3 from running.
-        }
+        // Deliberately unguarded: if the resolver cannot enumerate its keys, L1 has no
+        // name set and would silently emit output indistinguishable from a healthy
+        // redaction. Propagate instead — SessionStorage::logAudit() catches this and
+        // persists a `redaction-failed` placeholder in place of the arguments.
+        $names = [...$this->extraNames, ...$this->credentials->keys()];
 
         if ($this->toolkitCredentialNames !== null) {
             try {
                 $names = [...$names, ...($this->toolkitCredentialNames)()];
             } catch (\Throwable) {
-                // Discovery is not initialized yet during early boot. Expected; ignore.
+                // Unlike keys() above, this one is swallowed on purpose: ToolkitDiscovery
+                // is initialized AFTER SessionStorage, so a throw here is the expected
+                // state during early boot, not a signal that a secret went unredacted.
+                // Failing closed would break every audit write during startup. The
+                // toolkit names are additive on top of the resolver's own key set.
             }
         }
 
         $values = [];
         foreach (array_unique($names) as $name) {
-            try {
-                $value = $this->credentials->get($name);
-            } catch (\Throwable) {
-                continue;
-            }
+            // Also unguarded: a throwing get() means this credential's value is unknown
+            // and therefore cannot be matched, so skipping it would leak that secret.
+            $value = $this->credentials->get($name);
 
             if (is_string($value) && $value !== '') {
                 $values[] = $value;

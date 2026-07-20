@@ -140,3 +140,87 @@ test('object values are stringified rather than crashing', function (): void {
 
     expect(json_encode($result))->not->toContain('hunter2');
 });
+
+test('a throwing keys() propagates instead of silently disabling L1', function (): void {
+    $redactor = new AuditRedactor(throwingCredentials(throwOn: 'keys'));
+
+    // Failing closed means the caller sees the failure. Swallowing it would return
+    // the raw secret while looking identical to a healthy redaction.
+    expect(fn (): array => $redactor->redact(['command' => 'echo supersecretvalue123']))
+        ->toThrow(RuntimeException::class, 'resolver unavailable');
+
+    expect(fn (): ?string => $redactor->redactScalar('echo supersecretvalue123'))
+        ->toThrow(RuntimeException::class, 'resolver unavailable');
+});
+
+test('a throwing get() propagates rather than skipping that one secret', function (): void {
+    $redactor = new AuditRedactor(throwingCredentials(throwOn: 'get'));
+
+    expect(fn (): array => $redactor->redact(['command' => 'echo supersecretvalue123']))
+        ->toThrow(RuntimeException::class, 'resolver unavailable');
+});
+
+test('a PCRE failure over-redacts the whole string instead of keeping key material', function (): void {
+    $redactor = new AuditRedactor();
+
+    // ~1MB PEM block. The lazy `.*?` in the PRIVATE KEY pattern exhausts
+    // pcre.backtrack_limit (1_000_000), so preg_replace() returns null.
+    $huge = "-----BEGIN RSA PRIVATE KEY-----\nSUPERSECRETKEYMATERIAL\n"
+        . str_repeat("QUJDREVGR0g=\n", intdiv(1024 * 1024, 13))
+        . "-----END RSA PRIVATE KEY-----";
+
+    expect(strlen($huge))->toBeGreaterThan(1024 * 1024);
+
+    $result = $redactor->redact(['command' => $huge]);
+
+    expect($result['command'])->not->toContain('SUPERSECRETKEYMATERIAL');
+    expect($result['command'])->not->toContain('BEGIN RSA PRIVATE KEY');
+    expect($result['command'])->toBe('[REDACTED]');
+});
+
+test('a smaller PEM block stays within the backtrack limit and redacts normally', function (): void {
+    $redactor = new AuditRedactor();
+
+    $small = "prefix -----BEGIN RSA PRIVATE KEY-----\nSUPERSECRETKEYMATERIAL\n"
+        . str_repeat("QUJDREVGR0g=\n", intdiv(500 * 1024, 13))
+        . "-----END RSA PRIVATE KEY----- suffix";
+
+    $result = $redactor->redact(['command' => $small]);
+
+    expect($result['command'])->not->toContain('SUPERSECRETKEYMATERIAL');
+    // Under the limit the pattern matches precisely, so surrounding text survives.
+    expect($result['command'])->toBe('prefix [REDACTED] suffix');
+});
+
+test('L1 redacts secrets appearing in array KEYS, not just values', function (): void {
+    $redactor = new AuditRedactor(fakeCredentials(['GITHUB_TOKEN' => 'supersecretvalue123']));
+
+    $result = $redactor->redact(['env' => ['supersecretvalue123' => 'value']]);
+
+    expect(array_keys($result['env']))->toBe(['[REDACTED]']);
+    expect(json_encode($result))->not->toContain('supersecretvalue123');
+});
+
+test('L3 patterns apply to array keys too', function (): void {
+    $redactor = new AuditRedactor();
+
+    $result = $redactor->redact(['ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' => 'v']);
+
+    expect(json_encode($result))->not->toContain('ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+});
+
+test('two keys redacting to the same placeholder both survive', function (): void {
+    // Deliberately avoid SENSITIVE_KEY_FRAGMENTS in the names, so this test isolates
+    // key-collision handling rather than also tripping L2 on the values.
+    $credentials = fakeCredentials(['A' => 'alpha-value-one', 'B' => 'beta-value-two']);
+    $redactor = new AuditRedactor($credentials);
+
+    $result = $redactor->redact([
+        'env' => ['alpha-value-one' => 'one', 'beta-value-two' => 'two'],
+    ]);
+
+    // Collision must not silently drop a row.
+    expect($result['env'])->toHaveCount(2);
+    expect(array_values($result['env']))->toBe(['one', 'two']);
+    expect(array_keys($result['env']))->toBe(['[REDACTED]', '[REDACTED]#2']);
+});

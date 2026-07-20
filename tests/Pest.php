@@ -631,3 +631,50 @@ function fakeCredentials(array $values): CoquiBot\Coqui\Contract\CredentialResol
         }
     };
 }
+
+/**
+ * A resolver that fails on one method, to exercise the redactor's fail-closed paths.
+ *
+ * @param 'get'|'keys' $throwOn
+ */
+function throwingCredentials(string $throwOn): CoquiBot\Coqui\Contract\CredentialResolverInterface
+{
+    return new class($throwOn) implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        public function __construct(private string $throwOn) {}
+
+        public function get(string $key): ?string
+        {
+            if ($this->throwOn === 'get') {
+                throw new RuntimeException('resolver unavailable');
+            }
+
+            return 'supersecretvalue123';
+        }
+
+        public function has(string $key): bool
+        {
+            return true;
+        }
+
+        public function set(string $key, string $value): void {}
+
+        public function delete(string $key): void {}
+
+        public function loadIntoProcessEnv(): void {}
+
+        /** @return string[] */
+        public function keys(): array
+        {
+            if ($this->throwOn === 'keys') {
+                throw new RuntimeException('resolver unavailable');
+            }
+
+            return ['GITHUB_TOKEN'];
+        }
+
+        public function envPath(): string
+        {
+            return '/tmp/.env';
+        }
+    };
+}
