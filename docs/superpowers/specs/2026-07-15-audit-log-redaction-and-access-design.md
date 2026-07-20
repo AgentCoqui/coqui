@@ -16,7 +16,11 @@ So this is an **approval/decision + question audit trail**, not yet a comprehens
 
 Two facts drive the work:
 
-1. **Secrets are stored raw.** `arguments` (and `reason`) are persisted verbatim (`audit_log.arguments TEXT NOT NULL`); nothing redacts them. Coqui is shell-open by default, so secrets frequently land inside free-text values (e.g. a `shell` command `curl -H "Authorization: Bearer sk-…"`), and `reason` can echo matched content (e.g. `"CATASTROPHIC BLOCK: <matched text>"`).
+1. **Secrets are stored raw — verified empirically 2026-07-20.** `arguments` and `reason` are persisted verbatim (`audit_log.arguments TEXT NOT NULL`); nothing redacts them. Coqui is shell-open by default, so secrets land inside free-text values. Confirmed by driving the real `AutoApprovalPolicy` against a real `SessionStorage`: an `exec` call with `curl -H "Authorization: Bearer sk-live-…"` wrote that token to `audit_log.arguments` in cleartext.
+
+   **Correction to an earlier revision of this spec:** it claimed `reason` echoes matched content as `"CATASTROPHIC BLOCK: <matched text>"`. It does not — the catastrophic reason embeds the *regex pattern*, not user text (`"CATASTROPHIC BLOCK: Blocked by catastrophic safety pattern: /\brm\s+…/i"`), and carries no secret. Redacting `reason` is nonetheless required, for a different reason the spec had missed: `QuestionPersistence` passes `reason: $question->prompt` (`QuestionPersistence.php:34,56`) — free-form model-authored text that can readily contain a secret.
+
+   **Tool-name correction:** the command tool is named **`exec`** (`ShellToolkit.php:137`), not `shell`. `CatastrophicBlacklist::CHECKED_TOOLS` is `['exec', 'php_execute']` only. Use `exec` in all tests and docs; `shell` is not a tool and matches nothing.
 2. **The trail is write-only.** `getAuditLog()` (`:1790`) has **zero callers** anywhere — no API route, no REPL command, no toolkit, no test. Coqui records a trail nobody can read.
 
 The removed `SecretMasker::mask()` only redacted a single known substring and could not handle nested audit args — wiring it would have been incomplete/false-confidence, hence removal + this design.
@@ -109,7 +113,7 @@ Builds off the post-tech-debt-sweep `main`. May be two SDD dispatches (A then B)
 
 ## Testing
 
-- **Redactor:** a case per layer (L1 known-value incl. inside a shell string; L2 nested sensitive key; L3 Bearer/PEM/prefix); golden "`shell` command with inline `Bearer` token"; **`credentials(set)` before the value exists in the resolver**; **credential added after redactor construction** (name-set refresh / resolve-at-write); **`reason` redaction + question-payload minimization**; "no-secret args pass through unchanged"; **redactor/encode failure is fail-closed** (never writes raw).
+- **Redactor:** a case per layer (L1 known-value incl. inside an exec command string; L2 nested sensitive key; L3 Bearer/PEM/prefix); golden "`exec` command with inline `Bearer` token"; **`credentials(set)` before the value exists in the resolver**; **credential added after redactor construction** (name-set refresh / resolve-at-write); **`reason` redaction + question-payload minimization**; "no-secret args pass through unchanged"; **redactor/encode failure is fail-closed** (never writes raw).
 - **AuditLogStore/query:** filters, deterministic pagination, invalid/out-of-bounds `limit`/`offset`, `turn_id` present, structured-JSON decode + malformed fallback.
 - **API:** each filter, pagination envelope, `401` without key.
 - **Negative control (required):** at least one test that **fails if the redactor is removed or stubbed out**. Redaction that silently no-ops is indistinguishable from redaction that works, and every row it writes is a secret on disk. Assert on redacted *output*, never on "the code path ran."
