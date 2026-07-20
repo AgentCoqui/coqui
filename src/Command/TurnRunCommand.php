@@ -82,7 +82,7 @@ final class TurnRunCommand extends Command
 
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
-        $storage = new SessionStorage($dbPath);
+        $storage = new SessionStorage($dbPath, auditRedactor: $boot->auditRedactor());
 
         // Load turn process definition
         $turnProcess = $storage->getTurnProcess($turnProcessId);

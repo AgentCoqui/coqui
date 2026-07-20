@@ -201,7 +201,7 @@ final class RunCommand extends Command
 
         // Initialize storage inside workspace
         $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
-        $this->storage = new SessionStorage($dbPath);
+        $this->storage = new SessionStorage($dbPath, auditRedactor: $this->boot->auditRedactor());
 
         // Headless mode: run a single prompt and exit
         if ($noTerminal) {
