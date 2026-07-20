@@ -78,6 +78,14 @@ test('pagination is deterministic across pages with identical timestamps', funct
         expect($ids)->toHaveCount(10);
         expect(array_unique($ids))->toHaveCount(10);
         expect($f['store']->count(new AuditLogQuery()))->toBe(10);
+
+        // With every created_at identical, `id DESC` is the only tiebreaker that
+        // makes ordering deterministic. IdGenerator::hex() is random, so insertion
+        // order disagrees with id-descending order and this asserts the tiebreaker
+        // is load-bearing: drop `, id DESC` from the store and this fails.
+        $expected = $ids;
+        rsort($expected);
+        expect($ids)->toBe($expected);
     } finally {
         $f['storage'] = null;
         cleanupSqliteTestDb($f['dbPath']);
@@ -147,11 +155,28 @@ test('fromParams accepts ISO-8601 boundaries and applies inclusive/exclusive sem
         $stmt->execute(['id' => $id]);
         $createdAt = (string) $stmt->fetchColumn();
 
-        // `after` is inclusive: the row's own timestamp still matches.
-        expect($f['store']->query(AuditLogQuery::fromParams(['after' => $createdAt])))->toHaveCount(1);
+        // Second row, forced to a timestamp clearly before the boundary so it is a
+        // genuine negative control: the `after` filter must EXCLUDE it. Without this
+        // row a one-row fixture would keep `after` green even if the filter never
+        // reached the WHERE clause.
+        $earlierId = $f['storage']->logAudit($sessionId, 'exec', ['n' => 0], 'auto_approved');
+        $earlierAt = date('c', strtotime($createdAt) - 3600);
+        $f['storage']->getPdo()
+            ->prepare('UPDATE audit_log SET created_at = :ts WHERE id = :id')
+            ->execute(['ts' => $earlierAt, 'id' => $earlierId]);
 
-        // `before` is exclusive: the row's own timestamp does not match.
-        expect($f['store']->query(AuditLogQuery::fromParams(['before' => $createdAt])))->toHaveCount(0);
+        // `after` is inclusive of the boundary and excludes the earlier row: only
+        // the boundary row matches. Drop the `after` condition from the store's
+        // WHERE builder and this returns both rows, failing the count and id checks.
+        $afterRows = $f['store']->query(AuditLogQuery::fromParams(['after' => $createdAt]));
+        expect($afterRows)->toHaveCount(1);
+        expect($afterRows[0]['id'])->toBe($id);
+
+        // `before` is exclusive of the boundary: the boundary row does not match,
+        // but the earlier row does — proving the boundary timestamp is excluded.
+        $beforeRows = $f['store']->query(AuditLogQuery::fromParams(['before' => $createdAt]));
+        expect($beforeRows)->toHaveCount(1);
+        expect($beforeRows[0]['id'])->toBe($earlierId);
     } finally {
         $f['storage'] = null;
         cleanupSqliteTestDb($f['dbPath']);
