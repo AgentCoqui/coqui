@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\AuditRedactor;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -46,6 +47,7 @@ final class BootManager
     private string $configPath = '';
     private string $workspacePath;
     private CredentialResolver $credentialResolver;
+    private AuditRedactor $auditRedactor;
     private ToolkitDiscovery $discovery;
     private ToolkitVisibilityRegistry $visibilityRegistry;
     private SkillDiscovery $skillDiscovery;
@@ -181,6 +183,11 @@ final class BootManager
     public function credentialResolver(): CredentialResolver
     {
         return $this->credentialResolver;
+    }
+
+    public function auditRedactor(): AuditRedactor
+    {
+        return $this->auditRedactor;
     }
 
     public function discovery(): ToolkitDiscovery
@@ -494,6 +501,14 @@ final class BootManager
     {
         $this->credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
         $this->credentialResolver->loadIntoProcessEnv();
+
+        // Toolkit names are provided lazily: ToolkitDiscovery is initialized after
+        // this point in boot(), so eager access would hit an uninitialized property.
+        $this->auditRedactor = new AuditRedactor(
+            $this->credentialResolver,
+            fn (): array => array_keys($this->discovery->collectAllCredentialRequirements()),
+            ['COQUI_API_KEY'],
+        );
     }
 
     private function discoverLoops(): void
@@ -558,7 +573,7 @@ final class BootManager
     {
         $dbPath = $this->workspacePath . '/data/coqui.db';
 
-        $storage = new SessionStorage($dbPath);
+        $storage = new SessionStorage($dbPath, auditRedactor: $this->auditRedactor);
         $pdo = $storage->getPdo();
 
         $this->projectStore = new ProjectStore($pdo);

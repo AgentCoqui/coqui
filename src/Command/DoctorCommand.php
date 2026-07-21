@@ -435,7 +435,12 @@ final class DoctorCommand extends Command
 
         // Connection
         try {
-            $storage = new SessionStorage($dbPath);
+            // Diagnostic-only: `doctor` never boots a BootManager, so no CredentialResolver
+            // exists to build an AuditRedactor from. This storage is used solely for a
+            // read-only connection/table health check and never writes an audit record,
+            // so a null redactor cannot leak a secret. Passed explicitly rather than
+            // omitted so this decision is visible, not a silent default.
+            $storage = new SessionStorage($dbPath, auditRedactor: null);
         } catch (\Throwable $e) {
             $this->fail($io, "Database: connection failed — {$e->getMessage()}", $jsonOutput);
             $results['connection'] = ['status' => 'fail', 'error' => $e->getMessage()];

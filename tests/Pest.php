@@ -587,3 +587,94 @@ function bootstrapRunningLoop(\CoquiBot\Coqui\Storage\LoopStore $loopStore): str
 
     return $loopId;
 }
+
+/**
+ * @param array<string, string> $values
+ */
+function fakeCredentials(array $values): CoquiBot\Coqui\Contract\CredentialResolverInterface
+{
+    return new class($values) implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        /** @param array<string, string> $values */
+        public function __construct(private array $values) {}
+
+        public function get(string $key): ?string
+        {
+            return $this->values[$key] ?? null;
+        }
+
+        public function has(string $key): bool
+        {
+            return isset($this->values[$key]);
+        }
+
+        public function set(string $key, string $value): void
+        {
+            $this->values[$key] = $value;
+        }
+
+        public function delete(string $key): void
+        {
+            unset($this->values[$key]);
+        }
+
+        public function loadIntoProcessEnv(): void {}
+
+        /** @return string[] */
+        public function keys(): array
+        {
+            return array_keys($this->values);
+        }
+
+        public function envPath(): string
+        {
+            return '/tmp/.env';
+        }
+    };
+}
+
+/**
+ * A resolver that fails on one method, to exercise the redactor's fail-closed paths.
+ *
+ * @param 'get'|'keys' $throwOn
+ */
+function throwingCredentials(string $throwOn): CoquiBot\Coqui\Contract\CredentialResolverInterface
+{
+    return new class($throwOn) implements CoquiBot\Coqui\Contract\CredentialResolverInterface {
+        public function __construct(private string $throwOn) {}
+
+        public function get(string $key): ?string
+        {
+            if ($this->throwOn === 'get') {
+                throw new RuntimeException('resolver unavailable');
+            }
+
+            return 'supersecretvalue123';
+        }
+
+        public function has(string $key): bool
+        {
+            return true;
+        }
+
+        public function set(string $key, string $value): void {}
+
+        public function delete(string $key): void {}
+
+        public function loadIntoProcessEnv(): void {}
+
+        /** @return string[] */
+        public function keys(): array
+        {
+            if ($this->throwOn === 'keys') {
+                throw new RuntimeException('resolver unavailable');
+            }
+
+            return ['GITHUB_TOKEN'];
+        }
+
+        public function envPath(): string
+        {
+            return '/tmp/.env';
+        }
+    };
+}

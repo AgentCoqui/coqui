@@ -83,7 +83,7 @@ final class TabCompletion
         return match ($spec->name) {
             '/resume' => $this->completeResume($parts),
             '/model', '/budget' => $this->completeRoleChoiceCommand($parts),
-            '/config', '/tasks', '/prompt', '/evaluations', '/multiline' => $this->completeStaticArguments($spec, $parts),
+            '/config', '/tasks', '/prompt', '/evaluations', '/multiline', '/audit' => $this->completeStaticArguments($spec, $parts),
             '/task' => $this->completeTask($parts),
             '/task-cancel' => $this->completeTaskCancel($parts),
             '/projects' => $this->completeProjects($parts),

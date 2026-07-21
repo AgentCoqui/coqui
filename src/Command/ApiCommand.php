@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
+use CoquiBot\Coqui\Api\Handler\AuditHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
@@ -135,7 +136,7 @@ final class ApiCommand extends Command
 
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
-        $storage = new SessionStorage($dbPath);
+        $storage = new SessionStorage($dbPath, auditRedactor: $boot->auditRedactor());
         $uploadStorage = new FileUploadStorage($boot->workspacePath());
 
         // Read API key from config
@@ -359,6 +360,10 @@ final class ApiCommand extends Command
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
+        $auditHandler = new AuditHandler(
+            new \CoquiBot\Coqui\Storage\AuditLogStore($storage->getPdo()),
+            $storage,
+        );
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore)
@@ -366,7 +371,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler, $auditHandler);
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
@@ -582,6 +587,7 @@ final class ApiCommand extends Command
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
         ?SessionProjectHandler $sessionProject,
+        AuditHandler $audit,
     ): void {
         $v1 = '/api/v1';
 
@@ -624,6 +630,14 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
+
+        // Audit log — authenticated routes only (API-key middleware). Registers
+        // both the global GET /audit and the session-scoped GET
+        // /sessions/{id}/audit. The latter is placed with the session routes; its
+        // literal third segment cannot be shadowed by any sibling here — every
+        // {param} compiles to a single anchored segment, and no session route has
+        // a param in that position.
+        $audit->register($router);
 
         // Config (read-oriented plus narrow safe context mutation)
         $router->get($v1 . '/config', [$config, 'get']);

@@ -22,6 +22,7 @@ use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
+use CoquiBot\Coqui\Repl\Handler\AuditHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -201,7 +202,7 @@ final class RunCommand extends Command
 
         // Initialize storage inside workspace
         $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
-        $this->storage = new SessionStorage($dbPath);
+        $this->storage = new SessionStorage($dbPath, auditRedactor: $this->boot->auditRedactor());
 
         // Headless mode: run a single prompt and exit
         if ($noTerminal) {
@@ -419,6 +420,7 @@ final class RunCommand extends Command
                     'workspacePath' => $this->boot->workspacePath(),
                 ],
             ),
+            audit: new AuditHandler($this->storage),
             agentRunner: $this->agentRunner,
             promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
             output: $this->output,

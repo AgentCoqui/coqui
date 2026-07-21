@@ -63,7 +63,7 @@ final class SessionTitleRunCommand extends Command
             return Command::FAILURE;
         }
 
-        $storage = new SessionStorage($boot->workspacePath() . '/data/coqui.db');
+        $storage = new SessionStorage($boot->workspacePath() . '/data/coqui.db', auditRedactor: $boot->auditRedactor());
         $job = $storage->getSessionTitleJob($jobId);
         if ($job === null) {
             $output->writeln(sprintf('<error>Session title job %s not found</error>', $jobId));

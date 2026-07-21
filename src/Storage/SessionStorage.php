@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Contract\AuditRedactorInterface;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Support\CoquiProcessChecker;
@@ -33,9 +34,14 @@ final class SessionStorage
     private PDO $db;
     private CoquiProcessChecker $processChecker;
     private BackgroundTaskRecordStore $taskStore;
+    private ?AuditRedactorInterface $auditRedactor;
 
-    public function __construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null)
-    {
+    public function __construct(
+        string $dbPath,
+        ?\Closure $expectedCoquiProcessChecker = null,
+        ?AuditRedactorInterface $auditRedactor = null,
+    ) {
+        $this->auditRedactor = $auditRedactor;
         $this->processChecker = new CoquiProcessChecker($expectedCoquiProcessChecker);
 
         $dir = dirname($dbPath);
@@ -1763,6 +1769,24 @@ final class SessionStorage
         $id = IdGenerator::hex();
         $now = date('c');
 
+        // Fail-closed: a redaction or encoding failure must never fall back to
+        // the raw arguments. Persist a placeholder instead.
+        try {
+            $safeArguments = $this->auditRedactor?->redact($arguments) ?? $arguments;
+            $encodedArguments = json_encode(
+                $safeArguments,
+                JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+            );
+        } catch (\Throwable) {
+            $encodedArguments = '{"_redaction":"redaction-failed"}';
+        }
+
+        try {
+            $safeReason = $this->auditRedactor?->redactScalar($reason) ?? $reason;
+        } catch (\Throwable) {
+            $safeReason = '[redaction-failed]';
+        }
+
         $stmt = $this->db->prepare(<<<SQL
             INSERT INTO audit_log (id, session_id, tool_name, arguments, action, reason, turn_id, created_at)
             VALUES (:id, :session_id, :tool_name, :arguments, :action, :reason, :turn_id, :created_at)
@@ -1772,9 +1796,9 @@ final class SessionStorage
             'id' => $id,
             'session_id' => $sessionId,
             'tool_name' => $toolName,
-            'arguments' => json_encode($arguments, JSON_UNESCAPED_SLASHES),
+            'arguments' => $encodedArguments,
             'action' => $action,
-            'reason' => $reason,
+            'reason' => $safeReason,
             'turn_id' => $turnId,
             'created_at' => $now,
         ]);

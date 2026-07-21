@@ -82,7 +82,7 @@ final class TaskRunCommand extends Command
 
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
-        $storage = new SessionStorage($dbPath);
+        $storage = new SessionStorage($dbPath, auditRedactor: $boot->auditRedactor());
 
         // Initialize notification publisher for task outcome notifications
         $notificationStore = $boot->notificationStore();
