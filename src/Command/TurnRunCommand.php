@@ -167,7 +167,7 @@ final class TurnRunCommand extends Command
                 ? (string) $session['model_role']
                 : 'orchestrator';
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
-            $profileRaw = $session['profile'] ?? null;
+            $profileRaw = $session['persona_id'] ?? null;
             $profile = is_string($profileRaw) ? $profileRaw : null;
             $groupEnabled = is_array($session) && SessionType::fromSessionRow($session) === SessionType::Group;
 

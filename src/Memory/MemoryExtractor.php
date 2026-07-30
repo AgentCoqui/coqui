@@ -97,7 +97,7 @@ final class MemoryExtractor
                 ],
                 type: $type,
                 validUntil: $validUntil,
-                profileId: $profileId,
+                personaId: $profileId,
             ));
 
             $saved++;

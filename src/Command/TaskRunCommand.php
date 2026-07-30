@@ -113,8 +113,8 @@ final class TaskRunCommand extends Command
             $taskProjectId = null;
         }
         $session = $storage->getSession($sessionId);
-        $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
-            ? $session['profile']
+        $taskProfile = is_array($session) && is_string($session['persona_id'] ?? null) && $session['persona_id'] !== ''
+            ? $session['persona_id']
             : null;
         if ($taskProfile !== null && $boot->profileDiscovery()->profileExists($taskProfile)) {
             $preferences = PersonaPreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));

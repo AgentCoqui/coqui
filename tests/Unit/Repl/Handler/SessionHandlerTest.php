@@ -100,7 +100,7 @@ test('session handler creates and attaches a new default profile session when no
         $sessionFile = $fixture['workspacePath'] . '/.coqui-session';
 
         expect($session)->not->toBeNull();
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
         expect($session['session_type'])->toBe('interactive');
         expect(trim((string) file_get_contents($sessionFile)))->toBe($sessionId);
     } finally {
@@ -260,7 +260,7 @@ test('session handler starts fresh profiled session by closing the current one',
         expect($currentSession['is_closed'])->toBe(1);
         expect($currentSession['closure_reason'])->toBe('repl_new_profile_session:caelum');
         expect($newSession)->not->toBeNull();
-        expect($newSession['profile'])->toBe('caelum');
+        expect($newSession['persona_id'])->toBe('caelum');
         expect($newSession['model_role'])->toBe('orchestrator');
         expect($newSession['session_type'])->toBe('interactive');
     } finally {

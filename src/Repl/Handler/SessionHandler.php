@@ -124,7 +124,7 @@ final class SessionHandler
             return null;
         }
 
-        $storedProfile = $session['profile'] ?? null;
+        $storedProfile = $session['persona_id'] ?? null;
 
         return is_string($storedProfile) && $storedProfile !== '' ? $storedProfile : null;
     }
@@ -325,7 +325,7 @@ final class SessionHandler
             return null;
         }
 
-        $sessionProfile = $session['profile'] ?? null;
+        $sessionProfile = $session['persona_id'] ?? null;
         $resolvedProfile = is_string($sessionProfile) && $sessionProfile !== '' ? $sessionProfile : null;
 
         return $resolvedProfile === $profile ? $sessionId : null;

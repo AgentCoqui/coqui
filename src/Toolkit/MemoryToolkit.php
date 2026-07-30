@@ -175,7 +175,7 @@ final class MemoryToolkit implements ToolkitInterface
                     metadata: $metadata,
                     type: $type,
                     validUntil: $validUntil,
-                    profileId: $this->activeProfileId,
+                    personaId: $this->activeProfileId,
                 );
 
                 $id = $this->memoryStore->save($entry);
@@ -262,7 +262,7 @@ final class MemoryToolkit implements ToolkitInterface
 
                 $existing = $this->memoryStore->getById($id);
                 if ($existing !== null && !$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
                 }
 
                 $updated = $this->memoryStore->update(
@@ -304,7 +304,7 @@ final class MemoryToolkit implements ToolkitInterface
                 }
 
                 if (!$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
                 }
 
                 $this->memoryStore->delete($id);
@@ -416,7 +416,7 @@ final class MemoryToolkit implements ToolkitInterface
 
                 $existing = $this->memoryStore->getById($id);
                 if ($existing !== null && !$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
                 }
 
                 $restored = $this->memoryStore->restoreMemory($id);
@@ -533,7 +533,7 @@ final class MemoryToolkit implements ToolkitInterface
             return true;
         }
 
-        return $entry->profileId === null || $entry->profileId === $this->activeProfileId;
+        return $entry->personaId === null || $entry->personaId === $this->activeProfileId;
     }
 
     private function crossProfileMutationError(string $id, ?string $memoryProfileId): string
@@ -555,7 +555,7 @@ final class MemoryToolkit implements ToolkitInterface
     {
         return array_values(array_filter(
             $entries,
-            static fn(MemoryEntry $entry): bool => $entry->profileId === $profile,
+            static fn(MemoryEntry $entry): bool => $entry->personaId === $profile,
         ));
     }
 

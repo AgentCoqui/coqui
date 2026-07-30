@@ -166,8 +166,8 @@ final class LoopManager
         // scope so ArtifactToolkit can access cross-stage data.
         $workScopeSessionId = $stageResult->sessionId;
         $workScopeSession = $workScopeSessionId !== null ? $this->storage->getSession($workScopeSessionId) : null;
-        $activeProfile = is_array($workScopeSession) && is_string($workScopeSession['profile'] ?? null) && $workScopeSession['profile'] !== ''
-            ? $workScopeSession['profile']
+        $activeProfile = is_array($workScopeSession) && is_string($workScopeSession['persona_id'] ?? null) && $workScopeSession['persona_id'] !== ''
+            ? $workScopeSession['persona_id']
             : null;
 
         // Create a fresh execution session for this stage's background task

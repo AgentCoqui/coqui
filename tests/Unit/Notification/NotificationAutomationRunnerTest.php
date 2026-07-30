@@ -108,7 +108,7 @@ test('runner retry task inherits profile from target session', function () {
     $session = $followUp !== null ? $this->storage->getSession((string) $followUp['session_id']) : null;
 
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
 });
 
 test('runner skips retry when the source task is no longer failed', function () {
@@ -215,7 +215,7 @@ test('runner loop investigation inherits profile from target session', function 
     $session = $followUp !== null ? $this->storage->getSession((string) $followUp['session_id']) : null;
 
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
 });
 
 test('reclaim releases expired claims for another processing tick', function () {

@@ -55,7 +55,7 @@ final readonly class PersonaSessionLifecycleManager
             return;
         }
 
-        $profileId = $this->normalizeProfile($session['profile'] ?? null);
+        $profileId = $this->normalizeProfile($session['persona_id'] ?? null);
         $provider = $this->resolveProvider();
 
         if ($provider !== null && $this->memoryStore !== null) {

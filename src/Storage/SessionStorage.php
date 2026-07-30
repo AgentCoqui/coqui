@@ -228,8 +228,8 @@ final class SessionStorage
         // Migration: active project tracking per session
         $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
 
-        // Migration: personality profile per session
-        $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
+        // Migration: personality persona per session
+        $this->migrateAddColumn('sessions', 'persona_id', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'group_enabled', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
@@ -247,7 +247,7 @@ final class SessionStorage
         $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
         $this->repairLegacyBackgroundSessionVisibility();
 
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_persona_updated ON sessions(persona_id, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_group_enabled_updated ON sessions(group_enabled, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_visibility_updated ON sessions(visibility, updated_at DESC)');
@@ -256,15 +256,15 @@ final class SessionStorage
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS session_group_members (
                 session_id TEXT NOT NULL,
-                profile_name TEXT NOT NULL,
+                persona_id TEXT NOT NULL,
                 member_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (session_id, profile_name),
+                PRIMARY KEY (session_id, persona_id),
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
         SQL);
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, profile_name)');
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_profile ON session_group_members(profile_name)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, persona_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_persona ON session_group_members(persona_id)');
 
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
@@ -375,15 +375,15 @@ final class SessionStorage
         $resolvedVisibility = $this->normalizeVisibility($visibility);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, persona_id, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :persona_id, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
             'id' => $id,
             'model_role' => $modelRole,
             'model' => $model,
-            'profile' => $profile,
+            'persona_id' => $profile,
             'group_enabled' => $groupEnabled ? 1 : 0,
             'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
@@ -445,7 +445,7 @@ final class SessionStorage
                 UPDATE sessions
                 SET group_enabled = 1,
                     session_type = :session_type,
-                    profile = NULL,
+                    persona_id = NULL,
                     group_composition_key = :group_composition_key,
                     group_max_rounds = :group_max_rounds,
                     updated_at = :updated_at
@@ -493,17 +493,17 @@ final class SessionStorage
     public function listSessionGroupMembers(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT profile_name, member_order, created_at
+            SELECT persona_id, member_order, created_at
             FROM session_group_members
             WHERE session_id = :session_id
-            ORDER BY member_order ASC, profile_name ASC
+            ORDER BY member_order ASC, persona_id ASC
         SQL);
 
         $stmt->execute(['session_id' => $sessionId]);
 
         return array_values(array_map(
             static fn(array $row): array => [
-                'profile' => (string) $row['profile_name'],
+                'profile' => (string) $row['persona_id'],
                 'order' => (int) $row['member_order'],
                 'joined_at' => (string) $row['created_at'],
             ],
@@ -547,7 +547,7 @@ final class SessionStorage
     public function listActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey): array
     {
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                    s.group_enabled, s.group_composition_key, s.group_max_rounds,
                    s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -624,10 +624,10 @@ final class SessionStorage
         }
 
         if ($unprofiledOnly) {
-            $conditions[] = 's.profile IS NULL';
+            $conditions[] = 's.persona_id IS NULL';
         } elseif ($profile !== null) {
-            $conditions[] = 's.profile = :profile';
-            $params['profile'] = $profile;
+            $conditions[] = 's.persona_id = :persona_id';
+            $params['persona_id'] = $profile;
         }
 
         $filter = $conditions !== []
@@ -635,7 +635,7 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -925,14 +925,14 @@ final class SessionStorage
     /**
      * Update a session's active personality profile.
      */
-    public function updateSessionProfile(string $sessionId, ?string $profile): void
+    public function updateSessionPersona(string $sessionId, ?string $profile): void
     {
         $stmt = $this->db->prepare(<<<SQL
-            UPDATE sessions SET profile = :profile, updated_at = :updated_at WHERE id = :id
+            UPDATE sessions SET persona_id = :persona_id, updated_at = :updated_at WHERE id = :id
         SQL);
 
         $stmt->execute([
-            'profile' => $profile,
+            'persona_id' => $profile,
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
@@ -1543,8 +1543,8 @@ final class SessionStorage
     private function persistGroupMembers(string $sessionId, array $members): void
     {
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO session_group_members (session_id, profile_name, member_order, created_at)
-            VALUES (:session_id, :profile_name, :member_order, :created_at)
+            INSERT INTO session_group_members (session_id, persona_id, member_order, created_at)
+            VALUES (:session_id, :persona_id, :member_order, :created_at)
         SQL);
 
         $now = date('c');
@@ -1552,7 +1552,7 @@ final class SessionStorage
         foreach ($members as $index => $profileName) {
             $stmt->execute([
                 'session_id' => $sessionId,
-                'profile_name' => $profileName,
+                'persona_id' => $profileName,
                 'member_order' => $index,
                 'created_at' => $now,
             ]);
@@ -1654,20 +1654,20 @@ final class SessionStorage
     public function listActiveInteractiveSessionsForProfile(string $profile): array
     {
         $stmt = $this->db->prepare(<<<SQL
-                                                SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
                                                                          s.session_type, s.visibility,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
                                      (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile = :profile
+              AND s.persona_id = :persona_id
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $profile]);
 
         return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -2220,7 +2220,7 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
             FROM sessions
-            WHERE profile = :profile
+            WHERE persona_id = :persona_id
                             AND visibility = 'visible'
                             AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND is_closed = 0
@@ -2228,7 +2228,7 @@ final class SessionStorage
             LIMIT 1
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $profile]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
@@ -2240,7 +2240,7 @@ final class SessionStorage
             SELECT s.id
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile IS NULL
+              AND s.persona_id IS NULL
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
@@ -2283,14 +2283,14 @@ final class SessionStorage
             SELECT s.id
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile = :profile
+              AND s.persona_id = :persona_id
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $profile]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
@@ -2347,7 +2347,7 @@ final class SessionStorage
         $visibilityFilter = $visibleOnly ? "AND s.visibility = 'visible'" : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,

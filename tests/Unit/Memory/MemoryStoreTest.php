@@ -225,8 +225,8 @@ test('listAll respects limit parameter', function () {
 });
 
 test('listAll with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', profileId: 'other'));
+    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', personaId: 'caelum'));
+    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', personaId: 'other'));
     $this->store->save(new MemoryEntry(content: 'Global fact', area: 'facts'));
 
     $all = $this->store->listAll(profileId: 'caelum');
@@ -275,8 +275,8 @@ test('getTopImportantMemories excludes legacy session summary memories', functio
 });
 
 test('getTopImportantMemories with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum important', area: 'identity', metadata: ['importance' => 0.95], profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other important', area: 'identity', metadata: ['importance' => 0.99], profileId: 'other'));
+    $this->store->save(new MemoryEntry(content: 'Caelum important', area: 'identity', metadata: ['importance' => 0.95], personaId: 'caelum'));
+    $this->store->save(new MemoryEntry(content: 'Other important', area: 'identity', metadata: ['importance' => 0.99], personaId: 'other'));
     $this->store->save(new MemoryEntry(content: 'Global important', area: 'identity', metadata: ['importance' => 0.9]));
 
     $entries = $this->store->getTopImportantMemories(profileId: 'caelum');
@@ -339,8 +339,8 @@ test('listByTags returns empty when given empty tags array', function () {
 });
 
 test('listByTags with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum tag', area: 'facts', metadata: ['tags' => 'shared,caelum'], profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other tag', area: 'facts', metadata: ['tags' => 'shared,other'], profileId: 'other'));
+    $this->store->save(new MemoryEntry(content: 'Caelum tag', area: 'facts', metadata: ['tags' => 'shared,caelum'], personaId: 'caelum'));
+    $this->store->save(new MemoryEntry(content: 'Other tag', area: 'facts', metadata: ['tags' => 'shared,other'], personaId: 'other'));
     $this->store->save(new MemoryEntry(content: 'Global tag', area: 'facts', metadata: ['tags' => 'shared']));
 
     $results = $this->store->listByTags(['shared'], profileId: 'caelum');
@@ -421,8 +421,8 @@ test('forget returns zero when nothing matches', function () {
 });
 
 test('forget with profileId deletes only visible memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum preference to forget', area: 'preferences', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other preference to forget', area: 'preferences', profileId: 'other'));
+    $this->store->save(new MemoryEntry(content: 'Caelum preference to forget', area: 'preferences', personaId: 'caelum'));
+    $this->store->save(new MemoryEntry(content: 'Other preference to forget', area: 'preferences', personaId: 'other'));
     $this->store->save(new MemoryEntry(content: 'Global preference to forget', area: 'preferences'));
 
     $deleted = $this->store->forget('forget', profileId: 'caelum');
@@ -513,7 +513,7 @@ test('save persists profileId and sessionId on memory entry', function () {
     $entry = new MemoryEntry(
         content: 'Profile-specific memory',
         area: 'facts',
-        profileId: 'caelum',
+        personaId: 'caelum',
         sessionId: 'sess-123',
     );
 
@@ -521,7 +521,7 @@ test('save persists profileId and sessionId on memory entry', function () {
     $retrieved = $this->store->getById($id);
 
     expect($retrieved)->not->toBeNull();
-    expect($retrieved->profileId)->toBe('caelum');
+    expect($retrieved->personaId)->toBe('caelum');
     expect($retrieved->sessionId)->toBe('sess-123');
 });
 
@@ -530,14 +530,14 @@ test('search with profileId filters to matching and untagged memories', function
     $this->store->save(new MemoryEntry(
         content: 'Caelum prefers curious tone',
         area: 'preferences',
-        profileId: 'caelum',
+        personaId: 'caelum',
     ));
 
     // Save a memory for profile "other"
     $this->store->save(new MemoryEntry(
         content: 'Other profile setting',
         area: 'preferences',
-        profileId: 'other',
+        personaId: 'other',
     ));
 
     // Save a legacy (untagged) memory
@@ -559,12 +559,12 @@ test('list with profileId filters by profile', function () {
     $this->store->save(new MemoryEntry(
         content: 'Caelum fact',
         area: 'facts',
-        profileId: 'caelum',
+        personaId: 'caelum',
     ));
     $this->store->save(new MemoryEntry(
         content: 'Other fact',
         area: 'facts',
-        profileId: 'other',
+        personaId: 'other',
     ));
     $this->store->save(new MemoryEntry(
         content: 'Global fact',
@@ -584,13 +584,13 @@ test('getCoreSummary with profileId filters by profile', function () {
         content: 'Caelum identity note',
         area: 'identity',
         metadata: ['importance' => 0.95],
-        profileId: 'caelum',
+        personaId: 'caelum',
     ));
     $this->store->save(new MemoryEntry(
         content: 'Other identity note',
         area: 'identity',
         metadata: ['importance' => 0.95],
-        profileId: 'other',
+        personaId: 'other',
     ));
 
     $summary = $this->store->getCoreSummary(profileId: 'caelum');
@@ -600,8 +600,8 @@ test('getCoreSummary with profileId filters by profile', function () {
 });
 
 test('count with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', profileId: 'other'));
+    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', personaId: 'caelum'));
+    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', personaId: 'other'));
     $this->store->save(new MemoryEntry(content: 'Global fact', area: 'facts'));
 
     expect($this->store->count(profileId: 'caelum'))->toBe(2);
@@ -612,12 +612,12 @@ test('search without profileId returns all memories', function () {
     $this->store->save(new MemoryEntry(
         content: 'Caelum note about testing',
         area: 'facts',
-        profileId: 'caelum',
+        personaId: 'caelum',
     ));
     $this->store->save(new MemoryEntry(
         content: 'Other note about testing',
         area: 'facts',
-        profileId: 'other',
+        personaId: 'other',
     ));
 
     $results = $this->store->search('testing');

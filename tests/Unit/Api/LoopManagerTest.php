@@ -83,7 +83,7 @@ test('tick inherits active profile from parent loop session', function () {
     $session = $this->storage->getSession((string) $task['session_id']);
 
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
 });
 
 test('reconcile completes a finished stage and creates a loop output artifact', function () {

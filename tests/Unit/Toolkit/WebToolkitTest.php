@@ -362,7 +362,7 @@ test('http_download inherits profile from parent session for queued task session
 
         expect($result->status)->toBe(ToolResultStatus::Success);
         expect($session)->not->toBeNull();
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         webDeletePath($workspacePath);
         if (file_exists($dbPath)) {

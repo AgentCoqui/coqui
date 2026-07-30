@@ -20,7 +20,7 @@ final readonly class MemoryEntry
         public ?DateTimeImmutable $createdAt = null,
         public string $type = 'knowledge',
         public ?DateTimeImmutable $validUntil = null,
-        public ?string $profileId = null,
+        public ?string $personaId = null,
         public ?string $sessionId = null,
     ) {}
 
@@ -35,7 +35,7 @@ final readonly class MemoryEntry
             $this->createdAt,
             $this->type,
             $this->validUntil,
-            $this->profileId,
+            $this->personaId,
             $this->sessionId,
         );
     }
@@ -51,7 +51,7 @@ final readonly class MemoryEntry
             $this->createdAt,
             $this->type,
             $this->validUntil,
-            $this->profileId,
+            $this->personaId,
             $this->sessionId,
         );
     }

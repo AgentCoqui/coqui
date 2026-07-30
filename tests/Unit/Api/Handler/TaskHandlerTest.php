@@ -117,7 +117,7 @@ test('task handler create inherits profile from parent session', function () {
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['profile'])->toBe('caelum');
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }
@@ -171,7 +171,7 @@ test('task handler create accepts explicit profile without parent session', func
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['profile'])->toBe('caelum');
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }

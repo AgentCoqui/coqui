@@ -106,8 +106,8 @@ final class MemoryStore
         $validUntil = $entry->validUntil?->format('Y-m-d\TH:i:s');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO memories (id, content, area, tags, metadata, importance, memory_type, valid_until, profile_id, session_id, created_at, updated_at)
-            VALUES (:id, :content, :area, :tags, :metadata, :importance, :memory_type, :valid_until, :profile_id, :session_id, :created_at, :updated_at)
+            INSERT INTO memories (id, content, area, tags, metadata, importance, memory_type, valid_until, persona_id, session_id, created_at, updated_at)
+            VALUES (:id, :content, :area, :tags, :metadata, :importance, :memory_type, :valid_until, :persona_id, :session_id, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -119,7 +119,7 @@ final class MemoryStore
             ':importance' => $importance,
             ':memory_type' => $memoryType,
             ':valid_until' => $validUntil,
-            ':profile_id' => $entry->profileId,
+            ':persona_id' => $entry->personaId,
             ':session_id' => $entry->sessionId,
             ':created_at' => $now,
             ':updated_at' => $now,
@@ -277,11 +277,11 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE area = :area AND archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
@@ -356,7 +356,7 @@ final class MemoryStore
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, archived_at,
-                   profile_id, session_id
+                   persona_id, session_id
             FROM memories
             WHERE id = :id
         SQL);
@@ -397,10 +397,10 @@ final class MemoryStore
         }
 
         $where = implode(' OR ', $conditions);
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE ({$where}) AND archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
@@ -425,11 +425,11 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
@@ -449,7 +449,7 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         if ($area !== null) {
             $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL' . $profileClause);
@@ -498,12 +498,12 @@ final class MemoryStore
         $this->ensureTables();
 
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         // Fetch active knowledge memories — exclude task-type and expired memories
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE archived_at IS NULL
               AND area != :excluded_area
@@ -634,11 +634,11 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE archived_at IS NULL AND area != :excluded_area{$profileClause}
             ORDER BY importance DESC, access_count DESC, updated_at DESC
@@ -829,7 +829,7 @@ final class MemoryStore
         $summaryMigrations = [
             'ALTER TABLE memory_summary ADD COLUMN last_extraction_at TEXT',
             'ALTER TABLE memory_summary ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0',
-            'ALTER TABLE memory_summary ADD COLUMN profile_hash INTEGER NOT NULL DEFAULT 0',
+            'ALTER TABLE memory_summary ADD COLUMN persona_hash INTEGER NOT NULL DEFAULT 0',
         ];
 
         foreach ($summaryMigrations as $sql) {
@@ -842,7 +842,7 @@ final class MemoryStore
 
         // Migrate: add profile and session attribution columns
         $profileMigrations = [
-            'ALTER TABLE memories ADD COLUMN profile_id TEXT',
+            'ALTER TABLE memories ADD COLUMN persona_id TEXT',
             'ALTER TABLE memories ADD COLUMN session_id TEXT',
         ];
 
@@ -854,7 +854,7 @@ final class MemoryStore
             }
         }
 
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_profile ON memories(profile_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_persona ON memories(persona_id)');
 
         $this->tablesCreated = true;
     }
@@ -931,13 +931,13 @@ final class MemoryStore
             return [];
         }
 
-        $profileClause = $this->buildProfileClause($profileId, 'm');
+        $profileClause = $this->buildPersonaClause($profileId, 'm');
 
         // Load all embeddings for active memories and compute cosine similarity in PHP
         $stmt = $this->db->query(<<<SQL
             SELECT e.memory_id, e.embedding, e.dimensions,
                    m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
-                   m.importance, m.access_count, m.last_accessed_at, m.profile_id, m.session_id
+                   m.importance, m.access_count, m.last_accessed_at, m.persona_id, m.session_id
             FROM memory_embeddings e
             JOIN memories m ON m.id = e.memory_id
             WHERE m.archived_at IS NULL{$profileClause}
@@ -985,12 +985,12 @@ final class MemoryStore
             return $this->likeSearchCandidates($query, $limit, $profileId);
         }
 
-        $profileClause = $this->buildProfileClause($profileId, 'm');
+        $profileClause = $this->buildPersonaClause($profileId, 'm');
 
         try {
             $stmt = $this->db->prepare(<<<SQL
                 SELECT l.memory_id, m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
-                       m.importance, m.access_count, m.last_accessed_at, m.profile_id, m.session_id
+                       m.importance, m.access_count, m.last_accessed_at, m.persona_id, m.session_id
                 FROM memories_fts f
                 JOIN memories_fts_lookup l ON l.rowid = f.rowid
                 JOIN memories m ON m.id = l.memory_id
@@ -1038,11 +1038,11 @@ final class MemoryStore
      */
     private function likeSearchCandidates(string $query, int $limit, ?string $profileId = null): array
     {
-        $profileClause = $this->buildProfileClause($profileId);
+        $profileClause = $this->buildPersonaClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, profile_id, session_id
+                   importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
             WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL{$profileClause}
             ORDER BY updated_at DESC
@@ -1133,7 +1133,7 @@ final class MemoryStore
             id: $candidate['id'] ?? null,
             score: $candidate['composite'] ?? $candidate['similarity'] ?? null,
             createdAt: isset($candidate['created_at']) ? new DateTimeImmutable($candidate['created_at']) : null,
-            profileId: $candidate['profile_id'] ?? null,
+            personaId: $candidate['persona_id'] ?? null,
             sessionId: $candidate['session_id'] ?? null,
         );
     }
@@ -1188,13 +1188,13 @@ final class MemoryStore
      * When a profile is active, returns memories belonging to that profile
      * plus untagged (legacy) memories. When null, returns no additional filter.
      */
-    private function buildProfileClause(?string $profileId, string $alias = ''): string
+    private function buildPersonaClause(?string $profileId, string $alias = ''): string
     {
         if ($profileId === null) {
             return '';
         }
 
-        $col = $alias !== '' ? "{$alias}.profile_id" : 'profile_id';
+        $col = $alias !== '' ? "{$alias}.persona_id" : 'persona_id';
         $escaped = $this->db->quote($profileId);
 
         return " AND ({$col} = {$escaped} OR {$col} IS NULL)";
@@ -1268,7 +1268,7 @@ final class MemoryStore
             validUntil: is_string($row['valid_until'] ?? null) && $row['valid_until'] !== ''
                 ? new DateTimeImmutable($row['valid_until'])
                 : null,
-            profileId: $row['profile_id'] ?? null,
+            personaId: $row['persona_id'] ?? null,
             sessionId: $row['session_id'] ?? null,
         );
     }

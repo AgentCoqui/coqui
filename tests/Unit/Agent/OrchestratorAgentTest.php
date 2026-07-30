@@ -418,8 +418,8 @@ test('instructions include profile preferences and scoped core memories', functi
 
     $memoryDbPath = sys_get_temp_dir() . '/coqui-agent-memory-' . bin2hex(random_bytes(4)) . '.db';
     $memoryStore = new MemoryStore($memoryDbPath);
-    $memoryStore->save(new MemoryEntry(content: 'Caelum memory', area: 'identity', metadata: ['importance' => 0.95], profileId: 'caelum'));
-    $memoryStore->save(new MemoryEntry(content: 'Other memory', area: 'identity', metadata: ['importance' => 0.95], profileId: 'other'));
+    $memoryStore->save(new MemoryEntry(content: 'Caelum memory', area: 'identity', metadata: ['importance' => 0.95], personaId: 'caelum'));
+    $memoryStore->save(new MemoryEntry(content: 'Other memory', area: 'identity', metadata: ['importance' => 0.95], personaId: 'other'));
 
     try {
         $agent = new OrchestratorAgent(

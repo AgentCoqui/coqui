@@ -173,7 +173,7 @@ final readonly class InteractiveSessionService
 
         $resolvedProfile = $request->updatesProfile
             ? $request->profile
-            : $this->normalizeProfileValue($session['profile'] ?? null);
+            : $this->normalizeProfileValue($session['persona_id'] ?? null);
 
         $this->assertProfileRoleAllowed($resolvedProfile, $resolvedRole);
 
@@ -198,7 +198,7 @@ final readonly class InteractiveSessionService
         }
 
         if ($request->updatesProfile) {
-            $this->storage->updateSessionProfile($sessionId, $resolvedProfile);
+            $this->storage->updateSessionPersona($sessionId, $resolvedProfile);
         }
 
         $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedProfile);

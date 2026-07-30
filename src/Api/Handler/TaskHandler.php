@@ -90,8 +90,8 @@ final readonly class TaskHandler
             }
         }
 
-        $inheritedProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
-            ? $parentSession['profile']
+        $inheritedProfile = is_array($parentSession) && is_string($parentSession['persona_id'] ?? null) && $parentSession['persona_id'] !== ''
+            ? $parentSession['persona_id']
             : null;
 
         if ($requestedProfile !== null && $inheritedProfile !== null && $requestedProfile !== $inheritedProfile) {

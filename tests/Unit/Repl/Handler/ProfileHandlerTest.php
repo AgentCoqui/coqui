@@ -161,7 +161,7 @@ test('profile handler creates a new profiled session when switching profiles', f
         expect($result->newSessionId)->not->toBeNull();
         expect($result->newActiveProfile)->toBe('caelum');
         expect($session)->not->toBeNull();
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupProfileHandlerFixture($fixture);
     }

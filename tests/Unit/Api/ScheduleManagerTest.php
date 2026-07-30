@@ -34,5 +34,5 @@ test('tick creates scheduled task session with persisted profile metadata', func
 
     expect($task)->not->toBeNull();
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
 });

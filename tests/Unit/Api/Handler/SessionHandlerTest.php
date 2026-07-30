@@ -134,14 +134,14 @@ test('session handler create persists a valid profile', function () {
         $session = $fixture['storage']->getSession($body['id']);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona_id'])->toBe('caelum');
         expect($body['model'])->toBe('ollama/qwen3:latest');
         expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
     expect($session['session_origin'])->toBe('user');
         expect($session)->not->toHaveKey('channel');
         expect($session['session_origin'] ?? null)->not->toBe('channel');
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
         expect($session['model'])->toBe('ollama/qwen3:latest');
         expect($session['session_type'])->toBe('interactive');
     } finally {
@@ -228,7 +228,7 @@ test('session handler update accepts clearing or setting a profile', function ()
         $setBody = json_decode((string) $setResponse->getBody(), true);
 
         expect($setResponse->getStatusCode())->toBe(200);
-        expect($setBody['profile'])->toBe('caelum');
+        expect($setBody['persona_id'])->toBe('caelum');
         expect($setBody['model'])->toBe('anthropic/claude-sonnet-4-20250514');
 
         $clearRequest = new ServerRequest(
@@ -244,7 +244,7 @@ test('session handler update accepts clearing or setting a profile', function ()
         $clearBody = json_decode((string) $clearResponse->getBody(), true);
 
         expect($clearResponse->getStatusCode())->toBe(200);
-        expect($clearBody['profile'])->toBeNull();
+        expect($clearBody['persona_id'])->toBeNull();
         expect($clearBody['model'])->toBe('openai/gpt-4.1-mini');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
@@ -279,7 +279,7 @@ test('session handler update rejects profile changes that would disallow the cur
 
         expect($response->getStatusCode())->toBe(400);
         expect($body['error'])->toContain('does not allow role "analyst"');
-        expect($session['profile'])->toBeNull();
+        expect($session['persona_id'])->toBeNull();
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -366,10 +366,10 @@ test('session handler resolve creates a scoped session when none exists', functi
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['created'])->toBeTrue();
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona_id'])->toBe('caelum');
         expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -414,7 +414,7 @@ test('session handler create persists a group session with normalized members', 
         expect($response->getStatusCode())->toBe(201);
         expect($body['group_enabled'])->toBe(1);
         expect($body['session_type'])->toBe('group');
-        expect($body['profile'])->toBeNull();
+        expect($body['persona_id'])->toBeNull();
         expect($body['model_role'])->toBe('orchestrator');
         expect($body['group_composition_key'])->toBe('caelum|nova');
         expect($body['group_member_count'])->toBe(2);

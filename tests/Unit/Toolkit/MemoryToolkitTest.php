@@ -19,7 +19,7 @@ afterEach(function () {
 });
 
 test('memory_delete blocks deleting another profiles memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
     $tool = toolFromToolkit($this->profileToolkit, 'memory_delete');
     $result = $tool->execute(['id' => $id]);
@@ -30,7 +30,7 @@ test('memory_delete blocks deleting another profiles memory', function () {
 });
 
 test('memory_update blocks updating another profiles memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
     $tool = toolFromToolkit($this->profileToolkit, 'memory_update');
     $result = $tool->execute(['id' => $id, 'content' => 'Updated by trinity']);
@@ -40,7 +40,7 @@ test('memory_update blocks updating another profiles memory', function () {
 });
 
 test('memory_restore blocks restoring another profiles archived memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog archived', area: 'facts', profileId: 'nagog'));
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog archived', area: 'facts', personaId: 'nagog'));
     $this->store->getPdo()->prepare('UPDATE memories SET archived_at = :archived_at WHERE id = :id')->execute([
         ':archived_at' => (new DateTimeImmutable())->format('Y-m-d\TH:i:s'),
         ':id' => $id,
@@ -53,8 +53,8 @@ test('memory_restore blocks restoring another profiles archived memory', functio
 });
 
 test('memory_forget only removes active profile and shared memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', profileId: 'trinity'));
-    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', profileId: 'nagog'));
+    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', personaId: 'trinity'));
+    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', personaId: 'nagog'));
     $this->store->save(new MemoryEntry(content: 'Shared continuity note', area: 'facts'));
 
     $tool = toolFromToolkit($this->profileToolkit, 'memory_forget');
@@ -70,7 +70,7 @@ test('memory_forget only removes active profile and shared memories', function (
 });
 
 test('orchestrator can delete another profiles memory by id', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
     $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_delete');
     $result = $tool->execute(['id' => $id]);
@@ -88,8 +88,8 @@ test('memory_inspect_profile is only exposed to orchestrator-capable toolkits', 
 });
 
 test('memory_inspect_profile returns only target profile memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', profileId: 'nagog'));
-    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', profileId: 'trinity'));
+    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', personaId: 'nagog'));
+    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', personaId: 'trinity'));
     $this->store->save(new MemoryEntry(content: 'Shared continuity note', area: 'facts'));
 
     $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_inspect_profile');

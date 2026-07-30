@@ -421,7 +421,7 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $profile = is_string($session['profile'] ?? null) ? trim((string) $session['profile']) : null;
+        $profile = is_string($session['persona_id'] ?? null) ? trim((string) $session['persona_id']) : null;
         if ($profile === '') {
             $profile = null;
         }
