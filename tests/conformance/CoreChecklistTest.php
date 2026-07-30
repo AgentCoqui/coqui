@@ -4,13 +4,35 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tests\Conformance;
 
+use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
+use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
+
 // CAP 0.5.0 Core conformance scoreboard (conformance/checklist.md, CORE-1..CORE-59).
 // Each row starts as a todo and is replaced by a real assertion in the phase that
 // implements it. Todos do not fail the suite; they surface remaining work.
 
+it('CORE-1: persona allowed_roles includes orchestrator', function () {
+    $wire = PersonaSnapshotStore::toWire([
+        'id' => '01J000000000000000000PERSONA',
+        'name' => 'Caelum',
+        'avatar' => json_encode(['tint' => '#2b3a52']),
+        'model' => 'anthropic/claude-sonnet-4',
+        'allowed_roles' => json_encode(['orchestrator']),
+        'soul' => 'You are Caelum, a warm, precise research companion.',
+        'backstory' => null,
+        'context' => null,
+        'preferences' => null,
+        'version' => 1,
+        'created_at' => '2026-07-28T00:00:00Z',
+        'updated_at' => '2026-07-28T00:00:00Z',
+    ]);
+    $v = new ConformanceValidator();
+    expect($v->isValid('persona.json', $wire))->toBeTrue($v->errorText('persona.json', $wire));
+    expect($wire['allowed_roles'])->toContain('orchestrator');
+})->group('conformance');
+
 $rows = [
-    // Spec 0.3 Core MUSTs (CORE-1..CORE-35).
-    'CORE-1: persona allowed_roles includes orchestrator',
+    // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-3: timestamps are RFC-3339 UTC (Z)',
     'CORE-4: error payloads carry a code from the closed catalog',

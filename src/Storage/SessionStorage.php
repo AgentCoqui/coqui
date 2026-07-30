@@ -81,6 +81,26 @@ final class SessionStorage
         $seed->execute([':version' => self::SCHEMA_VERSION]);
         $this->assertSchemaVersion($this->db);
 
+        // CAP 0.5.0 persona index. Snapshot of the file-based authoring source
+        // (PersonaSnapshotStore). Defined before any table that FK-references it,
+        // since PRAGMA foreign_keys is ON for every connection.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS personas (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL UNIQUE,
+                avatar        TEXT NOT NULL,
+                model         TEXT NOT NULL,
+                allowed_roles TEXT NOT NULL,
+                soul          TEXT NOT NULL,
+                backstory     TEXT,
+                context       TEXT,
+                preferences   TEXT,
+                version       INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        SQL);
+
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
