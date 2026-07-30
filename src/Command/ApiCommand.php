@@ -605,7 +605,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/members', [$session, 'members']);
         $router->put($v1 . '/sessions/{id}/members', [$session, 'replaceMembers']);
         $router->post($v1 . '/sessions/{id}/members', [$session, 'addMember']);
-        $router->delete($v1 . '/sessions/{id}/members/{profile}', [$session, 'removeMember']);
+        $router->delete($v1 . '/sessions/{id}/members/{persona}', [$session, 'removeMember']);
         if ($sessionProject !== null) {
             $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
             $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
@@ -645,20 +645,20 @@ final class ApiCommand extends Command
         $router->patch($v1 . '/config/context', [$config, 'updateContext']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
-        $router->get($v1 . '/config/profiles', [$config, 'profiles']);
-        $router->get($v1 . '/config/profile-preferences/schema', [$config, 'profilePreferenceSchema']);
-        $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
+        $router->get($v1 . '/config/personas', [$config, 'personas']);
+        $router->get($v1 . '/config/persona-preferences/schema', [$config, 'personaPreferenceSchema']);
+        $router->get($v1 . '/config/personas/{name}', [$config, 'persona']);
 
         // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
         $router->get($v1 . '/roles', [$role, 'list']);
         $router->get($v1 . '/roles/{name}', [$role, 'get']);
-        $router->get($v1 . '/profiles', [$config, 'profiles']);
-        $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
-        $router->post($v1 . '/profiles', [$config, 'createProfile']);
-        $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
-        $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
+        $router->get($v1 . '/personas', [$config, 'personas']);
+        $router->get($v1 . '/personas/{name}', [$config, 'persona']);
+        $router->post($v1 . '/personas', [$config, 'createPersona']);
+        $router->patch($v1 . '/personas/{name}', [$config, 'updatePersona']);
+        $router->delete($v1 . '/personas/{name}', [$config, 'deletePersona']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);

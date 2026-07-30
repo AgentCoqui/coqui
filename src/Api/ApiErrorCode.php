@@ -31,7 +31,7 @@ enum ApiErrorCode: string
     case CREDENTIAL_NOT_FOUND = 'credential_not_found';
     case QUESTION_NOT_FOUND = 'question_not_found';
     case QUESTION_INVALID_ANSWER = 'question_invalid_answer';
-    case PROFILE_SESSION_ACTIVE = 'profile_session_active';
+    case PERSONA_SESSION_ACTIVE = 'persona_session_active';
     case GROUP_SESSION_ACTIVE = 'group_session_active';
     case RATE_LIMITED = 'rate_limited';
     case PAYLOAD_TOO_LARGE = 'payload_too_large';
@@ -65,7 +65,7 @@ enum ApiErrorCode: string
             self::NOT_FOUND, self::ROLE_NOT_FOUND, self::SESSION_NOT_FOUND, self::TURN_NOT_FOUND, self::CREDENTIAL_NOT_FOUND, self::QUESTION_NOT_FOUND => 404,
             self::VALIDATION_ERROR, self::MISSING_FIELD, self::INVALID_FORMAT => 400,
             self::QUESTION_INVALID_ANSWER => 422,
-            self::CONFLICT, self::ROLE_BUILTIN, self::ROLE_RESERVED, self::AGENT_BUSY, self::SESSION_CLOSED, self::PROFILE_SESSION_ACTIVE, self::GROUP_SESSION_ACTIVE => 409,
+            self::CONFLICT, self::ROLE_BUILTIN, self::ROLE_RESERVED, self::AGENT_BUSY, self::SESSION_CLOSED, self::PERSONA_SESSION_ACTIVE, self::GROUP_SESSION_ACTIVE => 409,
             self::UNAUTHORIZED => 401,
             self::FORBIDDEN => 403,
             self::RATE_LIMITED => 429,

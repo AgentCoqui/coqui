@@ -100,7 +100,7 @@ test('session handler create rejects unknown profile', function () {
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'unknown-profile',
+                'persona_id' => 'unknown-profile',
             ]) ?: '',
         );
 
@@ -125,7 +125,7 @@ test('session handler create persists a valid profile', function () {
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'Caelum',
+                'persona_id' => 'Caelum',
             ]) ?: '',
         );
 
@@ -167,7 +167,7 @@ test('session handler create rejects roles disallowed by the active profile', fu
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'analyst',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -220,7 +220,7 @@ test('session handler update accepts clearing or setting a profile', function ()
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'analyst',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -236,7 +236,7 @@ test('session handler update accepts clearing or setting a profile', function ()
             '/api/v1/sessions/' . $sessionId,
             ['Content-Type' => 'application/json'],
             json_encode([
-                'profile' => '',
+                'persona_id' => '',
             ]) ?: '',
         );
 
@@ -269,7 +269,7 @@ test('session handler update rejects profile changes that would disallow the cur
             '/api/v1/sessions/' . $sessionId,
             ['Content-Type' => 'application/json'],
             json_encode([
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -295,7 +295,7 @@ test('session handler create resolves profile role override models when role and
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'analyst',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -330,7 +330,7 @@ test('session handler resolve reuses the latest scoped interactive session', fun
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -356,7 +356,7 @@ test('session handler resolve creates a scoped session when none exists', functi
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -550,7 +550,7 @@ test('session handler update rejects assigning a profile to a group session', fu
                 'PATCH',
                 '/api/v1/sessions/' . $sessionId,
                 ['Content-Type' => 'application/json'],
-                json_encode(['profile' => 'caelum']) ?: '',
+                json_encode(['persona_id' => 'caelum']) ?: '',
             ),
             $sessionId,
         );
@@ -664,7 +664,7 @@ test('session handler create requires confirmation when a profile already has an
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -672,7 +672,7 @@ test('session handler create requires confirmation when a profile already has an
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('profile_session_active');
+        expect($body['code'])->toBe('persona_session_active');
         expect($body['details']['active_session_id'])->toBe($activeSessionId);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
@@ -692,8 +692,8 @@ test('session handler create closes active profiled session when confirmation is
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'caelum',
-                'confirm_close_active_profile_session' => true,
+                'persona_id' => 'caelum',
+                'confirm_close_active_persona_session' => true,
             ]) ?: '',
         );
 
@@ -735,7 +735,7 @@ test('session handler resolve closes older duplicate active sessions for a profi
             ['Content-Type' => 'application/json'],
             json_encode([
                 'model_role' => 'orchestrator',
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -766,7 +766,7 @@ test('session handler update requires confirmation before reassigning into an ac
             '/api/v1/sessions/' . $sessionId,
             ['Content-Type' => 'application/json'],
             json_encode([
-                'profile' => 'caelum',
+                'persona_id' => 'caelum',
             ]) ?: '',
         );
 
@@ -774,7 +774,7 @@ test('session handler update requires confirmation before reassigning into an ac
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('profile_session_active');
+        expect($body['code'])->toBe('persona_session_active');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

@@ -87,7 +87,7 @@ final readonly class SessionHandler
                 if (!$this->profileDiscovery->profileExists($profileParam)) {
                     return Router::errorResponse(
                         ApiErrorCode::VALIDATION_ERROR,
-                        sprintf('Unknown profile "%s". Use GET /api/v1/profiles to see available profiles.', $profileParam),
+                        sprintf('Unknown profile "%s". Use GET /api/v1/personas to see available personas.', $profileParam),
                     );
                 }
                 $profile = $profileParam;
@@ -129,7 +129,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * POST /api/v1/sessions/resolve  { "model_role"?: "orchestrator", "profile"?: "caelum" }
+     * POST /api/v1/sessions/resolve  { "model_role"?: "orchestrator", "persona_id"?: "caelum" }
      */
     public function resolve(ServerRequestInterface $request): Response
     {
@@ -266,9 +266,9 @@ final readonly class SessionHandler
     }
 
     /**
-     * DELETE /api/v1/sessions/{id}/members/{profile}
+     * DELETE /api/v1/sessions/{id}/members/{persona}
      */
-    public function removeMember(ServerRequestInterface $request, string $id, string $profile): Response
+    public function removeMember(ServerRequestInterface $request, string $id, string $persona): Response
     {
         $session = SessionAccess::requireWritableSession($this->storage, $id);
         if ($session instanceof Response) {
@@ -276,7 +276,7 @@ final readonly class SessionHandler
         }
 
         try {
-            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $profile, $this->decodeJsonObjectOrNull($request));
+            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $persona, $this->decodeJsonObjectOrNull($request));
         } catch (SessionTypeException $e) {
             return $this->sessionTypeErrorResponse($e);
         }

@@ -118,18 +118,18 @@ test('config handler lists discovered profiles and default profile', function ()
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->profiles(new ServerRequest('GET', '/api/v1/config/profiles'));
+        $response = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['count'])->toBe(2);
-        expect($body['default_profile'])->toBe('caelum');
-        expect(array_column($body['profiles'], 'name'))->toBe(['caelum', 'trinity']);
-        expect($body['profiles'][0])->toHaveKeys(['name', 'display_name', 'description', 'model', 'is_default', 'allowed_roles', 'role_restrictions', 'has_role_restrictions']);
-        expect($body['profiles'][0]['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-        expect($body['profiles'][0]['is_default'])->toBeTrue();
-        expect($body['profiles'][0]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
-        expect($body['profiles'][1]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
+        expect($body['default_persona'])->toBe('caelum');
+        expect(array_column($body['personas'], 'name'))->toBe(['caelum', 'trinity']);
+        expect($body['personas'][0])->toHaveKeys(['name', 'display_name', 'description', 'model', 'is_default', 'allowed_roles', 'role_restrictions', 'has_role_restrictions']);
+        expect($body['personas'][0]['model'])->toBe('anthropic/claude-sonnet-4-20250514');
+        expect($body['personas'][0]['is_default'])->toBeTrue();
+        expect($body['personas'][0]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
+        expect($body['personas'][1]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -139,8 +139,8 @@ test('config handler returns a curated profile preference schema for the app', f
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->profilePreferenceSchema(
-            new ServerRequest('GET', '/api/v1/config/profile-preferences/schema'),
+        $response = $fixture['handler']->personaPreferenceSchema(
+            new ServerRequest('GET', '/api/v1/config/persona-preferences/schema'),
         );
         $body = json_decode((string) $response->getBody(), true);
 
@@ -175,7 +175,7 @@ test('config handler returns profile detail for picker UIs', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->profile(new ServerRequest('GET', '/api/v1/profiles/caelum'), 'caelum');
+        $response = $fixture['handler']->persona(new ServerRequest('GET', '/api/v1/personas/caelum'), 'caelum');
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
@@ -196,9 +196,9 @@ test('config handler creates a profile and makes it immediately discoverable', f
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->createProfile(new ServerRequest(
+        $response = $fixture['handler']->createPersona(new ServerRequest(
             'POST',
-            '/api/v1/profiles',
+            '/api/v1/personas',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'nova',
@@ -219,7 +219,7 @@ test('config handler creates a profile and makes it immediately discoverable', f
         ));
         $body = json_decode((string) $response->getBody(), true);
 
-        $profilesResponse = $fixture['handler']->profiles(new ServerRequest('GET', '/api/v1/config/profiles'));
+        $profilesResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
         $profilesBody = json_decode((string) $profilesResponse->getBody(), true);
 
         expect($response->getStatusCode())->toBe(201);
@@ -229,7 +229,7 @@ test('config handler creates a profile and makes it immediately discoverable', f
         expect($body['preferences']['features']['projects'])->toBeFalse();
         expect($body['preferences']['features']['loops'])->toBeTrue();
         expect($profilesBody['count'])->toBe(3);
-        expect(array_column($profilesBody['profiles'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
+        expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
         expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/soul.md'))->toContain('A bold collaborative strategist.');
         expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/backstory.md'))->toContain('## Origins');
         expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/preferences.json'))->toContain('planning_mode');
@@ -242,9 +242,9 @@ test('config handler rejects duplicate or invalid profile creation payloads', fu
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $duplicateResponse = $fixture['handler']->createProfile(new ServerRequest(
+        $duplicateResponse = $fixture['handler']->createPersona(new ServerRequest(
             'POST',
-            '/api/v1/profiles',
+            '/api/v1/personas',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'caelum',
@@ -253,9 +253,9 @@ test('config handler rejects duplicate or invalid profile creation payloads', fu
         ));
         $duplicateBody = json_decode((string) $duplicateResponse->getBody(), true);
 
-        $invalidResponse = $fixture['handler']->createProfile(new ServerRequest(
+        $invalidResponse = $fixture['handler']->createPersona(new ServerRequest(
             'POST',
-            '/api/v1/profiles',
+            '/api/v1/personas',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'not valid',
@@ -277,9 +277,9 @@ test('config handler updates a profile and preserves existing frontmatter', func
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->updateProfile(new ServerRequest(
+        $response = $fixture['handler']->updatePersona(new ServerRequest(
             'PATCH',
-            '/api/v1/profiles/caelum',
+            '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'description' => 'A calmer guide for long-running conversations.',
@@ -315,9 +315,9 @@ test('config handler can remove optional profile files during update', function 
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->updateProfile(new ServerRequest(
+        $response = $fixture['handler']->updatePersona(new ServerRequest(
             'PATCH',
-            '/api/v1/profiles/caelum',
+            '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'soul' => "# Caelum\n\nA direct soul rewrite.",
@@ -342,9 +342,9 @@ test('config handler rejects invalid profile update payloads', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->updateProfile(new ServerRequest(
+        $response = $fixture['handler']->updatePersona(new ServerRequest(
             'PATCH',
-            '/api/v1/profiles/caelum',
+            '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'renamed-profile',
@@ -363,13 +363,13 @@ test('config handler deletes a non-default profile and invalidates discovery', f
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->deleteProfile(
-            new ServerRequest('DELETE', '/api/v1/profiles/trinity'),
+        $response = $fixture['handler']->deletePersona(
+            new ServerRequest('DELETE', '/api/v1/personas/trinity'),
             'trinity',
         );
         $body = json_decode((string) $response->getBody(), true);
 
-        $profilesResponse = $fixture['handler']->profiles(new ServerRequest('GET', '/api/v1/config/profiles'));
+        $profilesResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
         $profilesBody = json_decode((string) $profilesResponse->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
@@ -378,7 +378,7 @@ test('config handler deletes a non-default profile and invalidates discovery', f
             'name' => 'trinity',
         ]);
         expect($profilesBody['count'])->toBe(1);
-        expect(array_column($profilesBody['profiles'], 'name'))->toBe(['caelum']);
+        expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum']);
         expect(is_dir($fixture['workspacePath'] . '/profiles/trinity'))->toBeFalse();
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
@@ -389,8 +389,8 @@ test('config handler refuses to delete the configured default profile', function
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->deleteProfile(
-            new ServerRequest('DELETE', '/api/v1/profiles/caelum'),
+        $response = $fixture['handler']->deletePersona(
+            new ServerRequest('DELETE', '/api/v1/personas/caelum'),
             'caelum',
         );
         $body = json_decode((string) $response->getBody(), true);

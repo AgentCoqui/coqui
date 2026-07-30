@@ -27,10 +27,10 @@ use React\Http\Message\Response;
  * PATCH /api/v1/config/context  — update explicitly allowed context toggles
  * POST /api/v1/config/validate  — dry-run validation
  * GET  /api/v1/config/models    — list available models
- * GET  /api/v1/config/profiles  — list available profiles
- * POST /api/v1/profiles         — create a new profile
- * PATCH /api/v1/profiles/{name} — update a profile
- * DELETE /api/v1/profiles/{name} — delete a profile
+ * GET  /api/v1/config/personas  — list available personas
+ * POST /api/v1/personas         — create a new persona
+ * PATCH /api/v1/personas/{name} — update a persona
+ * DELETE /api/v1/personas/{name} — delete a persona
  * Role management moved to RoleHandler (/api/v1/config/roles/*).
  */
 final readonly class ConfigHandler
@@ -374,26 +374,26 @@ final readonly class ConfigHandler
     }
 
     /**
-     * GET /api/v1/config/profiles — list available profiles with descriptions.
+     * GET /api/v1/config/personas — list available personas with descriptions.
      */
-    public function profiles(ServerRequestInterface $request): Response
+    public function personas(ServerRequestInterface $request): Response
     {
-        $profiles = array_values(array_map(
-            fn(array $profile): array => $this->normalizeProfileSummary($profile),
+        $personas = array_values(array_map(
+            fn(array $profile): array => $this->normalizePersonaSummary($profile),
             $this->profileDiscovery->discoverAll(),
         ));
 
         return Router::jsonResponse([
-            'profiles' => $profiles,
-            'count' => count($profiles),
-            'default_profile' => $this->currentConfig()->getDefaultProfile(),
+            'personas' => $personas,
+            'count' => count($personas),
+            'default_persona' => $this->currentConfig()->getDefaultProfile(),
         ]);
     }
 
     /**
-     * GET /api/v1/config/profile-preferences/schema — app-facing preference editor schema.
+     * GET /api/v1/config/persona-preferences/schema — app-facing preference editor schema.
      */
-    public function profilePreferenceSchema(ServerRequestInterface $request): Response
+    public function personaPreferenceSchema(ServerRequestInterface $request): Response
     {
         $availableRoles = $this->roleResolver !== null
             ? array_values($this->roleResolver->selectableRoles())
@@ -403,22 +403,22 @@ final readonly class ConfigHandler
     }
 
     /**
-     * GET /api/v1/config/profiles/{name} — get profile detail for picker UIs.
+     * GET /api/v1/config/personas/{name} — get persona detail for picker UIs.
      */
-    public function profile(ServerRequestInterface $request, string $name): Response
+    public function persona(ServerRequestInterface $request, string $name): Response
     {
         $profile = $this->profileDiscovery->discoverAll()[strtolower($name)] ?? null;
         if ($profile === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
         }
 
-        return Router::jsonResponse($this->normalizeProfileDetail($profile));
+        return Router::jsonResponse($this->normalizePersonaDetail($profile));
     }
 
     /**
-     * POST /api/v1/profiles — create a profile for app onboarding flows.
+     * POST /api/v1/personas — create a persona for app onboarding flows.
      */
-    public function createProfile(ServerRequestInterface $request): Response
+    public function createPersona(ServerRequestInterface $request): Response
     {
         $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
@@ -492,13 +492,13 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Profile was created but could not be reloaded.');
         }
 
-        return Router::jsonResponse($this->normalizeProfileDetail($profile), 201);
+        return Router::jsonResponse($this->normalizePersonaDetail($profile), 201);
     }
 
     /**
-     * PATCH /api/v1/profiles/{name} — update soul, backstory, and preferences.
+     * PATCH /api/v1/personas/{name} — update soul, backstory, and preferences.
      */
-    public function updateProfile(ServerRequestInterface $request, string $name): Response
+    public function updatePersona(ServerRequestInterface $request, string $name): Response
     {
         $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
@@ -622,13 +622,13 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Profile was updated but could not be reloaded.');
         }
 
-        return Router::jsonResponse($this->normalizeProfileDetail($updatedProfile));
+        return Router::jsonResponse($this->normalizePersonaDetail($updatedProfile));
     }
 
     /**
-     * DELETE /api/v1/profiles/{name} — remove a profile directory.
+     * DELETE /api/v1/personas/{name} — remove a persona directory.
      */
-    public function deleteProfile(ServerRequestInterface $request, string $name): Response
+    public function deletePersona(ServerRequestInterface $request, string $name): Response
     {
         $normalizedName = strtolower(trim($name));
         $profile = $this->profileDiscovery->discoverAll()[$normalizedName] ?? null;
@@ -684,7 +684,7 @@ final readonly class ConfigHandler
      * @param array{name: string, display_name: string, description: string, path: string} $profile
      * @return array<string, mixed>
      */
-    private function normalizeProfileSummary(array $profile): array
+    private function normalizePersonaSummary(array $profile): array
     {
         $preferences = PersonaPreferences::fromProfilePath($profile['path']);
         $selectableRoles = $this->roleResolver !== null
@@ -713,12 +713,12 @@ final readonly class ConfigHandler
      * @param array{name: string, display_name: string, description: string, path: string} $profile
      * @return array<string, mixed>
      */
-    private function normalizeProfileDetail(array $profile): array
+    private function normalizePersonaDetail(array $profile): array
     {
         $preferences = PersonaPreferences::fromProfilePath($profile['path']);
 
         return [
-            ...$this->normalizeProfileSummary($profile),
+            ...$this->normalizePersonaSummary($profile),
             'preferences' => $preferences->inspectionSummary(),
             'preference_values' => $preferences->editorValues(),
             'preference_document' => $this->readPreferenceDocument($profile['path']),

@@ -186,7 +186,7 @@ final class RunCommand extends Command
                     $this->activeProfile = $configuredDefault;
                 } elseif (!$noTerminal) {
                     $io->warning(sprintf(
-                        'Configured default profile "%s" was not found in workspace/profiles and will be ignored.',
+                        'Configured default profile "%s" was not found in the workspace profiles directory and will be ignored.',
                         $configuredDefault,
                     ));
                 }

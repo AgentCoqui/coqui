@@ -153,7 +153,7 @@ final readonly class RoleHandler
                 null,
                 Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown profile "%s". Use GET /api/v1/profiles to see available profiles.', $profile),
+                    sprintf('Unknown profile "%s". Use GET /api/v1/personas to see available personas.', $profile),
                 ),
             ];
         }

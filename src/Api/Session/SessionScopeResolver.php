@@ -43,8 +43,8 @@ final readonly class SessionScopeResolver
             );
         }
 
-        $profile = is_array($body) && array_key_exists('profile', $body)
-            ? $this->normalizeProfileValue($body['profile'])
+        $profile = is_array($body) && array_key_exists('persona_id', $body)
+            ? $this->normalizeProfileValue($body['persona_id'])
             : null;
 
         $type = is_array($body)
@@ -104,7 +104,7 @@ final readonly class SessionScopeResolver
             type: SessionType::Interactive,
             modelRole: $modelRole,
             profile: $profile,
-            confirmCloseActiveProfileSession: $this->confirmFlag($body, 'confirm_close_active_profile_session'),
+            confirmCloseActiveProfileSession: $this->confirmFlag($body, 'confirm_close_active_persona_session'),
         );
     }
 

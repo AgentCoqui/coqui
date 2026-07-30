@@ -36,8 +36,8 @@ final class SessionUpdateRequestResolver
             title: $title,
             updatesModelRole: array_key_exists('model_role', $body),
             modelRole: $modelRole,
-            updatesProfile: array_key_exists('profile', $body),
-            profile: $this->normalizeProfileValue($body['profile'] ?? null),
+            updatesProfile: array_key_exists('persona_id', $body),
+            profile: $this->normalizeProfileValue($body['persona_id'] ?? null),
             updatesGroupEnabled: array_key_exists('group_enabled', $body),
             groupEnabled: array_key_exists('group_enabled', $body)
                 ? filter_var($body['group_enabled'], FILTER_VALIDATE_BOOLEAN)
@@ -45,8 +45,8 @@ final class SessionUpdateRequestResolver
             includesMembers: array_key_exists('members', $body),
             updatesGroupMaxRounds: array_key_exists('group_max_rounds', $body),
             groupMaxRounds: $body['group_max_rounds'] ?? null,
-            confirmCloseActiveProfileSession: array_key_exists('confirm_close_active_profile_session', $body)
-                && filter_var($body['confirm_close_active_profile_session'], FILTER_VALIDATE_BOOLEAN),
+            confirmCloseActiveProfileSession: array_key_exists('confirm_close_active_persona_session', $body)
+                && filter_var($body['confirm_close_active_persona_session'], FILTER_VALIDATE_BOOLEAN),
         );
     }
 

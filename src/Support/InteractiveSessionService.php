@@ -45,7 +45,7 @@ final readonly class InteractiveSessionService
         if ($profile !== null) {
             $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
             if ($activeSessions !== [] && !$confirmCloseActiveProfileSession) {
-                throw $this->profileSessionActiveConflict($profile, $activeSessions);
+                throw $this->personaSessionActiveConflict($profile, $activeSessions);
             }
 
             $closedSessionIds = [];
@@ -185,7 +185,7 @@ final readonly class InteractiveSessionService
             ));
 
             if ($conflicts !== [] && !$request->confirmCloseActiveProfileSession) {
-                throw $this->profileSessionActiveConflict($resolvedProfile, $conflicts);
+                throw $this->personaSessionActiveConflict($resolvedProfile, $conflicts);
             }
 
             if ($conflicts !== []) {
@@ -250,18 +250,18 @@ final readonly class InteractiveSessionService
     /**
      * @param array<int, array<string, mixed>> $activeSessions
      */
-    public function profileSessionActiveConflict(string $profile, array $activeSessions): SessionTypeException
+    public function personaSessionActiveConflict(string $profile, array $activeSessions): SessionTypeException
     {
         $primary = $activeSessions[0] ?? [];
 
         return new SessionTypeException(
-            ApiErrorCode::PROFILE_SESSION_ACTIVE,
+            ApiErrorCode::PERSONA_SESSION_ACTIVE,
             sprintf('Profile "%s" already has an active session. Confirm closure before starting or reassigning a fresh session.', $profile),
             [
                 'profile' => $profile,
                 'active_session_id' => $primary['id'] ?? null,
                 'active_session_count' => count($activeSessions),
-                'confirm_field' => 'confirm_close_active_profile_session',
+                'confirm_field' => 'confirm_close_active_persona_session',
             ],
         );
     }
