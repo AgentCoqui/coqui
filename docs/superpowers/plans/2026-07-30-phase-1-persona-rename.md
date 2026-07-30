@@ -320,7 +320,7 @@ git commit -m "refactor(persona): rename /profile REPL commands + handler to per
 
 ---
 
-### Task 5: Config dir + config key + examples + docs + final grep-gate
+### Task 5: Config dir + config key + examples + docs
 
 **Files:**
 - Modify: `src/Config/PersonaDiscovery.php` (`directory()` dir string `profiles`→`personas`), `src/Agent/AgentRunner.php` (the 3 workspace path builders `.../profiles/...`→`.../personas/...`), `src/Config/OpenClawConfig.php` (`getDefaultProfile`→`getDefaultPersona`, key `agents.defaults.profile`→`agents.defaults.persona`), `src/Config/SetupWizard.php`, `src/Command/RunCommand.php` (startup default check)
@@ -365,9 +365,74 @@ composer regen-docs   # refreshes the generated (untracked) config/documentation
 
 Expected: analyse clean; regen succeeds (do not commit `config/documentation.json` — it is gitignored/untracked).
 
-- [ ] **Step 6: FINAL identity grep-gate (the phase's acceptance check)**
+- [ ] **Step 6: Verify Task-5 renames landed (narrow; the broad phase gate is Task 6)**
 
-Run the sense-aware sweep — every remaining case-insensitive "profile" must be a KNOWN collision:
+```bash
+! git grep -n -e "agents.defaults.profile" -e getDefaultProfile -e "examples/profiles" -e "PROFILES.md" -- src tests examples docs AGENTS.md README.md
+git grep -n "'personas'" src/Config/PersonaDiscovery.php   # dir string renamed
+```
+
+Expected: first prints nothing (exit 0); second shows the renamed dir string. The broad case-insensitive identity sweep is deferred to Task 6 (many residual internal identifiers remain at this point — expected).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "refactor(persona): rename persona dir, default config key, examples, docs"
+```
+
+---
+
+### Task 6: Residual identity-identifier sweep + FINAL grep-gate (phase acceptance)
+
+**Why this is its own task:** Tasks 1–5 renamed each layer's *primary* surface (classes, columns, routes, commands, dir, config key, docs) but deliberately left a long tail of identity-sense internal identifiers, wire tokens, private helpers, prose, and test fixtures, each requiring per-hit sense classification. This task sweeps that tail to zero and runs the broad grep-gate that is the phase's real acceptance check. It is a large but purely mechanical rename, gated by a green suite and a CLEAN sweep.
+
+**Files:** wherever the Step-1 sweep surfaces identity-sense `profile`. Known residuals carried forward from prior task reviews:
+- Consumed accessor/method names: `BootManager`/`CoreServices` `profileDiscovery()`; `PersonaDiscovery` `profileExists()`/`availableProfiles()`/`readProfileModel()`/`getProfilePath()`/`profilesDir()`/`fromProfilePath()`/`normalizeProfile()`; `SessionHandler`/lifecycle `loadOrCreateProfileSession()`, `finalizeOtherActiveInteractiveSessionsForProfile()`, `enforceProfileRolePolicy()`; `RouteResult::stateChange(newActiveProfile:)`.
+- Agent/memory locals: `AgentRunner` `$profile`/`$activeProfile`/`profileId:` named-args + the `$profileId` params on `MemoryExtractor`/`ConversationSummarizer`; `MemoryStore` `$profileMigrations` local + `// Migrate: add profile…` comment.
+- Wire tokens deferred by Task 3 (rename the TERM now; Phase 4 conforms SHAPE later): session LIST `?profile=` filter/echo (`SessionHandler`); read-endpoint `?profile=` (`RoleHandler`, `TaskHandler`); scheduled-task metadata `'profile'` key (`ScheduleManager`, `ScheduleToolkit`); `personaSessionActiveConflict` detail key `'profile' => …`; group-member body/response key `'profile'` (+ `GroupSessionTypeHandler::addMember`); non-wire props `SessionScope::$profile`, `confirmCloseActiveProfileSession`.
+- Private REPL helpers + prose: `showCurrentProfile`/`resetProfile`/`handleDefaultProfile`, "Available profiles:", "Default profile set…", "Active profile:".
+- Test fixtures: `createProfileHandlerFixture`, `testBootManagerForProfiles`, `workspace/profiles/…` fixture dirs, any remaining `Profile*` fixture helpers.
+
+**Naming rules (apply consistently):**
+- Default term is `persona` (method/local/prop/key/prose/fixture: `profileDiscovery`→`personaDiscovery`, `$activeProfile`→`$activePersona`, `showCurrentProfile`→`showCurrentPersona`, etc.).
+- Where the token denotes the SESSION's owning persona id (matches CAP `session.json` `persona_id` already used by the session object): use `persona_id`. Specifically the session-scoped `?profile=` filter/echo and any request/response key naming the session owner → `persona_id`. Generic "which persona" filters on non-session resources (role/task listing) → `persona`.
+- Directory-path segment strings already handled in Task 5 — do not re-touch.
+
+- [ ] **Step 1: Full identity sweep inventory**
+
+```bash
+git grep -in profile -- src tests config examples docs AGENTS.md README.md \
+  | grep -viE 'toolprofile|tool_profile|tool-profile|TOOL_PROFILE|test:profile|test-profile\.php|COQUI_TEST_PROFILE|PerformanceTest|LeanDefault'
+```
+
+Classify EVERY line: identity-sense (rename per the naming rules) vs a NEW collision/capability hit you must justify. There should be no tool-profile/test-profile hits after the exclusion filter.
+
+- [ ] **Step 2: Rename all identity-sense residuals atomically**
+
+Rename each identifier together with all its references (definition + call sites + named-args + docblocks). Keep the change purely mechanical — no logic/behavior change, no structural body reshaping (Phase 4 owns wire shape). Renaming a method requires updating every caller in the same commit so the tree stays green.
+
+- [ ] **Step 3: Update affected tests + fixtures**
+
+Rename fixture helper names and `workspace/profiles/` fixture dirs; do not weaken assertions.
+
+- [ ] **Step 4: Build + full suite green**
+
+```bash
+composer test
+```
+
+Expected: PASS (same count; nothing removed).
+
+- [ ] **Step 5: Static analysis**
+
+```bash
+composer analyse
+```
+
+Expected: no new errors.
+
+- [ ] **Step 6: FINAL identity grep-gate (the phase's acceptance check)**
 
 ```bash
 git grep -in profile -- src tests config examples docs AGENTS.md README.md \
@@ -375,7 +440,7 @@ git grep -in profile -- src tests config examples docs AGENTS.md README.md \
   || echo "CLEAN: no identity-sense profile references remain"
 ```
 
-Expected: either `CLEAN: ...` or a SHORT list you can justify as collision/capability sense (document any residuals in the report). If an identity-sense hit remains, fix it before committing. Then confirm the collisions still exist:
+Expected: `CLEAN: …`, OR a SHORT list every entry of which you justify in the report as a genuine collision/capability sense (not identity). Then confirm collisions survive:
 
 ```bash
 git grep -n -e ToolProfileResolver -e "test:profile" -e TOOL_PROFILE_LEAN | head
@@ -387,14 +452,14 @@ Expected: all three still present.
 
 ```bash
 git add -A
-git commit -m "refactor(persona): rename persona dir, default config key, examples, docs; close identity rename"
+git commit -m "refactor(persona): sweep residual identity identifiers; close profile->persona rename"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage (design §0 / §6 Phase 1):** identity classes (T1), DB columns + memory threading (T2), API routes/keys/error code (T3), REPL commands (T4), config dir + default key + examples + docs + final gate (T5). Persona persistence (index table, id/version/timestamps, schema-valid Persona production) is explicitly deferred to Phase 2 — noted in the design doc and this plan's Architecture.
+**Spec coverage (design §0 / §6 Phase 1):** identity classes (T1), DB columns + memory threading (T2), API routes/keys/error code (T3), REPL commands (T4), config dir + default key + examples + docs (T5), residual identity-identifier sweep + final grep-gate acceptance (T6). Persona persistence (index table, id/version/timestamps, schema-valid Persona production) is explicitly deferred to Phase 2 — noted in the design doc and this plan's Architecture.
 
 **Placeholder scan:** no TBD/TODO. Each task gives the exact rename map, the exact inventory/verify grep commands, and the green gate. The "code" of a mechanical rename is the mapping + verification, which are all concrete.
 
