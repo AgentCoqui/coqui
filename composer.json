@@ -45,7 +45,8 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "CoquiBot\\Coqui\\Tests\\": "tests/"
+      "CoquiBot\\Coqui\\Tests\\": "tests/",
+      "CoquiBot\\Coqui\\Tests\\Conformance\\": "tests/conformance/"
     },
     "exclude-from-classmap": [
       "tests/Unit/Config/ToolkitDiscoveryTest.php"
