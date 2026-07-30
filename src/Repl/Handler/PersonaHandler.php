@@ -10,9 +10,9 @@ use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Handles /profile and /profiles slash commands.
+ * Handles /persona and /personas slash commands.
  */
-final class ProfileHandler
+final class PersonaHandler
 {
     public function __construct(
         private readonly BootManager $boot,
@@ -20,11 +20,11 @@ final class ProfileHandler
     ) {}
 
     /**
-     * Handle /profile [name|reset].
+     * Handle /persona [name|reset].
      *
         * Returns a RouteResult with the new profile and a scoped session ID when switching.
      */
-    public function handleProfile(
+    public function handlePersona(
         SymfonyStyle $io,
         string $arg,
         string $activeRole,
@@ -81,9 +81,9 @@ final class ProfileHandler
     }
 
     /**
-     * Handle /profiles — list all available profiles.
+     * Handle /personas — list all available profiles.
      */
-    public function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
+    public function handlePersonas(SymfonyStyle $io, ?string $activeProfile): RouteResult
     {
         $profileDiscovery = $this->boot->profileDiscovery();
         $profiles = $profileDiscovery->discoverAll();
@@ -166,7 +166,7 @@ final class ProfileHandler
                 ));
             }
 
-            $io->writeln('<fg=gray>Use /profile default <name> to set it, or /profile default none to clear it.</>');
+            $io->writeln('<fg=gray>Use /persona default <name> to set it, or /persona default none to clear it.</>');
             return RouteResult::continue();
         }
 

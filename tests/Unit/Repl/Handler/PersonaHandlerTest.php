@@ -10,7 +10,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
-use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
+use CoquiBot\Coqui\Repl\Handler\PersonaHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
@@ -69,7 +69,7 @@ function createProfileHandlerFixture(): array
         'projectRoot' => $projectRoot,
         'storage' => $storage,
         'configManager' => $configManager,
-        'handler' => new ProfileHandler($boot, $sessionHandler),
+        'handler' => new PersonaHandler($boot, $sessionHandler),
         'io' => new SymfonyStyle(new ArrayInput([]), $output),
         'output' => $output,
     ];
@@ -106,7 +106,7 @@ test('profile handler shows configured default profile state', function () {
     try {
         $existingSession = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
 
-        $result = $fixture['handler']->handleProfile($fixture['io'], 'default', 'orchestrator', 'caelum');
+        $result = $fixture['handler']->handlePersona($fixture['io'], 'default', 'orchestrator', 'caelum');
         $sessions = $fixture['storage']->listSessions(10, false);
 
         expect($result->shouldContinue)->toBeTrue();
@@ -124,7 +124,7 @@ test('profile handler can set the configured default profile', function () {
     $fixture = createProfileHandlerFixture();
 
     try {
-        $result = $fixture['handler']->handleProfile($fixture['io'], 'default caelum', 'orchestrator', null);
+        $result = $fixture['handler']->handlePersona($fixture['io'], 'default caelum', 'orchestrator', null);
 
         expect($result->shouldContinue)->toBeTrue();
         expect($fixture['configManager']->config()->getDefaultProfile())->toBe('caelum');
@@ -140,7 +140,7 @@ test('profile handler can clear the configured default profile', function () {
     try {
         $fixture['configManager']->set('agents.defaults.profile', 'caelum');
 
-        $result = $fixture['handler']->handleProfile($fixture['io'], 'default none', 'orchestrator', null);
+        $result = $fixture['handler']->handlePersona($fixture['io'], 'default none', 'orchestrator', null);
 
         expect($result->shouldContinue)->toBeTrue();
         expect($fixture['configManager']->config()->getDefaultProfile())->toBeNull();
@@ -154,7 +154,7 @@ test('profile handler creates a new profiled session when switching profiles', f
     $fixture = createProfileHandlerFixture();
 
     try {
-        $result = $fixture['handler']->handleProfile($fixture['io'], 'caelum', 'orchestrator', null);
+        $result = $fixture['handler']->handlePersona($fixture['io'], 'caelum', 'orchestrator', null);
         $session = $result->newSessionId !== null ? $fixture['storage']->getSession($result->newSessionId) : null;
 
         expect($result->shouldContinue)->toBeTrue();

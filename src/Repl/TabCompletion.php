@@ -94,7 +94,7 @@ final class TabCompletion
             '/role' => $this->completeRole($parts),
             '/roles' => $this->completeRoles($parts),
             '/group' => $this->completeGroup($parts),
-            '/profile' => $this->completeProfile($parts),
+            '/persona' => $this->completePersona($parts),
             default => $this->completeToolkitCommand($spec, $parts),
         };
     }
@@ -326,11 +326,11 @@ final class TabCompletion
      * @param array<string> $parts
      * @return list<string>
      */
-    private function completeProfile(array $parts): array
+    private function completePersona(array $parts): array
     {
         if (count($parts) === 2) {
             $candidates = [
-                ...$this->commandSpec('/profile')->firstArguments,
+                ...$this->commandSpec('/persona')->firstArguments,
                 ...$this->boot->profileDiscovery()->availableProfiles(),
             ];
 

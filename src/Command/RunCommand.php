@@ -28,7 +28,7 @@ use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
-use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
+use CoquiBot\Coqui\Repl\Handler\PersonaHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -403,7 +403,7 @@ final class RunCommand extends Command
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             group: new GroupHandler($groupSessionService, $this->storage),
-            profile: new ProfileHandler($this->boot, $sessionHandler),
+            persona: new PersonaHandler($this->boot, $sessionHandler),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             config: new ConfigHandler($this->boot, $this->workDir),
             thinking: new ThinkingHandler($this->boot),

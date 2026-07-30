@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
-use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
+use CoquiBot\Coqui\Repl\Handler\PersonaHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -56,7 +56,7 @@ final class SlashCommandRouter
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
         private readonly GroupHandler $group,
-        private readonly ProfileHandler $profile,
+        private readonly PersonaHandler $persona,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
         private readonly ConfigHandler $config,
         private readonly ThinkingHandler $thinking,
@@ -118,8 +118,8 @@ final class SlashCommandRouter
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/group' => $this->handleGroup($io, $arg, $sessionId),
-            '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
-            '/profiles' => $this->handleProfiles($io, $activeProfile),
+            '/persona' => $this->handlePersona($io, $arg, $activeRole, $activeProfile),
+            '/personas' => $this->handlePersonas($io, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/audit' => $this->handleAudit($io, $arg, $sessionId),
@@ -379,14 +379,14 @@ final class SlashCommandRouter
         return $this->group->handle($io, $arg, $sessionId);
     }
 
-    private function handleProfile(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    private function handlePersona(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
     {
-        return $this->profile->handleProfile($io, $arg, $activeRole, $activeProfile);
+        return $this->persona->handlePersona($io, $arg, $activeRole, $activeProfile);
     }
 
-    private function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
+    private function handlePersonas(SymfonyStyle $io, ?string $activeProfile): RouteResult
     {
-        return $this->profile->handleProfiles($io, $activeProfile);
+        return $this->persona->handlePersonas($io, $activeProfile);
     }
 
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult

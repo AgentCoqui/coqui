@@ -232,11 +232,11 @@ test('role, profile, session, task, and todo completion use live state', functio
         expect($fixture['completion']->complete('/group '))->toContain('status');
         expect($fixture['completion']->complete('/group start '))->toContain('caelum');
         expect($fixture['completion']->complete('/group start '))->toContain('--rounds=3');
-        expect($fixture['completion']->complete('/profile d'))->toContain('default');
-        expect($fixture['completion']->complete('/profile '))->toContain('caelum');
-        expect($fixture['completion']->complete('/profile default '))->toContain('caelum');
-        expect($fixture['completion']->complete('/profile default '))->toContain('none');
-        expect($fixture['completion']->complete('/profile default '))->toContain('clear');
+        expect($fixture['completion']->complete('/persona d'))->toContain('default');
+        expect($fixture['completion']->complete('/persona '))->toContain('caelum');
+        expect($fixture['completion']->complete('/persona default '))->toContain('caelum');
+        expect($fixture['completion']->complete('/persona default '))->toContain('none');
+        expect($fixture['completion']->complete('/persona default '))->toContain('clear');
         expect($fixture['completion']->complete('/resume '))->toContain($fixture['otherSessionId']);
         expect($fixture['completion']->complete('/resume '))->toContain($fixture['resumeSessionId']);
         expect($fixture['completion']->complete('/task '))->toContain($fixture['pendingTaskId']);
