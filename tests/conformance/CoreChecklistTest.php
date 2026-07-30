@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Tests\Conformance;
 
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
+use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
@@ -125,6 +126,28 @@ it('CORE-28: ChildRun is a typed first-class object; status is a closed set; no 
     }
 })->group('conformance');
 
+it('CORE-42: content is a typed object addressed by an opaque ref; sha256 identity is required', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core42-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $content = new ContentStore($storage->pdo());
+        $bytes = "hello, content-addressing\n";
+        $wire = $content->store($bytes, 'text/markdown');
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('content.json', $wire))->toBeTrue($v->errorText('content.json', $wire));
+        // sha256 identity is required and is the lowercase-hex digest of the bytes.
+        expect($wire['sha256'])->toMatch('/^[0-9a-f]{64}$/');
+        expect($wire['sha256'])->toBe(hash('sha256', $bytes));
+        expect($wire['size'])->toBe(strlen($bytes));
+        // content_ref is the opaque handle; the spec never interprets it.
+        expect($wire['content_ref'])->not->toBe('');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -165,7 +188,6 @@ $rows = [
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
     'CORE-40: every operation\'s documented error codes come from the closed catalog via reusable responses; coverage is complete',
     'CORE-41: SSE error events carry a code from the closed catalog',
-    'CORE-42: content is a typed object addressed by an opaque ref; sha256 identity is required',
     'CORE-43: messages carry typed attachments[] of {content_ref, mime_type}',
     'CORE-44: content ops (putContent/getContent) are bound (multipart/binary upload + Range download)',
     'CORE-45: export types a content collection; import round-trips it (preserve+remap)',

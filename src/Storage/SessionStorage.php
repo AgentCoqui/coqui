@@ -179,6 +179,20 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 content-addressed blob index (content.json). The row is the
+        // immutable metadata for a byte blob referenced by attachments/artifacts;
+        // content_ref is the opaque id, sha256 the lowercase-hex integrity digest.
+        // The spec never interprets the bytes, so no FK and no payload column here.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS content (
+                content_ref TEXT PRIMARY KEY,
+                mime_type   TEXT NOT NULL,
+                size        INTEGER NOT NULL,
+                sha256      TEXT NOT NULL,
+                created_at  TEXT NOT NULL
+            )
+        SQL);
+
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS audit_log (
                 id TEXT PRIMARY KEY,
