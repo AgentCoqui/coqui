@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/scheduled-task.json",
+  "title": "ScheduledTask",
+  "description": "A cron-driven run (schedules profile) dispatched by the in-process scheduler. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "cron", "persona_id", "action", "status", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "name": { "type": "string" },
+    "cron": { "type": "string", "description": "Host-parsed schedule expression. The spec does not fix a single cron dialect; a host MAY advertise the dialect it accepts via instance-info `schedules.dialect` so a client knows portability (Schedules.md §2)." },
+    "persona_id": { "$ref": "common.json#/$defs/Id" },
+    "action": {
+      "description": "What fires each tick, discriminated by `kind`. A `loop` action MUST carry `definition_name`; a `turn` action MUST carry `prompt`.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "definition_name"],
+          "properties": {
+            "kind": { "const": "loop" },
+            "definition_name": { "$ref": "common.json#/$defs/Slug" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "prompt"],
+          "properties": {
+            "kind": { "const": "turn" },
+            "prompt": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "status": { "type": "string", "enum": ["enabled", "disabled"] },
+    "last_run_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] },
+    "next_run_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "updated_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] }
+  }
+}

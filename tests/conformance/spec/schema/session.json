@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/session.json",
+  "title": "Session",
+  "description": "A conversation owned by a Persona. A Persona owns many, any number concurrently active. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "persona_id", "members", "kind", "status", "pinned", "version", "created_at", "updated_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "version": { "type": "integer", "minimum": 1, "description": "Opaque optimistic-concurrency token; server-assigned, increments on each update. Clients send the current value as If-Match on mutation; a mismatch returns 409 version_conflict." },
+    "persona_id": { "$ref": "common.json#/$defs/Id" },
+    "members": {
+      "type": "array",
+      "items": { "$ref": "common.json#/$defs/Id" },
+      "uniqueItems": true,
+      "description": "All participating persona ids, including the owner. Length > 1 = group session; empty or single = solo. Messages MUST carry actor attribution when > 1."
+    },
+    "title": { "type": ["string", "null"] },
+    "kind": { "type": "string", "enum": ["chat", "loop_workscope"] },
+    "status": { "type": "string", "enum": ["active", "archived", "closed"] },
+    "pinned": { "type": "boolean" },
+    "model": { "oneOf": [ { "$ref": "common.json#/$defs/ModelId" }, { "type": "null" } ], "description": "Effective model; null ⇒ inherit per Personas §5 precedence." },
+    "workspace": { "oneOf": [ { "type": "string" }, { "type": "null" } ], "description": "Opaque, host-defined execution locator (a directory on desktop, a repo/sandbox elsewhere). The spec never interprets it — echoed verbatim like a ModelId. null ⇒ no rooted workspace. Inherited by every loop stage and child agent spawned from this session (Foundation §4.4)." },
+    "token_count": { "type": "integer", "minimum": 0 },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "updated_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

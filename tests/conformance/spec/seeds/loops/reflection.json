@@ -1,0 +1,13 @@
+{
+  "name": "reflection",
+  "version": 1,
+  "description": "Periodic self-examination: review recent work, reflect, record observations.",
+  "roles": [
+    { "name": "review", "role": "explorer", "prompt": "Review recent work and activity relevant to the goal.", "order": 0 },
+    { "name": "reflect", "role": "philosopher", "prompt": "Reflect on patterns, tensions, and lessons in what was reviewed.", "order": 1 },
+    { "name": "curate", "role": "identity-curator", "prompt": "Curate durable observations worth remembering.", "order": 2, "memory_required": true },
+    { "name": "close", "role": "muse", "prompt": "Close with a short forward-looking note.", "order": 3 }
+  ],
+  "termination_condition": { "type": "iteration_bound", "value": 1 },
+  "max_rework_attempts": 3
+}

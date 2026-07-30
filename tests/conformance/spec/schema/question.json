@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/question.json",
+  "title": "Question",
+  "description": "A structured question awaiting an answer (questions profile). The ask_user mechanism that raises one is Core; this persisted object + the answer UX are the questions profile. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "session_id", "prompt", "status", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "session_id": { "$ref": "common.json#/$defs/Id" },
+    "prompt": { "type": "string" },
+    "format": {
+      "type": "string",
+      "enum": ["text", "single_select", "multi_select"],
+      "description": "Answer shape (questions profile; optional, absent ⇒ text). text = free-form; single_select = exactly one option value; multi_select = zero-or-more option values (array answer)."
+    },
+    "options": {
+      "anyOf": [
+        { "type": "array", "items": { "type": "string" }, "description": "Shorthand: bare value strings." },
+        { "type": "array", "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value"],
+            "properties": {
+              "value": { "type": "string" },
+              "label": { "type": "string", "description": "Optional human-facing display text; defaults to value." }
+            }
+          }, "description": "Typed options: each carries a stable value and an optional display label." },
+        { "type": "null" }
+      ],
+      "description": "Optional closed answer set; null/absent ⇒ free-form. Either bare value strings or typed {value,label?} objects."
+    },
+    "allow_other": {
+      "type": "boolean",
+      "description": "When true and options are present, an answer MAY carry a free-form value outside the option set. Absent ⇒ false."
+    },
+    "status": { "type": "string", "enum": ["open", "answered", "cancelled"] },
+    "answer": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ],
+      "description": "The submitted answer: a single value (text/single_select) or an array of selected values (multi_select); null ⇒ unanswered. Set-membership in options (when present) is enforced at answer time (Questions.md §3), not by this schema."
+    },
+    "suggested": { "type": ["string", "null"], "description": "The agent's best-guess answer, if any." },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "answered_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] }
+  }
+}

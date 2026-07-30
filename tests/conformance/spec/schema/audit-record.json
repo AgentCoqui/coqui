@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/audit-record.json",
+  "title": "AuditRecord",
+  "description": "Record of a gated/sensitive tool action. Internal (diagnostics-only). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "tool_name", "arguments", "action", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "session_id": { "oneOf": [ { "$ref": "common.json#/$defs/Id" }, { "type": "null" } ] },
+    "tool_name": { "type": "string" },
+    "arguments": { "type": "object" },
+    "action": { "type": "string" },
+    "reason": { "type": ["string","null"] },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

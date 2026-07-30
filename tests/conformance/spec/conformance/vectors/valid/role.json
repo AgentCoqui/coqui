@@ -1,0 +1,10 @@
+{
+  "name": "orchestrator",
+  "access_level": "full",
+  "version": 1,
+  "model": "anthropic/claude-sonnet-4",
+  "toolkits": ["filesystem", "shell"],
+  "max_iterations": 12,
+  "gate": false,
+  "instructions": "Coordinate stages and delegate to specialized roles."
+}

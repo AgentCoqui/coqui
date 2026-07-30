@@ -1,0 +1,9 @@
+{
+  "id": "01J00000000000000000000S02",
+  "name": "x",
+  "cron": "* * * * *",
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "summarize" },
+  "status": "paused",
+  "created_at": "2026-07-28T12:00:00Z"
+}

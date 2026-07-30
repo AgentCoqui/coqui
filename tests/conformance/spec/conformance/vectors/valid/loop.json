@@ -1,0 +1,22 @@
+{
+  "id": "01J00000000000000000LOOP01",
+  "definition_name": "code-review-loop",
+  "persona_id": "01J000000000000000000PERSONA",
+  "session_id": "01J0000000000000000SESSION",
+  "goal": "Harden the conformance vector suite until review is clean.",
+  "status": "running",
+  "current_iteration": 1,
+  "current_stage": 0,
+  "max_iterations": 5,
+  "deadline": null,
+  "termination_criteria": null,
+  "configuration": null,
+  "origin": "conversation",
+  "created_at": "2026-07-28T00:00:00Z",
+  "completed_at": null,
+  "last_activity_at": "2026-07-28T00:00:05Z",
+  "rework_attempts": 0,
+  "dispatch_state": "pending",
+  "last_dispatch_error": null,
+  "metadata": null
+}

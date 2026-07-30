@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-frame.json",
+  "title": "SSE frame cursor",
+  "description": "Illustrative shape of a Server-Sent Events frame as delivered on a turn or loop stream. The `id` mirrors the SSE `id:` line — a monotonic transport cursor clients echo back via `Last-Event-ID`/`?since=` to replay events strictly after it. It is NOT part of any event's `data` payload; event names and data payloads are identical across the HTTP (SSE) and in-process bindings. The frame's own event-specific fields ride under `additionalProperties`.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Monotonic stream cursor (the SSE `id:` line). PINNED to `string` — the `id` is an opaque, lexicographically-orderable token, never a number. ORDERING NOTE: 'strictly after' is defined by lexicographic string comparison of the `id` values, so emitters MUST mint ids that sort correctly as strings (e.g. zero-padded or otherwise fixed-width monotonic tokens); a bare decimal counter like `\"9\"` vs `\"10\"` does NOT sort correctly and is non-conformant."
+    }
+  },
+  "additionalProperties": true
+}

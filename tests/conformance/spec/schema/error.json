@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/error.json",
+  "title": "Error",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "code"],
+  "properties": {
+    "error": { "type": "string", "description": "Human-readable message." },
+    "code": {
+      "type": "string",
+      "description": "Machine-switchable code. Closed set; adopted from coqui ApiErrorCode.",
+      "enum": [
+        "not_found", "validation_error", "conflict", "unauthorized", "forbidden",
+        "internal_error", "agent_busy", "missing_field", "invalid_format",
+        "role_not_found", "role_builtin", "role_reserved", "session_not_found",
+        "session_closed", "turn_not_found", "content_not_found", "question_not_found",
+        "question_invalid_answer", "group_session_active", "version_conflict",
+        "rate_limited", "payload_too_large", "unsupported_media_type"
+      ]
+    },
+    "details": { "type": "object" }
+  }
+}

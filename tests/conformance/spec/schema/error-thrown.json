@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/error-thrown.json",
+  "title": "ThrownError",
+  "description": "The typed error object THROWN by an in-process operation (Bindings.md). It carries the SAME closed `code` catalog and human-readable `error` as the HTTP error body (schema/error.json) — the in-process binding raises this instead of returning an HTTP status. The `code` property is reused from error.json by $ref so the two bindings can never drift.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "code"],
+  "properties": {
+    "error": { "type": "string", "description": "Human-readable message." },
+    "code": { "$ref": "error.json#/properties/code" },
+    "details": { "type": "object", "description": "Optional structured context (e.g. the offending field)." }
+  }
+}

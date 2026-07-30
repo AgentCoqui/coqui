@@ -1,0 +1,11 @@
+{
+  "name": "loopdef-goal",
+  "version": 1,
+  "description": "Goal-judged loop with no dedicated reviewer role.",
+  "roles": [
+    { "name": "plan", "role": "plan", "prompt": "Plan the next increment toward the goal.", "order": 0 },
+    { "name": "build", "role": "coder", "prompt": "Implement the planned increment.", "order": 1 }
+  ],
+  "termination_condition": { "type": "goal_bound", "value": { "goal_prompt": "Has the stated goal been achieved by the work so far?", "max_iterations": 8 } },
+  "max_rework_attempts": 3
+}

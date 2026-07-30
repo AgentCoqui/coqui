@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/loop.json",
+  "title": "Loop",
+  "description": "A bounded, monitored multi-stage workflow a Persona runs. Owns Iterations and Stages. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "definition_name", "persona_id", "goal", "status", "origin", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "definition_name": { "$ref": "common.json#/$defs/Slug" },
+    "persona_id": { "$ref": "common.json#/$defs/Id" },
+    "session_id": { "oneOf": [{ "$ref": "common.json#/$defs/Id" }, { "type": "null" }], "description": "Work-scope session; MAY be an auto-provisioned hidden session for headless loops." },
+    "goal": { "type": "string" },
+    "status": { "type": "string", "enum": ["running", "paused", "completed", "blocked", "failed", "cancelled"] },
+    "current_iteration": { "type": "integer", "minimum": 0 },
+    "current_stage": { "type": "integer", "minimum": 0 },
+    "max_iterations": { "type": ["integer", "null"], "minimum": 1 },
+    "deadline": { "$ref": "common.json#/$defs/NullableTimestamp" },
+    "termination_criteria": { "type": ["object", "null"] },
+    "configuration": { "type": ["object", "null"] },
+    "origin": { "type": "string", "enum": ["conversation", "headless"] },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "completed_at": { "$ref": "common.json#/$defs/NullableTimestamp" },
+    "last_activity_at": { "$ref": "common.json#/$defs/NullableTimestamp" },
+    "rework_attempts": { "type": "integer", "minimum": 0, "default": 0, "description": "Circuit-breaker counter; increments on each rejected round, resets on unblock, blocks at max_rework_attempts (Loops.md §5)." },
+    "dispatch_state": { "type": "string", "enum": ["pending", "dispatched"], "default": "pending", "description": "Dispatch diagnostic: whether the current stage's job has been dispatched (Loops.md §6)." },
+    "last_dispatch_error": { "type": ["string", "null"], "description": "Dispatch diagnostic: the last dispatch error, so a stuck loop is diagnosable (Loops.md §6)." },
+    "metadata": { "type": ["object", "null"] }
+  }
+}

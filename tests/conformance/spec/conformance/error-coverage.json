@@ -1,0 +1,64 @@
+{
+  "createPersona":        ["401", "422"],
+  "updatePersona":        ["401", "404", "409", "422"],
+  "deletePersona":        ["401", "404", "409"],
+
+  "createSession":        ["401", "422"],
+  "updateSession":        ["401", "404", "409", "422"],
+  "deleteSession":        ["401", "404", "409"],
+  "addSessionMember":     ["401", "404", "409"],
+  "removeSessionMember":  ["401", "404", "409"],
+
+  "listTurns":            ["401", "404"],
+  "createTurn":           ["401", "404", "409", "422"],
+  "cancelTurn":           ["401", "404", "409"],
+  "submitTurnAnswer":     ["401", "404", "422"],
+
+  "listMessages":         ["401", "404"],
+
+  "getBudget":            ["401", "404"],
+
+  "listChildRuns":        ["401", "404"],
+  "spawnChildRun":        ["401", "403", "404", "422"],
+
+  "putRole":              ["401", "409", "412", "422"],
+  "deleteRole":           ["401", "404"],
+
+  "createLoopDefinition": ["401", "409", "422"],
+  "putLoopDefinition":    ["401", "409", "412", "422"],
+  "deleteLoopDefinition": ["401", "404"],
+
+  "createLoop":           ["401", "409", "422"],
+  "deleteLoop":           ["401", "404"],
+  "listLoopIterations":   ["401", "404"],
+  "retryLoopIteration":   ["401", "404", "409"],
+  "pauseLoop":            ["401", "404", "409"],
+  "resumeLoop":           ["401", "404", "409"],
+  "stopLoop":             ["401", "404", "409"],
+
+  "createMemory":         ["401", "422"],
+  "updateMemory":         ["401", "404", "409", "422"],
+  "deleteMemory":         ["401", "404"],
+
+  "importData":           ["401", "409", "422"],
+
+  "putContent":           ["401", "413", "415"],
+  "getContent":           ["401", "404"],
+
+  "listArtifacts":        ["401", "404"],
+  "getArtifact":          ["401", "404"],
+
+  "listQuestions":        ["401", "404"],
+  "answerQuestion":       ["401", "404"],
+
+  "listSkills":           ["401", "404"],
+  "getSkill":             ["401", "404"],
+  "installSkill":         ["401", "404"],
+
+  "listSchedules":        ["401", "404"],
+  "createSchedule":       ["401", "404"],
+  "getSchedule":          ["401", "404"],
+  "updateSchedule":       ["401", "404"],
+  "deleteSchedule":       ["401", "404"],
+  "triggerSchedule":      ["401", "404"]
+}

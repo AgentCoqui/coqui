@@ -1,0 +1,20 @@
+{
+  "sections": [
+    {
+      "name": "security",
+      "included": true,
+      "estimated_tokens": 512,
+      "priority": 0,
+      "shed_reason": null
+    },
+    {
+      "name": "backstory",
+      "included": false,
+      "estimated_tokens": 0,
+      "priority": 40,
+      "shed_reason": "over_budget"
+    }
+  ],
+  "total_estimated_tokens": 512,
+  "model_context_window": 200000
+}

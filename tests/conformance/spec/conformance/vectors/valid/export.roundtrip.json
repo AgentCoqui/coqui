@@ -1,0 +1,202 @@
+{
+  "protocol_version": "0.5.0",
+  "exported_at": "2026-07-28T00:00:03Z",
+  "personas": [
+    {
+      "id": "01J000000000000000000PERSONA",
+      "name": "Caelum",
+      "avatar": { "tint": "#2b3a52" },
+      "model": "anthropic/claude-sonnet-4",
+      "allowed_roles": ["orchestrator"],
+      "soul": "You are Caelum, a warm, precise research companion.",
+      "version": 1,
+      "created_at": "2026-07-28T00:00:00Z",
+      "updated_at": "2026-07-28T00:00:00Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "01J0000000000000000SESSION",
+      "persona_id": "01J000000000000000000PERSONA",
+      "members": [],
+      "title": "Spec hardening chat",
+      "kind": "chat",
+      "status": "active",
+      "pinned": false,
+      "model": "anthropic/claude-sonnet-4",
+      "token_count": 0,
+      "version": 1,
+      "created_at": "2026-07-28T00:00:00Z",
+      "updated_at": "2026-07-28T00:00:00Z"
+    }
+  ],
+  "session_members": [
+    {
+      "session_id": "01J0000000000000000SESSION",
+      "persona_id": "01J000000000000000000PERSONA"
+    }
+  ],
+  "turns": [
+    {
+      "id": "01J00000000000000000TURN01",
+      "session_id": "01J0000000000000000SESSION",
+      "actor_persona_id": "01J000000000000000000PERSONA",
+      "turn_number": 1,
+      "user_prompt": "Summarize the conformance vector suite.",
+      "response_text": "The suite validates canonical Core objects against their schemas.",
+      "model": "anthropic/claude-sonnet-4",
+      "prompt_tokens": 42,
+      "completion_tokens": 18,
+      "total_tokens": 60,
+      "iterations": 1,
+      "duration_ms": 1200,
+      "tools_used": [],
+      "status": "completed",
+      "created_at": "2026-07-28T00:00:00Z",
+      "completed_at": "2026-07-28T00:00:02Z"
+    }
+  ],
+  "messages": [
+    {
+      "id": "01J0000000000000000MESSAG1",
+      "session_id": "01J0000000000000000SESSION",
+      "turn_id": "01J00000000000000000TURN01",
+      "role": "assistant",
+      "content": "The suite validates canonical Core objects against their schemas.",
+      "tool_calls": null,
+      "tool_call_id": null,
+      "actor_name": "Caelum",
+      "actor_role": "orchestrator",
+      "attachments": [
+        {
+          "content_ref": "01J0000000000000000CONTENT1",
+          "mime_type": "image/png"
+        }
+      ],
+      "created_at": "2026-07-28T00:00:02Z"
+    }
+  ],
+  "content": [
+    {
+      "content_ref": "01J0000000000000000CONTENT1",
+      "mime_type": "image/png",
+      "size": 2048,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "created_at": "2026-07-28T00:00:01Z"
+    }
+  ],
+  "memories": [
+    {
+      "id": "01J0000000000000000MEMORY1",
+      "persona_id": "01J000000000000000000PERSONA",
+      "name": "operator-preferences",
+      "description": "How the operator likes work delivered.",
+      "content": "The operator prefers concise, evidence-backed summaries with source attribution.",
+      "type": "user",
+      "metadata": null,
+      "version": 1,
+      "created_at": "2026-07-28T00:00:00Z",
+      "updated_at": "2026-07-28T00:00:00Z"
+    }
+  ],
+  "loops": [
+    {
+      "id": "01J0000000000000000LOOP01",
+      "definition_name": "research",
+      "persona_id": "01J000000000000000000PERSONA",
+      "session_id": "01J0000000000000000SESSION",
+      "goal": "Harden the roundtrip fixture.",
+      "status": "completed",
+      "origin": "conversation",
+      "created_at": "2026-07-28T00:00:00Z"
+    }
+  ],
+  "loop_iterations": [
+    {
+      "id": "01J000000000000000000ITER1",
+      "loop_id": "01J0000000000000000LOOP01",
+      "iteration_number": 1,
+      "status": "completed"
+    }
+  ],
+  "loop_stages": [
+    {
+      "id": "01J000000000000000STAGE01",
+      "iteration_id": "01J000000000000000000ITER1",
+      "stage_index": 0,
+      "role": "explorer",
+      "job_id": null,
+      "artifact_id": "01J0000000000000000ARTF01",
+      "status": "done"
+    }
+  ],
+  "child_runs": [
+    {
+      "id": "01J0000000000000000CHILD01",
+      "parent_session_id": "01J0000000000000000SESSION",
+      "parent_turn_id": "01J00000000000000000TURN01",
+      "role": "explorer",
+      "model": null,
+      "prompt": "Find call sites.",
+      "result": "done",
+      "status": "completed",
+      "prompt_tokens": 10,
+      "completion_tokens": 5,
+      "total_tokens": 15,
+      "created_at": "2026-07-28T12:00:00Z",
+      "completed_at": "2026-07-28T12:01:00Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "01J0000000000000000QSTN01",
+      "session_id": "01J0000000000000000SESSION",
+      "prompt": "Proceed?",
+      "status": "answered",
+      "answer": "yes",
+      "created_at": "2026-07-28T12:00:00Z",
+      "answered_at": "2026-07-28T12:01:00Z"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "01J0000000000000000ARTF01",
+      "session_id": "01J0000000000000000SESSION",
+      "name": "out.md",
+      "type": "document",
+      "content_ref": "artifacts/x/out.md",
+      "created_at": "2026-07-28T12:00:00Z"
+    },
+    {
+      "id": "01J0000000000000000ARTF02",
+      "session_id": "01J0000000000000000SESSION",
+      "name": "chart.png",
+      "type": "image",
+      "content_ref": "01J0000000000000000CONTENT1",
+      "created_at": "2026-07-28T12:00:00Z"
+    }
+  ],
+  "skills": [
+    {
+      "name": "example-skill",
+      "description": "demo",
+      "status": "available",
+      "origin": { "kind": "builtin" },
+      "execution": { "kind": "instruction", "requires": [] },
+      "created_at": "2026-07-28T12:00:00Z",
+      "updated_at": "2026-07-28T12:00:00Z"
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "id": "01J0000000000000000SCHD01",
+      "name": "nightly",
+      "cron": "0 3 * * *",
+      "persona_id": "01J000000000000000000PERSONA",
+      "action": { "kind": "loop", "definition_name": "research" },
+      "status": "enabled",
+      "created_at": "2026-07-28T12:00:00Z",
+      "updated_at": "2026-07-28T12:00:00Z"
+    }
+  ]
+}

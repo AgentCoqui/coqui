@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-childrun-event.json",
+  "title": "SSE child-run-stream event frame",
+  "description": "Discriminated union of the framed events on a child-run stream (GET /sessions/{id}/child-runs/{childRunId}/events). Each frame is `{ event, data }` discriminated by the SSE `event:` name; `data` is the concrete payload for that event. Event names and payloads MIRROR events.yaml's `child_run` channel (started, token, message, done, error) — the same shapes on the in-process binding. The optional `id` mirrors the SSE `id:` transport cursor (see sse-frame.json); it is not part of any `data`. The `error` branch reuses sse-error.json so a stream failure classifies identically to an HTTP-error.",
+  "oneOf": [
+    { "$ref": "#/$defs/started" },
+    { "$ref": "#/$defs/token" },
+    { "$ref": "#/$defs/message" },
+    { "$ref": "#/$defs/done" },
+    { "$ref": "sse-error.json" }
+  ],
+  "$defs": {
+    "started": {
+      "title": "started frame",
+      "description": "The child run began.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "started" },
+        "data": {
+          "type": "object",
+          "required": ["child_run_id"],
+          "properties": { "child_run_id": { "type": "string" } }
+        }
+      }
+    },
+    "token": {
+      "title": "token frame",
+      "description": "Incremental assistant text delta.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "token" },
+        "data": {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "text": { "type": "string" } }
+        }
+      }
+    },
+    "message": {
+      "title": "message frame",
+      "description": "A complete message was appended.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "message" },
+        "data": { "$ref": "message.json" }
+      }
+    },
+    "done": {
+      "title": "done frame",
+      "description": "Terminal event — the child run finished. Carries the final ChildRun record.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "done" },
+        "data": { "$ref": "child-run.json" }
+      }
+    }
+  }
+}

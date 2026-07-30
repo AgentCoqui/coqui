@@ -1,0 +1,6 @@
+{
+  "name": "legacy-blocking",
+  "roles": [ { "role": "coder", "prompt": "do work", "order": 0 } ],
+  "termination_condition": { "type": "iteration_bound", "value": 1 },
+  "on_question": "block"
+}

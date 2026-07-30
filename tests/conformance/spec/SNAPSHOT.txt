@@ -1,0 +1,4 @@
+source_repo: /home/carmelo/Projects/CoquiBot/Core/coqui-agent-spec
+source_commit: 5dffc6363c9fa19464842af17a30bfd240198971
+synced_at: 2026-07-30T16:42:42+00:00
+files_copied: 152

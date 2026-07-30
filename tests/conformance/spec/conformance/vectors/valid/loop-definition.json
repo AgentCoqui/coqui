@@ -1,0 +1,38 @@
+{
+  "name": "code-review-loop",
+  "version": 1,
+  "description": "Draft, review, and rework until the reviewer signs off.",
+  "roles": [
+    {
+      "name": "author",
+      "role": "coder",
+      "prompt": "Implement the requested change.",
+      "order": 0,
+      "gate": false,
+      "artifact_required": true,
+      "memory_required": false
+    },
+    {
+      "name": "critic",
+      "role": "reviewer",
+      "prompt": "Review the change and gate on quality.",
+      "order": 1,
+      "gate": true,
+      "artifact_required": false,
+      "memory_required": false
+    }
+  ],
+  "termination_condition": {
+    "type": "iteration_bound",
+    "value": 5
+  },
+  "parameters": [
+    {
+      "name": "target",
+      "description": "The file or module under review.",
+      "required": true,
+      "default": null
+    }
+  ],
+  "max_rework_attempts": 3
+}

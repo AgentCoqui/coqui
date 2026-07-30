@@ -1,0 +1,12 @@
+{
+  "id": "01J0000000000000000MEMORY1",
+  "persona_id": "01J000000000000000000PERSONA",
+  "name": "operator-preferences",
+  "description": "How the operator likes work delivered.",
+  "content": "The operator prefers concise, evidence-backed summaries with source attribution.",
+  "type": "user",
+  "metadata": null,
+  "version": 1,
+  "created_at": "2026-07-28T00:00:00Z",
+  "updated_at": "2026-07-28T00:00:00Z"
+}

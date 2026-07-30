@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/session-patch.json",
+  "title": "SessionPatch",
+  "description": "Editable fields of a Session. All optional; at least one required. `model` and `workspace` are nullable — sending null clears the field to inherit/none (model ⇒ inherit per Personas §5 precedence; workspace ⇒ no rooted workspace). Identity/derived fields (id, persona_id, members, kind, version, token_count, timestamps) are NOT patchable here; member lifecycle is a separate, scoped concern (member add/remove ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "title": { "$ref": "session.json#/properties/title" },
+    "pinned": { "$ref": "session.json#/properties/pinned" },
+    "status": { "$ref": "session.json#/properties/status" },
+    "model": { "oneOf": [ { "$ref": "common.json#/$defs/ModelId" }, { "type": "null" } ], "description": "null ⇒ clear to inherit (Personas §5 precedence)." },
+    "workspace": { "oneOf": [ { "type": "string" }, { "type": "null" } ], "description": "Opaque host-defined execution locator; null ⇒ clear to no rooted workspace (Foundation §4.4)." }
+  }
+}

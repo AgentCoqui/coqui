@@ -1,0 +1,12 @@
+{
+  "name": "harness",
+  "version": 1,
+  "description": "Generator-evaluator: plan, implement, review until approved.",
+  "roles": [
+    { "name": "plan", "role": "plan", "prompt": "Design an implementation plan for the goal, with acceptance criteria.", "order": 0 },
+    { "name": "implement", "role": "coder", "prompt": "Implement the plan. Produce the changes and note what you did.", "order": 1 },
+    { "name": "evaluate", "role": "reviewer", "prompt": "Review the implementation against the goal and acceptance criteria. Respond APPROVED or list specific required changes.", "order": 2, "gate": true }
+  ],
+  "termination_condition": { "type": "evaluation_bound", "value": { "criteria": "Implementation meets the goal and acceptance criteria", "max_review_rounds": 5 } },
+  "max_rework_attempts": 3
+}

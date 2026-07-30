@@ -1,0 +1,17 @@
+{
+  "id": "01J00000000000000000000Q03",
+  "session_id": "01J000000000000000000WS001",
+  "prompt": "Which toppings would you like?",
+  "format": "multi_select",
+  "options": [
+    { "value": "cheese", "label": "Extra cheese" },
+    { "value": "pepperoni", "label": "Pepperoni" },
+    { "value": "mushroom" }
+  ],
+  "allow_other": true,
+  "status": "answered",
+  "answer": ["cheese", "mushroom"],
+  "suggested": null,
+  "created_at": "2026-07-28T12:05:00Z",
+  "answered_at": "2026-07-28T12:06:00Z"
+}

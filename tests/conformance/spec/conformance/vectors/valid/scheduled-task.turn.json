@@ -1,0 +1,12 @@
+{
+  "id": "01J00000000000000000000S04",
+  "name": "hourly-digest",
+  "cron": "0 * * * *",
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "Summarize what changed in the last hour." },
+  "status": "enabled",
+  "last_run_at": null,
+  "next_run_at": "2026-07-29T14:00:00Z",
+  "created_at": "2026-07-28T12:00:00Z",
+  "updated_at": "2026-07-28T12:00:00Z"
+}

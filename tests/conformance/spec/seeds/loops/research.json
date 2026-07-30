@@ -1,0 +1,15 @@
+{
+  "name": "research",
+  "version": 1,
+  "description": "Research-driven investigation and synthesis, reviewed for completeness.",
+  "roles": [
+    { "name": "investigate", "role": "explorer", "prompt": "Investigate the subject of the goal. Gather sources and findings.", "order": 0 },
+    { "name": "synthesize", "role": "coder", "prompt": "Synthesize the findings into the requested deliverable.", "order": 1 },
+    { "name": "evaluate", "role": "reviewer", "prompt": "Review the synthesis for completeness and accuracy. Respond APPROVED or list gaps to fill.", "order": 2, "gate": true }
+  ],
+  "termination_condition": { "type": "evaluation_bound", "value": { "criteria": "Investigation is complete, accurate, and well-synthesized", "max_review_rounds": 3 } },
+  "parameters": [
+    { "name": "output_format", "description": "Shape of the deliverable", "required": false, "default": "report" }
+  ],
+  "max_rework_attempts": 3
+}

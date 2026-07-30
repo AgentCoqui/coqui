@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/persona.create.json",
+  "title": "PersonaCreate",
+  "description": "Authoring shape for createPersona. Server-owned fields (id, version, created_at, updated_at) are forbidden — the server assigns them. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "avatar", "model", "allowed_roles", "soul"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "avatar": { "type": "object", "additionalProperties": true },
+    "model": { "$ref": "common.json#/$defs/ModelId" },
+    "allowed_roles": { "$ref": "persona.json#/properties/allowed_roles" },
+    "soul": { "type": "string" },
+    "backstory": { "type": ["string", "null"] },
+    "context": { "$ref": "persona.json#/properties/context" },
+    "preferences": { "$ref": "persona.json#/properties/preferences" }
+  }
+}

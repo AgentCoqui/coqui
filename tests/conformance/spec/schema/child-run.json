@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/child-run.json",
+  "title": "ChildRun",
+  "description": "A delegated sub-agent run spawned by a parent Turn or child agent. First-class Core; top-level only (no nesting). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "parent_session_id", "role", "prompt", "status", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "parent_session_id": { "$ref": "common.json#/$defs/Id" },
+    "parent_turn_id": { "oneOf": [ { "$ref": "common.json#/$defs/Id" }, { "type": "null" } ] },
+    "role": { "type": "string", "description": "Role the child runs under; MUST be within the owning persona's allowed_roles (Personas §6)." },
+    "model": { "oneOf": [ { "$ref": "common.json#/$defs/ModelId" }, { "type": "null" } ], "description": "null ⇒ inherit per Personas §5 precedence." },
+    "prompt": { "type": "string" },
+    "result": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled"] },
+    "prompt_tokens": { "type": "integer", "minimum": 0 },
+    "completion_tokens": { "type": "integer", "minimum": 0 },
+    "total_tokens": { "type": "integer", "minimum": 0 },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "completed_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] }
+  }
+}

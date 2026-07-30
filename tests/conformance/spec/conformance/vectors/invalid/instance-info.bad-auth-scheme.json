@@ -1,0 +1,7 @@
+{
+  "protocol_version": "0.5.0",
+  "name": "coqui-remote",
+  "profiles": ["remote"],
+  "bindings": ["http-sse"],
+  "auth": { "required": true, "scheme": "oauth" }
+}

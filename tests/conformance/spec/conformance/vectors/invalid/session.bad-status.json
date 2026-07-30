@@ -1,0 +1,6 @@
+{
+  "id": "01J0000000000000000SESSION", "persona_id": "01J000000000000000000PERSONA",
+  "members": [], "kind": "chat", "status": "paused", "pinned": false,
+  "model": "anthropic/claude-sonnet-4",
+  "created_at": "2026-07-28T00:00:00Z", "updated_at": "2026-07-28T00:00:00Z"
+}

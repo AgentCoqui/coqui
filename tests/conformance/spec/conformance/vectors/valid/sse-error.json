@@ -1,0 +1,1 @@
+{ "id": "42", "event": "error", "data": { "error": "the turn crashed", "code": "internal_error" } }

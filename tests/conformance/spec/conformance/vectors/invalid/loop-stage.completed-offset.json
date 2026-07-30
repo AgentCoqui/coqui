@@ -1,0 +1,13 @@
+{
+  "id": "01J00000000000000LOOPSTG01",
+  "iteration_id": "01J000000000000000LOOPIT01",
+  "stage_index": 0,
+  "role": "coder",
+  "job_id": "01J0000000000000000000JOB1",
+  "artifact_id": null,
+  "status": "done",
+  "verdict": null,
+  "result_summary": "Implemented the vector suite.",
+  "started_at": "2026-07-28T00:00:00Z",
+  "completed_at": "2026-07-28T00:00:03+00:00"
+}

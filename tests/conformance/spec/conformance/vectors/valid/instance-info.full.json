@@ -1,0 +1,16 @@
+{
+  "protocol_version": "0.5.0",
+  "name": "coqui-remote",
+  "profiles": ["remote", "skills", "artifacts", "questions"],
+  "bindings": ["http-sse"],
+  "persona_count": 5,
+  "auth": { "required": true, "scheme": "bearer" },
+  "limits": {
+    "max_page_size": 100,
+    "max_payload_bytes": 10485760,
+    "max_content_bytes": 104857600,
+    "rate_limit": { "requests_per_minute": 600 }
+  },
+  "api": { "base_path": "/", "api_major": "0" },
+  "builtin_toolkits": ["shell", "fs", "web"]
+}

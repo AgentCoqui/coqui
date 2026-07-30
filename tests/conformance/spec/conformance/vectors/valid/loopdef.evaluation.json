@@ -1,0 +1,11 @@
+{
+  "name": "loopdef-evaluation",
+  "version": 1,
+  "description": "Generator-evaluator loop terminated by a review verdict.",
+  "roles": [
+    { "name": "make", "role": "coder", "prompt": "Implement the change.", "order": 0 },
+    { "name": "judge", "role": "reviewer", "prompt": "Review the change. Respond APPROVED or list required changes.", "order": 1, "gate": true }
+  ],
+  "termination_condition": { "type": "evaluation_bound", "value": { "criteria": "Change meets the goal and quality bar", "max_review_rounds": 4 } },
+  "max_rework_attempts": 3
+}

@@ -1,0 +1,17 @@
+{
+  "id": "01J0000000000000000000JOB01",
+  "session_id": "01J0000000000000000SESSION",
+  "parent_session_id": null,
+  "status": "running",
+  "title": "Harden the export validator",
+  "prompt": "Run the export validation over the internal collections.",
+  "role": "orchestrator",
+  "metadata": null,
+  "result": null,
+  "error": null,
+  "max_iterations": 25,
+  "created_at": "2026-07-28T00:00:00Z",
+  "started_at": "2026-07-28T00:00:01Z",
+  "completed_at": null,
+  "cancelled_at": null
+}

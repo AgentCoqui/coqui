@@ -1,0 +1,12 @@
+{
+  "id": "01J0000000000000000MESSAG1",
+  "session_id": "01J0000000000000000SESSION",
+  "turn_id": "01J00000000000000000TURN01",
+  "role": "assistant",
+  "content": "The suite validates canonical Core objects against their schemas.",
+  "tool_calls": null,
+  "tool_call_id": null,
+  "actor_name": "Caelum",
+  "actor_role": "orchestrator",
+  "created_at": "2026-07-28T00:00:02Z"
+}

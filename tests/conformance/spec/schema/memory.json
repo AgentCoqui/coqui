@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/memory.json",
+  "title": "Memory",
+  "description": "A durable fact. Persona-scoped when tagged; shared when persona_id is null. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "content", "type", "version", "created_at", "updated_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "version": { "type": "integer", "minimum": 1, "description": "Opaque optimistic-concurrency token; server-assigned, increments on each update. Clients send the current value as If-Match on mutation; a mismatch returns 409 version_conflict." },
+    "persona_id": { "oneOf": [{ "$ref": "common.json#/$defs/Id" }, { "type": "null" }], "description": "Null = shared/untagged (visible to all personas)." },
+    "name": { "$ref": "common.json#/$defs/Slug" },
+    "description": { "type": ["string", "null"] },
+    "content": { "type": "string" },
+    "type": { "type": "string", "enum": ["user", "feedback", "project", "reference"], "description": "Memory-intent label. NOTE: \"project\" is legacy vocabulary — a memory-intent value for ongoing work/goals/constraints, NOT the removed first-class Project object (Memory.md §1)." },
+    "metadata": { "type": ["object", "null"] },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "updated_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

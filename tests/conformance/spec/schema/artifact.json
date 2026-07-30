@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/artifact.json",
+  "title": "Artifact",
+  "description": "A durable, typed output produced in a Session/Stage (artifacts profile). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "session_id", "name", "type", "content_ref", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "session_id": { "$ref": "common.json#/$defs/Id" },
+    "name": { "type": "string" },
+    "type": { "type": "string", "description": "Host-defined artifact kind (opaque; the spec does not enumerate it)." },
+    "content_ref": { "type": "string", "description": "Opaque host-defined pointer to the content (path/key/uri). The spec never dereferences it." },
+    "metadata": { "type": ["object", "null"] },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

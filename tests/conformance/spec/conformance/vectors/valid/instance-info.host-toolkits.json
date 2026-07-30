@@ -1,0 +1,10 @@
+{
+  "protocol_version": "0.5.0",
+  "name": "coqui-desktop",
+  "profiles": ["skills", "mcp"],
+  "bindings": ["in-process"],
+  "persona_count": 3,
+  "host_toolkits": [
+    { "namespace": "images", "description": "native image understanding/generation", "tools": ["describe", "generate"] }
+  ]
+}

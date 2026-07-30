@@ -1,0 +1,10 @@
+{
+  "id": "01J00000000000000000TURNG1",
+  "session_id": "01J000000000000000000WS001",
+  "turn_number": 1,
+  "user_prompt": "What do you both think?",
+  "actor_persona_id": "01J00000000000000000000P02",
+  "model": "anthropic/claude-opus-4",
+  "status": "completed",
+  "created_at": "2026-07-28T12:00:00Z"
+}

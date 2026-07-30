@@ -1,0 +1,1 @@
+{ "name": "Ada", "avatar": { "color": "#3b82f6" }, "model": "gpt-4o", "allowed_roles": ["orchestrator"], "soul": "You are Ada." }

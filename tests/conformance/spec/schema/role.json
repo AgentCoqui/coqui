@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/role.json",
+  "title": "Role",
+  "description": "A capability profile an agent runs under. Orthogonal to Persona (identity). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "access_level", "version"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "access_level": { "$ref": "common.json#/$defs/AccessLevel" },
+    "version": { "type": "integer", "minimum": 1, "description": "Opaque optimistic-concurrency token; server-assigned, increments on each update. Clients send the current value as If-Match on mutation; a mismatch returns 409 version_conflict." },
+    "model": { "oneOf": [{ "$ref": "common.json#/$defs/ModelId" }, { "type": "null" }] },
+    "toolkits": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "Implementation-defined allow-list of built-in capability names."
+    },
+    "max_iterations": { "type": ["integer", "null"], "minimum": 1 },
+    "gate": { "type": "boolean", "default": false },
+    "instructions": { "type": ["string", "null"], "description": "Role prompt." }
+  }
+}
