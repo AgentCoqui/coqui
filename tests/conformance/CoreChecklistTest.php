@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
 
 // CAP 0.5.0 Core conformance scoreboard (conformance/checklist.md, CORE-1..CORE-59).
@@ -148,6 +149,57 @@ it('CORE-42: content is a typed object addressed by an opaque ref; sha256 identi
     }
 })->group('conformance');
 
+it('CORE-26: skills carry a typed origin (closed kind); imported/script skills are untrusted-by-default', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core26-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $skills = new SkillLifecycleStore($storage->pdo());
+        $wire = $skills->upsertSkill(
+            name: 'summarize',
+            description: 'Condense long documents into a brief.',
+            status: 'available',
+            origin: ['kind' => 'builtin'],
+            execution: ['kind' => 'instruction', 'requires' => []],
+        );
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('skill.json', $wire))->toBeTrue($v->errorText('skill.json', $wire));
+        // origin is a typed object with a closed-set kind (never a bare array).
+        expect($wire['origin'])->toBeObject();
+        expect($wire['origin']->kind)->toBeIn(['builtin', 'local', 'imported']);
+        expect($wire['origin']->kind)->toBe('builtin');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-27: skills declare execution.kind (instruction vs script) + requires; discovery exposes it', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core27-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $skills = new SkillLifecycleStore($storage->pdo());
+        $wire = $skills->upsertSkill(
+            name: 'deploy_site',
+            description: 'Build and push the static site.',
+            status: 'available',
+            origin: ['kind' => 'imported'],
+            execution: ['kind' => 'script', 'requires' => ['shell']],
+        );
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('skill.json', $wire))->toBeTrue($v->errorText('skill.json', $wire));
+        // execution is a typed object; kind is a closed set; requires is a list.
+        expect($wire['execution'])->toBeObject();
+        expect($wire['execution']->kind)->toBeIn(['instruction', 'script']);
+        expect($wire['execution']->kind)->toBe('script');
+        expect($wire['execution']->requires)->toBe(['shell']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -172,8 +224,6 @@ $rows = [
     'CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical',
     'CORE-24: the Question object is typed; status is a closed set',
     'CORE-25: the Artifact object is typed; session_id is required',
-    'CORE-26: skills carry a typed origin (closed kind); imported/script skills are untrusted-by-default',
-    'CORE-27: skills declare execution.kind (instruction vs script) + requires; discovery exposes it',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
