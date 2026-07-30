@@ -67,6 +67,7 @@
     "regen-docs": "@php scripts/generate-documentation-index.php",
     "sync-spec": "@php scripts/sync-spec.php",
     "test": "pest",
+    "conformance": "pest tests/conformance",
     "test:coverage": "@php scripts/test-coverage.php",
     "test:profile": "@php scripts/test-profile.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh && bash tests/bash/launcher-default-mode-test.sh && bash tests/bash/mock-install-test.sh",
