@@ -401,8 +401,11 @@ git commit -m "refactor(persona): rename persona dir, default config key, exampl
 
 - [ ] **Step 1: Full identity sweep inventory**
 
+The gate scope EXCLUDES two trees that legitimately contain "profile" and MUST NOT be edited: `docs/superpowers/` (the SDD process docs — this very plan/spec describe the profile→persona rename) and `tests/conformance/spec/` (the hermetic vendored CAP spec snapshot, which carries the capability `profiles[]` sense verbatim). Those exclusions are pathspecs, not a licence to leave product hits.
+
 ```bash
 git grep -in profile -- src tests config examples docs AGENTS.md README.md \
+  ':!docs/superpowers' ':!tests/conformance/spec' \
   | grep -viE 'toolprofile|tool_profile|tool-profile|TOOL_PROFILE|test:profile|test-profile\.php|COQUI_TEST_PROFILE|PerformanceTest|LeanDefault'
 ```
 
@@ -436,6 +439,7 @@ Expected: no new errors.
 
 ```bash
 git grep -in profile -- src tests config examples docs AGENTS.md README.md \
+  ':!docs/superpowers' ':!tests/conformance/spec' \
   | grep -viE 'toolprofile|tool_profile|tool-profile|TOOL_PROFILE|test:profile|test-profile\.php|COQUI_TEST_PROFILE|PerformanceTest|LeanDefault' \
   || echo "CLEAN: no identity-sense profile references remain"
 ```
