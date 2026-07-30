@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\IdGenerator;
 use Cron\CronExpression;
 use PDO;
+use stdClass;
 
 /**
  * SQLite-backed persistence for scheduled tasks.
@@ -34,7 +35,6 @@ final class ScheduleStore
     {
         $this->db = $db;
         $this->createTables();
-        $this->migrate();
     }
 
     private function createTables(): void
@@ -44,7 +44,8 @@ final class ScheduleStore
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT,
-                schedule_expression TEXT NOT NULL,
+                cron TEXT NOT NULL,
+                persona_id TEXT,
                 prompt TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'orchestrator',
                 max_iterations INTEGER NOT NULL DEFAULT 48,
@@ -78,23 +79,6 @@ final class ScheduleStore
     }
 
     /**
-     * Add source/source_path columns to existing databases.
-     */
-    private function migrate(): void
-    {
-        $stmt = $this->db->query("PRAGMA table_info(scheduled_tasks)");
-        $columns = $stmt !== false ? array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name') : [];
-
-        if (!in_array('source', $columns, true)) {
-            $this->db->exec("ALTER TABLE scheduled_tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'system'");
-        }
-
-        if (!in_array('source_path', $columns, true)) {
-            $this->db->exec("ALTER TABLE scheduled_tasks ADD COLUMN source_path TEXT");
-        }
-    }
-
-    /**
      * Create a new schedule.
      */
     public function create(
@@ -108,6 +92,7 @@ final class ScheduleStore
         string $timezone = 'UTC',
         int $maxFailures = 3,
         ?string $metadata = null,
+        ?string $personaId = null,
     ): string {
         $id = IdGenerator::hex();
         $now = Clock::nowUtc();
@@ -116,9 +101,9 @@ final class ScheduleStore
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO scheduled_tasks
-                (id, name, description, schedule_expression, prompt, role, max_iterations,
+                (id, name, description, cron, persona_id, prompt, role, max_iterations,
                  enabled, created_by, timezone, next_run_at, max_failures, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
         SQL);
 
         $stmt->execute([
@@ -126,6 +111,7 @@ final class ScheduleStore
             $name,
             $description,
             $scheduleExpression,
+            $personaId,
             $prompt,
             $role,
             $maxIterations,
@@ -171,7 +157,7 @@ final class ScheduleStore
 
             $stmt = $this->db->prepare(<<<'SQL'
                 UPDATE scheduled_tasks
-                SET description = ?, schedule_expression = ?, prompt = ?, role = ?,
+                SET description = ?, cron = ?, prompt = ?, role = ?,
                     max_iterations = ?, timezone = ?, max_failures = ?, enabled = ?,
                     metadata = ?, source = ?, source_path = ?, next_run_at = ?, updated_at = ?
                 WHERE id = ?
@@ -202,7 +188,7 @@ final class ScheduleStore
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO scheduled_tasks
-                (id, name, description, schedule_expression, prompt, role, max_iterations,
+                (id, name, description, cron, prompt, role, max_iterations,
                  enabled, timezone, next_run_at, max_failures, metadata, source, source_path,
                  created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -333,7 +319,7 @@ final class ScheduleStore
         }
 
         if ($scheduleExpression !== null) {
-            $sets[] = 'schedule_expression = ?';
+            $sets[] = 'cron = ?';
             $params[] = $scheduleExpression;
         }
 
@@ -373,7 +359,7 @@ final class ScheduleStore
         }
 
         // Recompute next_run_at if expression or timezone changed
-        $expr = $scheduleExpression ?? $schedule['schedule_expression'];
+        $expr = $scheduleExpression ?? $schedule['cron'];
         $tz = $timezone ?? $schedule['timezone'];
         $nextRun = $this->computeNextRun($expr, $tz);
         if ($nextRun !== null) {
@@ -495,7 +481,7 @@ final class ScheduleStore
         }
 
         $now = Clock::nowUtc();
-        $isOneShot = $schedule['schedule_expression'] === '@once';
+        $isOneShot = $schedule['cron'] === '@once';
 
         if ($isOneShot) {
             $stmt = $this->db->prepare(<<<'SQL'
@@ -507,7 +493,7 @@ final class ScheduleStore
             $stmt->execute([$now, $taskId, $now, $id]);
         } else {
             $nextRun = $this->computeNextRun(
-                $schedule['schedule_expression'],
+                $schedule['cron'],
                 $schedule['timezone'],
             );
 
@@ -585,7 +571,7 @@ final class ScheduleStore
         }
 
         $now = Clock::nowUtc();
-        $nextRun = $this->computeNextRun($schedule['schedule_expression'], $schedule['timezone']);
+        $nextRun = $this->computeNextRun($schedule['cron'], $schedule['timezone']);
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE scheduled_tasks
@@ -650,7 +636,7 @@ final class ScheduleStore
             ->modify("+{$hours} hours");
 
         $stmt = $this->db->prepare(<<<'SQL'
-            SELECT id, name, description, schedule_expression, role, next_run_at, last_status
+            SELECT id, name, description, cron, role, next_run_at, last_status
             FROM scheduled_tasks
             WHERE enabled = 1
               AND next_run_at IS NOT NULL
@@ -759,6 +745,45 @@ final class ScheduleStore
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Project a persisted `scheduled_tasks` row onto the CAP 0.5.0
+     * `scheduled-task.json` wire shape.
+     *
+     * `action` is a typed object discriminated by `kind`. Coqui schedules are all
+     * `turn`-kind today: the action is derived as `{kind:'turn', prompt}` from the
+     * stored prompt and emitted as `stdClass` so an object-typed schema slot never
+     * receives a JSON array. The `loop` action kind (with `definition_name`) is a
+     * Phase-5 concern. `status` is derived from the `enabled` flag. Nullable
+     * timestamps pass through as their stored Z-suffixed value or null. Only
+     * schema-declared properties are emitted (`additionalProperties:false`-clean).
+     *
+     * A row with a null `persona_id` (runtime rows created before personas are
+     * bound) intentionally serializes `persona_id:null`, which the schema rejects;
+     * binding a persona to those rows is a Phase-5 concern.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $row): array
+    {
+        $action = new stdClass();
+        $action->kind = 'turn';
+        $action->prompt = (string) ($row['prompt'] ?? '');
+
+        return [
+            'id' => (string) $row['id'],
+            'name' => (string) $row['name'],
+            'cron' => (string) $row['cron'],
+            'persona_id' => $row['persona_id'] !== null ? (string) $row['persona_id'] : null,
+            'action' => $action,
+            'status' => ((int) $row['enabled']) === 1 ? 'enabled' : 'disabled',
+            'last_run_at' => $row['last_run_at'] !== null ? (string) $row['last_run_at'] : null,
+            'next_run_at' => $row['next_run_at'] !== null ? (string) $row['next_run_at'] : null,
+            'created_at' => (string) $row['created_at'],
+            'updated_at' => $row['updated_at'] !== null ? (string) $row['updated_at'] : null,
+        ];
     }
 
     /**

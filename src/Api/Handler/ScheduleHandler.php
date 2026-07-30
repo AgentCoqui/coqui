@@ -54,9 +54,9 @@ final readonly class ScheduleHandler
             return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Schedule name "%s" already exists', $name));
         }
 
-        $scheduleExpression = trim((string) ($body['schedule_expression'] ?? ''));
+        $scheduleExpression = trim((string) ($body['cron'] ?? ''));
         if ($scheduleExpression === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'schedule_expression is required');
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'cron is required');
         }
         if (($error = ScheduleValidator::validateExpression($scheduleExpression)) !== null) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
@@ -255,8 +255,8 @@ final readonly class ScheduleHandler
         }
 
         $scheduleExpression = null;
-        if (array_key_exists('schedule_expression', $body)) {
-            $scheduleExpression = trim((string) $body['schedule_expression']);
+        if (array_key_exists('cron', $body)) {
+            $scheduleExpression = trim((string) $body['cron']);
             if (($error = ScheduleValidator::validateExpression($scheduleExpression)) !== null) {
                 return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
             }

@@ -3046,7 +3046,7 @@ Create a schedule.
 ```json
 {
   "name": "daily-review",
-  "schedule_expression": "0 9 * * 1-5",
+  "cron": "0 9 * * 1-5",
   "prompt": "Review recent changes.",
   "role": "orchestrator",
   "max_iterations": 12,
@@ -3062,7 +3062,7 @@ Create a schedule.
   "schedule": {
     "id": "a1b2c3d4",
     "name": "daily-review",
-    "schedule_expression": "0 9 * * 1-5",
+    "cron": "0 9 * * 1-5",
     "prompt": "Review recent changes.",
     "role": "orchestrator",
     "max_iterations": 12,
@@ -3093,7 +3093,7 @@ List all schedules with optional filters.
     {
       "id": "a1b2c3d4",
       "name": "daily-review",
-      "schedule_expression": "0 9 * * 1-5",
+      "cron": "0 9 * * 1-5",
       "prompt": "Review recent changes...",
       "role": "orchestrator",
       "max_iterations": 48,
@@ -3215,7 +3215,7 @@ List recent background task runs triggered by a schedule.
 
 Update a mutable schedule.
 
-Use this endpoint for definition fields such as `name`, `description`, `schedule_expression`, `prompt`, `role`, `max_iterations`, `timezone`, and `max_failures`. Use the action endpoints below for enabled state changes.
+Use this endpoint for definition fields such as `name`, `description`, `cron`, `prompt`, `role`, `max_iterations`, `timezone`, and `max_failures`. Use the action endpoints below for enabled state changes.
 
 **Response `200`** — updated schedule object.
 

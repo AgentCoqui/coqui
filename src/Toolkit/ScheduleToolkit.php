@@ -374,7 +374,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
                 $s['id'],
                 $s['name'],
                 $source,
-                $s['schedule_expression'],
+                $s['cron'],
                 $nextRun,
                 $runs,
                 $failures,

@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
+use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
@@ -200,6 +201,33 @@ it('CORE-27: skills declare execution.kind (instruction vs script) + requires; d
     }
 })->group('conformance');
 
+it('CORE-33: the ScheduledTask object is typed; status/action.kind are closed sets', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core33-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $store = new ScheduleStore($storage->getPdo());
+        $id = $store->create(
+            name: 'daily-review',
+            scheduleExpression: '0 9 * * 1-5',
+            prompt: 'Review recent changes.',
+            personaId: 'caelum',
+        );
+        $wire = ScheduleStore::toWire($store->get($id));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('scheduled-task.json', $wire))->toBeTrue($v->errorText('scheduled-task.json', $wire));
+        // action is a typed object; kind is a closed set (turn|loop); coqui is turn-kind.
+        expect($wire['action'])->toBeObject();
+        expect($wire['action']->kind)->toBe('turn');
+        expect($wire['action']->kind)->toBeIn(['turn', 'loop']);
+        // status is a closed set derived from the enabled flag.
+        expect($wire['status'])->toBeIn(['enabled', 'disabled']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -228,7 +256,6 @@ $rows = [
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
     'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
-    'CORE-33: the ScheduledTask object is typed; status/action.kind are closed sets',
     'CORE-35: InstanceInfo MAY carry per-persona versions (semver); docs content is impl-defined',
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).

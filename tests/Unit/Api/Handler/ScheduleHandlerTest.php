@@ -39,7 +39,7 @@ test('schedule handler creates a schedule through the API', function () {
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'daily-review',
-                'schedule_expression' => '0 9 * * 1-5',
+                'cron' => '0 9 * * 1-5',
                 'prompt' => 'Review recent changes.',
                 'role' => 'orchestrator',
                 'timezone' => 'UTC',
@@ -72,7 +72,7 @@ test('schedule handler updates mutable schedules', function () {
             ['Content-Type' => 'application/json'],
             json_encode([
                 'description' => 'Weekday review run',
-                'schedule_expression' => '0 10 * * 1-5',
+                'cron' => '0 10 * * 1-5',
             ]) ?: '',
         );
 
@@ -81,7 +81,7 @@ test('schedule handler updates mutable schedules', function () {
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['schedule']['description'])->toBe('Weekday review run');
-        expect($body['schedule']['schedule_expression'])->toBe('0 10 * * 1-5');
+        expect($body['schedule']['cron'])->toBe('0 10 * * 1-5');
     } finally {
         cleanupScheduleHandlerFixture($fixture);
     }

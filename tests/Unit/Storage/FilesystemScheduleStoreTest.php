@@ -35,7 +35,7 @@ test('upsertFilesystem creates a new filesystem schedule', function () {
     expect($schedule['name'])->toBe('daily-backup');
     expect($schedule['source'])->toBe('filesystem');
     expect($schedule['source_path'])->toBe('/workspace/schedules/daily-backup.json');
-    expect($schedule['schedule_expression'])->toBe('0 2 * * *');
+    expect($schedule['cron'])->toBe('0 2 * * *');
     expect($schedule['prompt'])->toBe('Run daily backup');
     expect($schedule['description'])->toBe('Nightly backup');
 });
@@ -58,7 +58,7 @@ test('upsertFilesystem updates definition fields on re-sync', function () {
     expect($id2)->toBe($id1);
 
     $schedule = $this->store->get($id1);
-    expect($schedule['schedule_expression'])->toBe('*/10 * * * *');
+    expect($schedule['cron'])->toBe('*/10 * * * *');
     expect($schedule['prompt'])->toBe('New prompt');
 });
 

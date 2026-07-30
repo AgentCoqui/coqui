@@ -54,7 +54,7 @@ final class ScheduleValidator
     public static function validateExpression(string $expression): ?string
     {
         if ($expression === '') {
-            return 'schedule_expression is required';
+            return 'cron is required';
         }
 
         if (!ScheduleStore::isValidExpression($expression)) {

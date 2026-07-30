@@ -46,7 +46,7 @@ test('create stores schedule with correct fields', function () {
 
     expect($schedule)->not->toBeNull();
     expect($schedule['name'])->toBe('daily-report');
-    expect($schedule['schedule_expression'])->toBe('0 9 * * *');
+    expect($schedule['cron'])->toBe('0 9 * * *');
     expect($schedule['prompt'])->toBe('Generate daily report');
     expect($schedule['role'])->toBe('coder');
     expect((int) $schedule['max_iterations'])->toBe(30);
