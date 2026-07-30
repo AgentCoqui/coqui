@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 
 beforeEach(function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-profile-discovery-' . bin2hex(random_bytes(4));
@@ -14,7 +14,7 @@ afterEach(function () {
 });
 
 test('discoverAll returns empty when no profiles directory exists', function () {
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->discoverAll())->toBe([]);
     expect($discovery->availableProfiles())->toBe([]);
@@ -27,7 +27,7 @@ test('discoverAll finds profiles with soul.md', function () {
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha' . "\n\nAlpha identity.");
     file_put_contents($profilesDir . '/beta/soul.md', '# Beta' . "\n\nBeta identity.");
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
     $profiles = $discovery->discoverAll();
 
     expect($profiles)->toHaveCount(2);
@@ -43,7 +43,7 @@ test('discoverAll skips directories without soul.md', function () {
     file_put_contents($profilesDir . '/valid/soul.md', '# Valid');
     // invalid has no soul.md
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->discoverAll())->toHaveCount(1);
     expect($discovery->profileExists('valid'))->toBeTrue();
@@ -55,7 +55,7 @@ test('profileExists is case-insensitive', function () {
     mkdir($profilesDir . '/caelum', 0755, true);
     file_put_contents($profilesDir . '/caelum/soul.md', '# Caelum');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->profileExists('caelum'))->toBeTrue();
     expect($discovery->profileExists('Caelum'))->toBeTrue();
@@ -68,7 +68,7 @@ test('readSoul returns body without frontmatter', function () {
     mkdir($profilesDir . '/test', 0755, true);
     file_put_contents($profilesDir . '/test/soul.md', "---\nmodel: test/model\n---\n# Test Profile\n\nYou are Test.");
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
     $soul = $discovery->readSoul('test');
 
     expect($soul)->toContain('# Test Profile');
@@ -81,7 +81,7 @@ test('readProfileModel extracts model from frontmatter', function () {
     mkdir($profilesDir . '/modeled', 0755, true);
     file_put_contents($profilesDir . '/modeled/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Modeled");
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->readProfileModel('modeled'))->toBe('anthropic/claude-sonnet-4-20250514');
 });
@@ -91,7 +91,7 @@ test('readProfileModel returns null when no model in frontmatter', function () {
     mkdir($profilesDir . '/nomodel', 0755, true);
     file_put_contents($profilesDir . '/nomodel/soul.md', '# No Model');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->readProfileModel('nomodel'))->toBeNull();
 });
@@ -101,7 +101,7 @@ test('extractDescription returns first paragraph from soul.md', function () {
     mkdir($profilesDir . '/described', 0755, true);
     file_put_contents($profilesDir . '/described/soul.md', "# Described Profile\n\nA warm, curious AI companion with a philosophical bent.\n\n## Details\n\nMore content.");
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
     $description = $discovery->extractDescription('described');
 
     expect($description)->toBe('A warm, curious AI companion with a philosophical bent.');
@@ -112,13 +112,13 @@ test('getProfilePath returns absolute path to profile directory', function () {
     mkdir($profilesDir . '/myprofile', 0755, true);
     file_put_contents($profilesDir . '/myprofile/soul.md', '# My Profile');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->getProfilePath('myprofile'))->toBe($profilesDir . '/myprofile');
 });
 
 test('getProfilePath throws for nonexistent profile', function () {
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     $discovery->getProfilePath('nonexistent');
 })->throws(\InvalidArgumentException::class);
@@ -128,7 +128,7 @@ test('invalidateCache re-discovers profiles after changes', function () {
     mkdir($profilesDir . '/first', 0755, true);
     file_put_contents($profilesDir . '/first/soul.md', '# First');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
     expect($discovery->discoverAll())->toHaveCount(1);
 
     // Add a second profile
@@ -148,7 +148,7 @@ test('getSamplesDir returns correct path', function () {
     mkdir($profilesDir . '/alpha', 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->getSamplesDir('alpha'))->toBe($profilesDir . '/alpha/samples/responses');
 });
@@ -158,7 +158,7 @@ test('listResponseSamples returns empty when no samples directory', function () 
     mkdir($profilesDir . '/alpha', 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
 
     expect($discovery->listResponseSamples('alpha'))->toBe([]);
 });
@@ -172,7 +172,7 @@ test('listResponseSamples finds markdown files in samples/responses', function (
     file_put_contents($samplesDir . '/farewell.md', '# Goodbye');
     file_put_contents($samplesDir . '/notes.txt', 'Not a markdown file');
 
-    $discovery = new ProfileDiscovery($this->workspacePath);
+    $discovery = new PersonaDiscovery($this->workspacePath);
     $samples = $discovery->listResponseSamples('alpha');
 
     expect($samples)->toHaveCount(2);

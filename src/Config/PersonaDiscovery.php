@@ -15,17 +15,17 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
  *
  * Resolution: profile dir → workspace prompts → default prompts dir (3-tier fallback).
  */
-final class ProfileDiscovery
+final class PersonaDiscovery
 {
     /** @var array<string, array{name: string, display_name: string, description: string, path: string}>|null */
     private ?array $cache = null;
 
-    private readonly ProfileParser $parser;
+    private readonly PersonaParser $parser;
 
     public function __construct(
         private readonly string $workspacePath,
     ) {
-        $this->parser = new ProfileParser();
+        $this->parser = new PersonaParser();
     }
 
     /**

@@ -32,7 +32,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\MountManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -138,7 +138,7 @@ final class OrchestratorAgent extends AbstractAgent
     private readonly int $budgetExitWrapUpIterations;
     private readonly ?string $activeProfile;
     private readonly ?string $activeProfilePath;
-    private readonly ?ProfilePreferences $profilePreferences;
+    private readonly ?PersonaPreferences $profilePreferences;
     private readonly ToolProfileResolver $toolProfileResolver;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
@@ -1096,7 +1096,7 @@ final class OrchestratorAgent extends AbstractAgent
             return [null, null, null];
         }
 
-        $parser = new \CoquiBot\Coqui\Config\ProfileParser();
+        $parser = new \CoquiBot\Coqui\Config\PersonaParser();
 
         // Soul
         $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';

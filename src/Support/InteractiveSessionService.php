@@ -6,8 +6,8 @@ namespace CoquiBot\Coqui\Support;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequest;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
@@ -19,8 +19,8 @@ final readonly class InteractiveSessionService
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
-        private ?ProfileSessionLifecycleManager $lifecycleManager = null,
+        private PersonaDiscovery $profileDiscovery,
+        private ?PersonaSessionLifecycleManager $lifecycleManager = null,
     ) {}
 
     public function createSession(string $modelRole, ?string $profile = null): InteractiveSessionOperationResult
@@ -309,13 +309,13 @@ final readonly class InteractiveSessionService
         return SystemRole::Orchestrator->value;
     }
 
-    private function loadProfilePreferences(?string $profile): ?ProfilePreferences
+    private function loadProfilePreferences(?string $profile): ?PersonaPreferences
     {
         if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
             return null;
         }
 
-        return ProfilePreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
+        return PersonaPreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
     }
 
     private function normalizeProfileValue(mixed $value): ?string

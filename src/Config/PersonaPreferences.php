@@ -13,7 +13,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
  * - promptDirectives: key-value pairs rendered into the system prompt to guide communication style
  * - behavior: code-level settings that configure agent parameters (e.g. temperature hints, tool preferences)
  */
-final readonly class ProfilePreferences
+final readonly class PersonaPreferences
 {
     private const array ALLOWED_TOP_LEVEL_FIELDS = ['prompt_directives', 'behavior', 'prompts'];
     private const array ALLOWED_PROMPTS_FIELDS = ['features', 'prompt_sections', 'roles', 'labels'];

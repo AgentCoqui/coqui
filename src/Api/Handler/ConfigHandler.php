@@ -12,8 +12,8 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\FileSystemOperations;
@@ -93,7 +93,7 @@ final readonly class ConfigHandler
     public function __construct(
         private OpenClawConfig $config,
         private ConfigValidator $validator,
-        private ProfileDiscovery $profileDiscovery,
+        private PersonaDiscovery $profileDiscovery,
         private ?ModelMetadataResolver $modelMetadataResolver = null,
         private ?RoleResolver $roleResolver = null,
         private ?ConfigManager $configManager = null,
@@ -399,7 +399,7 @@ final readonly class ConfigHandler
             ? array_values($this->roleResolver->selectableRoles())
             : [];
 
-        return Router::jsonResponse(ProfilePreferences::appSchema($availableRoles));
+        return Router::jsonResponse(PersonaPreferences::appSchema($availableRoles));
     }
 
     /**
@@ -455,8 +455,8 @@ final readonly class ConfigHandler
 
         $profileDir = 'profiles/' . $name;
         $preferences = $preferencesPayload !== null
-            ? ProfilePreferences::fromArray($preferencesPayload, $this->workspacePath() . '/' . $profileDir)
-            : ProfilePreferences::empty();
+            ? PersonaPreferences::fromArray($preferencesPayload, $this->workspacePath() . '/' . $profileDir)
+            : PersonaPreferences::empty();
 
         if (!$preferences->isValid()) {
             return Router::errorResponse(
@@ -569,7 +569,7 @@ final readonly class ConfigHandler
         }
 
         $preferences = $updatesPreferences && $preferencesPayload !== null
-            ? ProfilePreferences::fromArray($preferencesPayload, $profile['path'])
+            ? PersonaPreferences::fromArray($preferencesPayload, $profile['path'])
             : null;
 
         if ($preferences !== null && !$preferences->isValid()) {
@@ -686,7 +686,7 @@ final readonly class ConfigHandler
      */
     private function normalizeProfileSummary(array $profile): array
     {
-        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+        $preferences = PersonaPreferences::fromProfilePath($profile['path']);
         $selectableRoles = $this->roleResolver !== null
             ? array_values($this->roleResolver->selectableRoles())
             : [];
@@ -715,7 +715,7 @@ final readonly class ConfigHandler
      */
     private function normalizeProfileDetail(array $profile): array
     {
-        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+        $preferences = PersonaPreferences::fromProfilePath($profile['path']);
 
         return [
             ...$this->normalizeProfileSummary($profile),

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 
 it('accepts context as a prompt_sections gate', function () {
-    $prefs = ProfilePreferences::fromArray([
+    $prefs = PersonaPreferences::fromArray([
         'prompts' => ['prompt_sections' => ['context' => false]],
     ]);
 
@@ -14,7 +14,7 @@ it('accepts context as a prompt_sections gate', function () {
 });
 
 it('accepts context stub mode', function () {
-    $prefs = ProfilePreferences::fromArray([
+    $prefs = PersonaPreferences::fromArray([
         'prompts' => ['prompt_sections' => ['context' => 'stub']],
     ]);
 

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 
 it('stores and returns a custom context label', function () {
-    $prefs = ProfilePreferences::fromArray([
+    $prefs = PersonaPreferences::fromArray([
         'prompts' => ['labels' => ['context' => 'Reference']],
     ]);
 
@@ -14,11 +14,11 @@ it('stores and returns a custom context label', function () {
 });
 
 it('defaults the context label to Context', function () {
-    expect(ProfilePreferences::empty()->getContextLabel())->toBe('Context');
+    expect(PersonaPreferences::empty()->getContextLabel())->toBe('Context');
 });
 
 it('rejects an empty context label', function () {
-    $prefs = ProfilePreferences::fromArray([
+    $prefs = PersonaPreferences::fromArray([
         'prompts' => ['labels' => ['context' => '']],
     ]);
 

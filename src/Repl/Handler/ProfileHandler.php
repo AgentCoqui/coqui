@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -107,7 +107,7 @@ final class ProfileHandler
     private function showCurrentProfile(
         SymfonyStyle $io,
         ?string $activeProfile,
-        ProfileDiscovery $profileDiscovery,
+        PersonaDiscovery $profileDiscovery,
     ): RouteResult {
         if ($activeProfile === null) {
             $io->writeln('<info>Active profile:</info> (default — no profile)');

@@ -9,7 +9,7 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
@@ -76,7 +76,7 @@ MD);
 
     $configManager = new ConfigManager($workspacePath, $projectRoot, new DefaultsLoader(), new ConfigValidator());
     $config = $configManager->load();
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
     $pdo = new PDO('sqlite::memory:');

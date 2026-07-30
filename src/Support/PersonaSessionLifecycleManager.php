@@ -17,7 +17,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 /**
  * Finalizes profiled sessions by preserving continuity before closure.
  */
-final readonly class ProfileSessionLifecycleManager
+final readonly class PersonaSessionLifecycleManager
 {
     public function __construct(
         private SessionStorage $storage,

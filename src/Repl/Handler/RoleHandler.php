@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleUpdateTracker;
 use CoquiBot\Coqui\Contract\RoleProperties;
@@ -122,13 +122,13 @@ final class RoleHandler
         return mb_substr($text, 0, $max - 1) . '…';
     }
 
-    private function loadProfilePreferences(?string $activeProfile): ?ProfilePreferences
+    private function loadProfilePreferences(?string $activeProfile): ?PersonaPreferences
     {
         if ($activeProfile === null || !$this->boot->profileDiscovery()->profileExists($activeProfile)) {
             return null;
         }
 
-        return ProfilePreferences::fromProfilePath($this->boot->profileDiscovery()->getProfilePath($activeProfile));
+        return PersonaPreferences::fromProfilePath($this->boot->profileDiscovery()->getProfilePath($activeProfile));
     }
 
     public function handleRoles(SymfonyStyle $io, string $arg, string $activeRole): void

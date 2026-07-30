@@ -295,7 +295,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 // Load profile preferences if available
                 $preferencesFile = $candidatePath . '/preferences.json';
                 if (is_file($preferencesFile)) {
-                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
                 }
             }
         }
@@ -604,7 +604,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
     }
 
     /**
-     * @return array{profilePath: ?string, preferences: ?\CoquiBot\Coqui\Config\ProfilePreferences}
+     * @return array{profilePath: ?string, preferences: ?\CoquiBot\Coqui\Config\PersonaPreferences}
      */
     private function resolveProfileContext(?string $profile): array
     {
@@ -620,7 +620,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         $preferences = null;
         $preferencesFile = $candidatePath . '/preferences.json';
         if (is_file($preferencesFile)) {
-            $preferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+            $preferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
         }
 
         return [
@@ -928,7 +928,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?string $defaultProjectId = null,
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
-        ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
+        ?\CoquiBot\Coqui\Config\PersonaPreferences $profilePreferences = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role, $activeProfile);
@@ -1397,7 +1397,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
                 $preferencesFile = $candidatePath . '/preferences.json';
                 if (is_file($preferencesFile)) {
-                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
                 }
             }
         }

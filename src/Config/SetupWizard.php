@@ -919,7 +919,7 @@ final class SetupWizard
      */
     private function configureDefaultProfile(string $workspace, ?string $currentDefaultProfile = null): ?string
     {
-        $profileDiscovery = new ProfileDiscovery($workspace);
+        $profileDiscovery = new PersonaDiscovery($workspace);
         $profiles = $profileDiscovery->availableProfiles();
 
         if ($profiles === []) {

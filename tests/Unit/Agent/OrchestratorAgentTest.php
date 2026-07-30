@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\MountDefinition;
@@ -433,7 +433,7 @@ test('instructions include profile preferences and scoped core memories', functi
                 memorySummarizer: new MemorySummarizer($memoryStore),
                 activeProfile: 'caelum',
                 activeProfilePath: $profilePath,
-                profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+                profilePreferences: PersonaPreferences::fromFile($preferencesPath),
             ),
         );
 
@@ -477,7 +477,7 @@ test('role prompt section breakdown includes profile identity backstory and pref
             activeRole: 'coder',
             activeProfile: 'caelum',
             activeProfilePath: $profilePath,
-            profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+            profilePreferences: PersonaPreferences::fromFile($preferencesPath),
         ),
     );
 
@@ -654,7 +654,7 @@ test('profile policy can disable project toolkits and stub non-core standalone t
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
 
     // Full profile: spawn_agent is non-core under lean and would otherwise be
-    // deferred from tools() independent of the ProfilePreferences stubbing
+    // deferred from tools() independent of the PersonaPreferences stubbing
     // this test actually exercises.
     $config = OpenClawConfig::fromArray([
         'agents' => [
@@ -677,7 +677,7 @@ test('profile policy can disable project toolkits and stub non-core standalone t
                 storage: $storage,
                 sessionId: $sessionId,
                 projectStore: $projectStore,
-                profilePreferences: ProfilePreferences::fromArray([
+                profilePreferences: PersonaPreferences::fromArray([
                     'prompts' => [
                         'features' => [
                             'artifacts' => false,

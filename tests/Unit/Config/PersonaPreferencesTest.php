@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 
 test('fromFile parses valid preferences.json', function () {
     $path = sys_get_temp_dir() . '/coqui-prefs-' . bin2hex(random_bytes(4)) . '.json';
@@ -17,7 +17,7 @@ test('fromFile parses valid preferences.json', function () {
         ],
     ]));
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
 
     expect($prefs->isEmpty())->toBeFalse();
     expect($prefs->hasPromptDirectives())->toBeTrue();
@@ -32,7 +32,7 @@ test('fromFile returns empty for invalid JSON', function () {
     $path = sys_get_temp_dir() . '/coqui-prefs-bad-' . bin2hex(random_bytes(4)) . '.json';
     file_put_contents($path, 'not json');
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
 
     expect($prefs->isEmpty())->toBeTrue();
     expect($prefs->isValid())->toBeFalse();
@@ -42,13 +42,13 @@ test('fromFile returns empty for invalid JSON', function () {
 });
 
 test('fromFile returns empty for missing file', function () {
-    $prefs = ProfilePreferences::fromFile('/nonexistent/path/preferences.json');
+    $prefs = PersonaPreferences::fromFile('/nonexistent/path/preferences.json');
 
     expect($prefs->isEmpty())->toBeTrue();
 });
 
 test('empty creates an empty preferences object', function () {
-    $prefs = ProfilePreferences::empty();
+    $prefs = PersonaPreferences::empty();
 
     expect($prefs->isEmpty())->toBeTrue();
     expect($prefs->hasPromptDirectives())->toBeFalse();
@@ -64,7 +64,7 @@ test('renderPromptSection formats directives as markdown', function () {
         ],
     ]));
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
     $section = $prefs->renderPromptSection();
 
     expect($section)->toContain('## Preferences');
@@ -80,7 +80,7 @@ test('renderPromptSection returns null when no directives', function () {
         'behavior' => ['emoji' => true],
     ]));
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
 
     expect($prefs->renderPromptSection())->toBeNull();
     expect($prefs->isEmpty())->toBeFalse();
@@ -111,7 +111,7 @@ test('fromFile parses prompts policy and backstory label', function () {
         ],
     ]));
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
 
     expect($prefs->isValid())->toBeTrue();
     expect($prefs->isFeatureEnabled('artifacts'))->toBeFalse();
@@ -146,7 +146,7 @@ test('fromFile records validation errors for invalid prompt policy', function ()
         ],
     ]));
 
-    $prefs = ProfilePreferences::fromFile($path);
+    $prefs = PersonaPreferences::fromFile($path);
 
     expect($prefs->isValid())->toBeFalse();
     expect($prefs->getPromptSectionMode('security'))->toBeTrue();

@@ -19,7 +19,7 @@ use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
@@ -530,13 +530,13 @@ final class SpawnAgentTool implements ToolInterface
         return $this->profilePreferences()?->isFeatureEnabled($feature, $default) ?? $default;
     }
 
-    private function profilePreferences(): ?ProfilePreferences
+    private function profilePreferences(): ?PersonaPreferences
     {
         if ($this->activeProfilePath === null) {
             return null;
         }
 
-        return ProfilePreferences::fromProfilePath($this->activeProfilePath);
+        return PersonaPreferences::fromProfilePath($this->activeProfilePath);
     }
 
     /**

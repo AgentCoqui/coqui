@@ -14,7 +14,7 @@ use CoquiBot\Coqui\Api\Session\SessionUpdateRequestResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeRegistry;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Exception\SessionTypeException;
@@ -22,7 +22,7 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\InteractiveSessionService;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -45,8 +45,8 @@ final readonly class SessionHandler
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
-        private ?ProfileSessionLifecycleManager $lifecycleManager = null,
+        private PersonaDiscovery $profileDiscovery,
+        private ?PersonaSessionLifecycleManager $lifecycleManager = null,
         private ?GroupSessionService $groupSessionService = null,
         private ?ArtifactStore $artifactStore = null,
     ) {}

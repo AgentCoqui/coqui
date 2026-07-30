@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use React\Http\Message\ServerRequest;
@@ -73,7 +73,7 @@ MD);
         ],
     ]);
 
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
 

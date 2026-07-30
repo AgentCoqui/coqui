@@ -13,7 +13,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
@@ -170,7 +170,7 @@ test('profile switching does not leak soul content between profiles', function (
 });
 
 test('profile discovery finds all profiles and round-trips correctly', function () {
-    $discovery = new ProfileDiscovery($this->workspace);
+    $discovery = new PersonaDiscovery($this->workspace);
 
     $discovered = $discovery->discoverAll();
     expect($discovered)->toHaveCount(3);

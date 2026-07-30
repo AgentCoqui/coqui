@@ -10,7 +10,7 @@ use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
@@ -117,7 +117,7 @@ final class TaskRunCommand extends Command
             ? $session['profile']
             : null;
         if ($taskProfile !== null && $boot->profileDiscovery()->profileExists($taskProfile)) {
-            $preferences = ProfilePreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));
+            $preferences = PersonaPreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));
             if (!$preferences->isRoleAllowed($role)) {
                 $message = sprintf('Profile "%s" does not allow role "%s".', $taskProfile, $role);
                 $storage->updateTaskStatus($taskId, 'failed', ['error' => $message]);

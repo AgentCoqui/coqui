@@ -7,7 +7,7 @@ use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Prompt\PromptLoader;
@@ -159,7 +159,7 @@ test('orchestrator (no-role) path splices prompt.preferences right after prompt.
         deps: new OrchestratorDependencies(
             activeProfile: 'caelum',
             activeProfilePath: $profilePath,
-            profilePreferences: ProfilePreferences::fromProfilePath($profilePath),
+            profilePreferences: PersonaPreferences::fromProfilePath($profilePath),
         ),
     );
 

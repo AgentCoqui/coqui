@@ -16,7 +16,7 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\MountManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -94,7 +94,7 @@ final readonly class OrchestratorDependencies
         public int $budgetExitWrapUpIterations = 2,
         public ?string $activeProfile = null,
         public ?string $activeProfilePath = null,
-        public ?ProfilePreferences $profilePreferences = null,
+        public ?PersonaPreferences $profilePreferences = null,
     ) {
     }
 }

@@ -6,8 +6,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Exception\RoleNotFoundException;
@@ -27,7 +27,7 @@ final readonly class RoleHandler
     public function __construct(
         private RoleDiscovery $roleDiscovery,
         private RoleResolver $roleResolver,
-        private ?ProfileDiscovery $profileDiscovery = null,
+        private ?PersonaDiscovery $profileDiscovery = null,
     ) {}
 
     /**
@@ -61,8 +61,8 @@ final readonly class RoleHandler
 
         if ($profile !== null) {
             $preferences = $profilePath !== null
-                ? ProfilePreferences::fromProfilePath($profilePath)
-                : ProfilePreferences::empty();
+                ? PersonaPreferences::fromProfilePath($profilePath)
+                : PersonaPreferences::empty();
             $roles = array_filter(
                 $roles,
                 static fn(array $role): bool => $preferences->isRoleAllowed((string) ($role['name'] ?? '')),
@@ -112,8 +112,8 @@ final readonly class RoleHandler
 
         if ($profile !== null) {
             $preferences = $profilePath !== null
-                ? ProfilePreferences::fromProfilePath($profilePath)
-                : ProfilePreferences::empty();
+                ? PersonaPreferences::fromProfilePath($profilePath)
+                : PersonaPreferences::empty();
             if (!$preferences->isRoleAllowed($name)) {
                 return Router::errorResponse(
                     ApiErrorCode::ROLE_NOT_FOUND,

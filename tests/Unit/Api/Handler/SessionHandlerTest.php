@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use React\Http\Message\ServerRequest;
 
@@ -55,7 +55,7 @@ MD);
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
@@ -67,7 +67,7 @@ MD);
         ],
     ]);
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
-    $lifecycleManager = new ProfileSessionLifecycleManager(
+    $lifecycleManager = new PersonaSessionLifecycleManager(
         storage: $storage,
         providerFactory: new ProviderFactory($config),
         roleResolver: $roleResolver,

@@ -11,7 +11,7 @@ namespace CoquiBot\Coqui\Config;
  * always returned without the frontmatter block so profile metadata never leaks
  * into rendered prompts.
  */
-final class ProfileParser
+final class PersonaParser
 {
     /**
      * @return array{metadata: array<string, mixed>, body: string}

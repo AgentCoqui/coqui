@@ -8,8 +8,8 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
-use CoquiBot\Coqui\Config\ProfilePreferences;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -36,7 +36,7 @@ final readonly class TaskHandler
         private SessionStorage $storage,
         private BackgroundTaskManager $taskManager,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
+        private PersonaDiscovery $profileDiscovery,
         private ?ProjectStore $projectStore = null,
     ) {}
 
@@ -164,13 +164,13 @@ final readonly class TaskHandler
         ], 201);
     }
 
-    private function loadProfilePreferences(?string $profile): ?ProfilePreferences
+    private function loadProfilePreferences(?string $profile): ?PersonaPreferences
     {
         if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
             return null;
         }
 
-        return ProfilePreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
+        return PersonaPreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
     }
 
     /**

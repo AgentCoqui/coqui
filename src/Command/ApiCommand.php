@@ -62,7 +62,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CoquiBot\Coqui\Mcp\McpRuntime;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
@@ -299,7 +299,7 @@ final class ApiCommand extends Command
 
         // Create handlers
         $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $lifecycle);
-        $profileSessionLifecycle = new ProfileSessionLifecycleManager(
+        $profileSessionLifecycle = new PersonaSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
             roleResolver: $boot->roleResolver(),

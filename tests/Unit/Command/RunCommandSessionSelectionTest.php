@@ -5,12 +5,12 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -35,14 +35,14 @@ function createRunCommandSessionFixture(): array
         ],
     ]);
     $roleResolver = new RoleResolver($config);
-    $lifecycleManager = new ProfileSessionLifecycleManager(
+    $lifecycleManager = new PersonaSessionLifecycleManager(
         storage: $storage,
         providerFactory: new ProviderFactory($config),
         roleResolver: $roleResolver,
         memoryStore: new MemoryStore($workspacePath . '/memory.db'),
     );
 
-    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver, new ProfileDiscovery($workspacePath));
+    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver, new PersonaDiscovery($workspacePath));
     $output = new BufferedOutput();
     $command = new RunCommand();
 
@@ -63,7 +63,7 @@ function cleanupRunCommandSessionFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver, ProfileDiscovery $profileDiscovery): BootManager
+function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver, PersonaDiscovery $profileDiscovery): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */

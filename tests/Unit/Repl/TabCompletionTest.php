@@ -5,7 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -71,7 +71,7 @@ function createTabCompletionFixture(): array
     ]));
 
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 3));
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $loopDiscovery = new LoopDiscovery($workspacePath, dirname(__DIR__, 3));
     $loopDiscovery->seedBuiltinLoops();
     $skillDiscovery = new SkillDiscovery($workspacePath);
@@ -133,7 +133,7 @@ function testBootManagerForTabCompletion(
     string $workspacePath,
     RoleResolver $roleResolver,
     RoleDiscovery $roleDiscovery,
-    ProfileDiscovery $profileDiscovery,
+    PersonaDiscovery $profileDiscovery,
     ProjectStore $projectStore,
     LoopDiscovery $loopDiscovery,
     ToolkitDiscovery $discovery,

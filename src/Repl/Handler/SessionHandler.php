@@ -9,7 +9,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\InteractiveSessionService;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -22,7 +22,7 @@ final class SessionHandler
     public function __construct(
         private readonly BootManager $boot,
         private readonly SessionStorage $storage,
-        private ?ProfileSessionLifecycleManager $lifecycleManager = null,
+        private ?PersonaSessionLifecycleManager $lifecycleManager = null,
     ) {}
 
     public function createNewSession(string $role = 'orchestrator', ?string $profile = null): string
@@ -353,10 +353,10 @@ final class SessionHandler
         $io?->info($message);
     }
 
-    private function lifecycleManager(): ProfileSessionLifecycleManager
+    private function lifecycleManager(): PersonaSessionLifecycleManager
     {
         if ($this->lifecycleManager === null) {
-            $this->lifecycleManager = new ProfileSessionLifecycleManager(
+            $this->lifecycleManager = new PersonaSessionLifecycleManager(
                 storage: $this->storage,
                 providerFactory: $this->boot->providerFactory(),
                 roleResolver: $this->boot->roleResolver(),

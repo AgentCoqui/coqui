@@ -26,7 +26,7 @@ final class RoleResolver
         private readonly ConfigInterface $config,
         ?DefaultsLoader $defaults = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
-        private readonly ?ProfileDiscovery $profileDiscovery = null,
+        private readonly ?PersonaDiscovery $profileDiscovery = null,
     ) {
         $roles = $this->config->get('agents.defaults.roles', []);
         $this->roles = is_array($roles) ? $roles : [];

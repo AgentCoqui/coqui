@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
@@ -16,7 +16,7 @@ final readonly class CoreServices
 {
     public function __construct(
         private SessionStorage $sessionStorage,
-        private ProfileDiscovery $profileDiscovery,
+        private PersonaDiscovery $profileDiscovery,
         private OpenClawConfig $config,
     ) {}
 
@@ -30,7 +30,7 @@ final readonly class CoreServices
         return $this->sessionStorage->getPdo();
     }
 
-    public function profileDiscovery(): ProfileDiscovery
+    public function profileDiscovery(): PersonaDiscovery
     {
         return $this->profileDiscovery;
     }

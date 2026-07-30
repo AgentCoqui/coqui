@@ -7,13 +7,13 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -33,7 +33,7 @@ function createProfileHandlerFixture(): array
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $projectRoot = $workspacePath . '/project';
     mkdir($projectRoot, 0755, true);
     $configManager = new ConfigManager(
@@ -53,7 +53,7 @@ function createProfileHandlerFixture(): array
             ],
         ],
     ]));
-    $lifecycleManager = new ProfileSessionLifecycleManager(
+    $lifecycleManager = new PersonaSessionLifecycleManager(
         storage: $storage,
         providerFactory: new ProviderFactory($config),
         roleResolver: $roleResolver,
@@ -81,7 +81,7 @@ function cleanupProfileHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForProfiles(string $workspacePath, ProfileDiscovery $profileDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
+function testBootManagerForProfiles(string $workspacePath, PersonaDiscovery $profileDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -25,7 +25,7 @@ function createGroupHandlerFixture(): array
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $profileDiscovery = new PersonaDiscovery($workspacePath);
     $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [

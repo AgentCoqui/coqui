@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 
@@ -180,7 +180,7 @@ MD);
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->toArray()['builder'])->toMatchArray([
@@ -227,7 +227,7 @@ MD);
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         $selectable = $resolver->selectableRoles();
@@ -279,7 +279,7 @@ test('uses profile soul frontmatter model when no role-specific override exists'
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->resolve('reviewer', 'artist'))->toBe('openai/gpt-4.1-mini');
@@ -315,7 +315,7 @@ test('profile role override beats global role config and profile default model',
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->resolve('coder', 'artist'))->toBe('anthropic/claude-sonnet-4-20250514');

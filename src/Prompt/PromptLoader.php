@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Prompt;
 
-use CoquiBot\Coqui\Config\ProfilePreferences;
-use CoquiBot\Coqui\Config\ProfileParser;
+use CoquiBot\Coqui\Config\PersonaPreferences;
+use CoquiBot\Coqui\Config\PersonaParser;
 
 /**
  * Discovers and composes system prompts from markdown files.
@@ -566,7 +566,7 @@ final readonly class PromptLoader
         if ($supportsProfileSoulFrontmatter && $this->profilePath !== null) {
             $expectedProfileSoulPath = rtrim($this->profilePath, '/') . '/soul.md';
             if ($path === $expectedProfileSoulPath) {
-                return (new ProfileParser())->readFile($path)['body'];
+                return (new PersonaParser())->readFile($path)['body'];
             }
         }
 
@@ -647,13 +647,13 @@ final readonly class PromptLoader
         return $this->profilePreferences()?->isPromptSectionStubbed($section) === true;
     }
 
-    private function profilePreferences(): ?ProfilePreferences
+    private function profilePreferences(): ?PersonaPreferences
     {
         if ($this->profilePath === null) {
             return null;
         }
 
-        return ProfilePreferences::fromProfilePath($this->profilePath);
+        return PersonaPreferences::fromProfilePath($this->profilePath);
     }
 
     private function hasUsableSecurityOverride(string $path): bool

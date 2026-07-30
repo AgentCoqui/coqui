@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Support;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Exception\GroupSessionException;
@@ -18,7 +18,7 @@ final readonly class GroupSessionService
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
+        private PersonaDiscovery $profileDiscovery,
     ) {}
 
     /**

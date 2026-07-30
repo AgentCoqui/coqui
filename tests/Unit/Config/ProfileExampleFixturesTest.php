@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use CoquiBot\Coqui\Config\ProfileDiscovery;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use PHPUnit\Framework\Assert;
 
 test('preferences example fixtures remain valid', function () {
@@ -13,7 +13,7 @@ test('preferences example fixtures remain valid', function () {
     Assert::assertNotEmpty($examplePaths);
 
     foreach ($examplePaths as $path) {
-        $preferences = ProfilePreferences::fromFile($path);
+        $preferences = PersonaPreferences::fromFile($path);
 
         Assert::assertTrue($preferences->isValid(), basename($path) . ' should remain a valid example fixture');
     }
@@ -58,8 +58,8 @@ test('worked profile example is discoverable and valid', function () {
         copy($sourceDir . '/security.md', $profileDir . '/security.md');
         copy($sourceDir . '/samples/responses/status-update.md', $samplesDir . '/status-update.md');
 
-        $discovery = new ProfileDiscovery($workspacePath);
-        $preferences = ProfilePreferences::fromFile($profileDir . '/preferences.json');
+        $discovery = new PersonaDiscovery($workspacePath);
+        $preferences = PersonaPreferences::fromFile($profileDir . '/preferences.json');
 
         Assert::assertTrue($discovery->profileExists('deliberate-operator'));
         Assert::assertSame('openai/gpt-5.4-mini-2026-03-17', $discovery->readProfileModel('deliberate-operator'));

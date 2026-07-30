@@ -5,7 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -46,7 +46,7 @@ function createTaskHandlerFixture(): array
         'workspacePath' => $workspacePath,
         'storage' => $storage,
         'projectStore' => $projectStore,
-        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new ProfileDiscovery($workspacePath), $projectStore),
+        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new PersonaDiscovery($workspacePath), $projectStore),
     ];
 }
 
