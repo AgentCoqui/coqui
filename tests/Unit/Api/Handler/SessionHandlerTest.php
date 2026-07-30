@@ -936,7 +936,15 @@ test('session handler summary returns aggregate counts and latest turn data', fu
             1,
         );
 
-        $fixture['storage']->logChildRun($sessionId, 1, 'analyst', 'openai/gpt-4.1-mini', 'Review the session', 'Reviewed', 77);
+        $fixture['storage']->logChildRun(
+            parentSessionId: $sessionId,
+            role: 'analyst',
+            model: 'openai/gpt-4.1-mini',
+            prompt: 'Review the session',
+            status: 'completed',
+            result: 'Reviewed',
+            totalTokens: 77,
+        );
 
         $taskId = $fixture['storage']->createTask(
             sessionId: $sessionId,

@@ -95,6 +95,36 @@ it('CORE-34: turn carries actor_persona_id and a closed-set status', function ()
     }
 })->group('conformance');
 
+it('CORE-28: ChildRun is a typed first-class object; status is a closed set; no nesting', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core28-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $storage->logChildRun(
+            parentSessionId: $sessionId,
+            role: 'coder',
+            model: 'anthropic/claude-sonnet-4',
+            prompt: 'Implement the fix.',
+            status: 'completed',
+            result: 'Fixed.',
+            promptTokens: 80,
+            completionTokens: 20,
+            totalTokens: 100,
+        );
+
+        $runs = $storage->getChildRuns($sessionId);
+        $wire = SessionHandler::childRunToWire($runs[0]);
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('child-run.json', $wire))->toBeTrue($v->errorText('child-run.json', $wire));
+        expect($wire['parent_session_id'])->toBe($sessionId);   // required, present
+        expect($wire['status'])->toBeIn(['pending', 'running', 'completed', 'failed', 'cancelled']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -121,7 +151,6 @@ $rows = [
     'CORE-25: the Artifact object is typed; session_id is required',
     'CORE-26: skills carry a typed origin (closed kind); imported/script skills are untrusted-by-default',
     'CORE-27: skills declare execution.kind (instruction vs script) + requires; discovery exposes it',
-    'CORE-28: ChildRun is a typed first-class object; status is a closed set; no nesting',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',

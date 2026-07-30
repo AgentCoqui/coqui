@@ -151,19 +151,31 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 child_runs shape. Recreate-from-empty: renamed to the reference
+        // columns (parent_session_id/role) and split token_count into the
+        // prompt/completion/total triad. model is NULLABLE (null ⇒ inherit per
+        // Personas §5); result is nullable; status is the closed lifecycle set.
+        // coqui runs children synchronously in-process, so status is known at write
+        // time (completed/failed) and completed_at is set. Both FKs target existing
+        // tables (sessions/turns) so they are safe under PRAGMA foreign_keys=ON:
+        // parent_turn_id nulls out (SET NULL) if the owning turn is removed.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS child_runs (
                 id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                parent_iteration INTEGER NOT NULL,
-                agent_role TEXT NOT NULL,
-                model TEXT NOT NULL,
+                parent_session_id TEXT NOT NULL,
+                parent_turn_id TEXT,
+                role TEXT NOT NULL,
+                model TEXT,
                 prompt TEXT NOT NULL,
-                result TEXT NOT NULL,
-                token_count INTEGER DEFAULT 0,
-                metadata TEXT,
+                result TEXT,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                completed_at TEXT,
+                FOREIGN KEY (parent_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_turn_id) REFERENCES turns(id) ON DELETE SET NULL
             )
         SQL);
 
@@ -215,7 +227,7 @@ final class SessionStorage
         SQL);
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)');
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(parent_session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)');
@@ -320,9 +332,6 @@ final class SessionStorage
         SQL);
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, persona_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_persona ON session_group_members(persona_id)');
-
-        // Migration: child-run metadata for typed handoffs and provenance
-        $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
@@ -765,7 +774,7 @@ final class SessionStorage
             ['session_id' => $id],
         );
         $childRunsTotal = $this->safeQueryScalarPreparedInt(
-            'SELECT COUNT(*) FROM child_runs WHERE session_id = :session_id',
+            'SELECT COUNT(*) FROM child_runs WHERE parent_session_id = :session_id',
             ['session_id' => $id],
         );
 
@@ -1789,37 +1798,53 @@ final class SessionStorage
     }
 
     /**
-     * @param array<string, mixed>|null $metadata
+     * Record a delegated child-agent run (CAP `child-run.json` shape). coqui runs
+     * children synchronously in-process, so the outcome is known at write time:
+     * pass `status` = 'completed' on success / 'failed' on error, and the token
+     * triad from the child result's usage. `model` is nullable (null ⇒ inherit);
+     * `parentTurnId` is the owning turn id when known (else null).
      */
     public function logChildRun(
-        string $sessionId,
-        int $parentIteration,
-        string $agentRole,
-        string $model,
+        string $parentSessionId,
+        string $role,
+        ?string $model,
         string $prompt,
-        string $result,
-        int $tokenCount = 0,
-        ?array $metadata = null,
+        string $status,
+        ?string $result = null,
+        ?string $parentTurnId = null,
+        int $promptTokens = 0,
+        int $completionTokens = 0,
+        int $totalTokens = 0,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
+        $completedAt = in_array($status, ['completed', 'failed', 'cancelled'], true) ? $now : null;
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at)
-            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :metadata, :created_at)
+            INSERT INTO child_runs (
+                id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
+            )
+            VALUES (
+                :id, :parent_session_id, :parent_turn_id, :role, :model, :prompt, :result, :status,
+                :prompt_tokens, :completion_tokens, :total_tokens, :created_at, :completed_at
+            )
         SQL);
 
         $stmt->execute([
             'id' => $id,
-            'session_id' => $sessionId,
-            'parent_iteration' => $parentIteration,
-            'agent_role' => $agentRole,
+            'parent_session_id' => $parentSessionId,
+            'parent_turn_id' => $parentTurnId,
+            'role' => $role,
             'model' => $model,
             'prompt' => $prompt,
             'result' => $result,
-            'token_count' => $tokenCount,
-            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
+            'status' => $status,
+            'prompt_tokens' => $promptTokens,
+            'completion_tokens' => $completionTokens,
+            'total_tokens' => $totalTokens,
             'created_at' => $now,
+            'completed_at' => $completedAt,
         ]);
 
         return $id;
@@ -1831,13 +1856,14 @@ final class SessionStorage
     public function getChildRuns(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at
+            SELECT id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                   prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
             FROM child_runs
-            WHERE session_id = :session_id
+            WHERE parent_session_id = :parent_session_id
             ORDER BY created_at ASC
         SQL);
 
-        $stmt->execute(['session_id' => $sessionId]);
+        $stmt->execute(['parent_session_id' => $sessionId]);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

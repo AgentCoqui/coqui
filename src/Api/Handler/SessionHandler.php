@@ -475,6 +475,45 @@ final readonly class SessionHandler
     }
 
     /**
+     * Produce a strict CAP 0.5.0 `child-run.json` wire object from a child-run row
+     * (as returned by {@see SessionStorage::getChildRuns()}).
+     *
+     * This is the conformance producer: it emits exactly the schema's property set
+     * (no rich extras), so it is `additionalProperties:false`-clean. `model` is
+     * NULLABLE (`oneOf[ModelId,null]`) — unlike turn.json's non-null model it is
+     * emitted as null-or-string (null ⇒ inherit), never omitted or coerced to ''.
+     * `result`, `parent_turn_id` and `completed_at` pass through nullable; `status`
+     * is a closed-set string; the token triad defaults to 0.
+     *
+     * @param array<string, mixed> $run
+     * @return array<string, mixed>
+     */
+    public static function childRunToWire(array $run): array
+    {
+        $model = $run['model'] ?? null;
+        $result = $run['result'] ?? null;
+        $parentTurnId = $run['parent_turn_id'] ?? null;
+        $completedAt = $run['completed_at'] ?? null;
+        $completedAt = is_string($completedAt) && $completedAt !== '' ? $completedAt : null;
+
+        return [
+            'id' => (string) ($run['id'] ?? ''),
+            'parent_session_id' => (string) ($run['parent_session_id'] ?? ''),
+            'parent_turn_id' => is_string($parentTurnId) && $parentTurnId !== '' ? $parentTurnId : null,
+            'role' => (string) ($run['role'] ?? ''),
+            'model' => is_string($model) && $model !== '' ? $model : null,
+            'prompt' => (string) ($run['prompt'] ?? ''),
+            'result' => is_string($result) ? $result : null,
+            'status' => (string) ($run['status'] ?? 'completed'),
+            'prompt_tokens' => max(0, (int) ($run['prompt_tokens'] ?? 0)),
+            'completion_tokens' => max(0, (int) ($run['completion_tokens'] ?? 0)),
+            'total_tokens' => max(0, (int) ($run['total_tokens'] ?? 0)),
+            'created_at' => self::toUtcZ($run['created_at'] ?? null),
+            'completed_at' => $completedAt === null ? null : self::toUtcZ($completedAt),
+        ];
+    }
+
+    /**
      * Owner persona unioned with any group members, as a unique id list.
      *
      * @param array<string, mixed> $session

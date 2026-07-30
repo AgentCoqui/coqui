@@ -241,17 +241,20 @@ final class SpawnAgentTool implements ToolInterface
 
             $output = $child->run(new UserMessage($prompt));
 
-            // Log child run to storage
+            // Log child run to storage. coqui runs children synchronously, so the
+            // outcome is known here: this reached point is a completed run.
             if ($this->storage !== null && $this->sessionId !== null) {
+                $usage = $output->usage;
                 $this->storage->logChildRun(
-                    sessionId: $this->sessionId,
-                    parentIteration: 0,
-                    agentRole: $role,
+                    parentSessionId: $this->sessionId,
+                    role: $role,
                     model: $modelString,
                     prompt: $prompt,
+                    status: 'completed',
                     result: $output->content,
-                    tokenCount: $output->usage !== null ? $output->usage->totalTokens : 0,
-                    metadata: $handoff->toArray(),
+                    promptTokens: $usage !== null ? $usage->promptTokens : 0,
+                    completionTokens: $usage !== null ? $usage->completionTokens : 0,
+                    totalTokens: $usage !== null ? $usage->totalTokens : 0,
                 );
             }
 
@@ -277,6 +280,18 @@ final class SpawnAgentTool implements ToolInterface
 
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
+            // Synchronous run failed: record the child run as failed with no result.
+            if ($this->storage !== null && $this->sessionId !== null) {
+                $this->storage->logChildRun(
+                    parentSessionId: $this->sessionId,
+                    role: $role,
+                    model: $modelString,
+                    prompt: $handoff->userPrompt(),
+                    status: 'failed',
+                    result: null,
+                );
+            }
+
             $this->notifyObserver('child.end', null);
 
             return ToolResult::error("Child agent failed: {$e->getMessage()}");
