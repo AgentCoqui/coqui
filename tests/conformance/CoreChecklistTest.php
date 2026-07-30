@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tests\Conformance;
 
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
@@ -74,6 +75,26 @@ it('CORE-19: session carries an opaque workspace echoed verbatim; null = no root
     }
 })->group('conformance');
 
+it('CORE-34: turn carries actor_persona_id and a closed-set status', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core34-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        // A turn produced by a named member persona.
+        $turnId = $storage->createTurn($sessionId, 'Draft the release notes.', 'anthropic/claude-sonnet-4', null, 'caelum');
+        $wire = TurnHandler::toWire($storage->getTurn($turnId));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('turn.json', $wire))->toBeTrue($v->errorText('turn.json', $wire));
+        expect(array_key_exists('actor_persona_id', $wire))->toBeTrue();
+        expect($wire['actor_persona_id'])->toBe('caelum');   // carried, non-null
+        expect($wire['status'])->toBeIn(['running', 'completed', 'failed', 'cancelled']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -106,7 +127,6 @@ $rows = [
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
     'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
     'CORE-33: the ScheduledTask object is typed; status/action.kind are closed sets',
-    'CORE-34: turn carries actor_persona_id; group-session turns require it (422 if absent)',
     'CORE-35: InstanceInfo MAY carry per-persona versions (semver); docs content is impl-defined',
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).

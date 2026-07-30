@@ -180,20 +180,31 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 turns shape. Recreate-from-empty: coqui's operational columns
+        // (turn_process_id, result_payload, child_agent_count) are folded into the
+        // base DDL alongside the CAP additions — actor_persona_id (the member persona
+        // that produced the turn; null in a solo session) and a status lifecycle
+        // column. actor_persona_id is a plain nullable column with NO FK to personas,
+        // the same guardrail as sessions.persona_id: real turns bind persona ids not
+        // guaranteed to exist as personas rows, and PRAGMA foreign_keys is ON.
+        // Group-session required-and-non-null enforcement (422 missing_field) is a
+        // deliberate Phase 4 carry-forward.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS turns (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
+                actor_persona_id TEXT,
                 turn_number INTEGER NOT NULL,
                 user_prompt TEXT NOT NULL,
                 response_text TEXT,
                 model TEXT,
-                prompt_tokens INTEGER DEFAULT 0,
-                completion_tokens INTEGER DEFAULT 0,
-                total_tokens INTEGER DEFAULT 0,
-                iterations INTEGER DEFAULT 0,
-                duration_ms INTEGER DEFAULT 0,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                iterations INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
                 tools_used TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
                 child_agent_count INTEGER DEFAULT 0,
                 turn_process_id TEXT DEFAULT NULL,
                 result_payload TEXT DEFAULT NULL,
@@ -214,8 +225,6 @@ final class SessionStorage
         $this->migrateAddColumn('messages', 'actor_name', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('messages', 'actor_role', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
-        $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_turn_process ON turns(turn_process_id)');
@@ -809,9 +818,9 @@ final class SessionStorage
         $latestTurn = null;
         try {
             $latestTurnStmt = $this->db->prepare(<<<SQL
-                SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                        prompt_tokens, completion_tokens, total_tokens, iterations,
-                       duration_ms, tools_used, child_agent_count, turn_process_id,
+                       duration_ms, tools_used, status, child_agent_count, turn_process_id,
                        result_payload, created_at, completed_at
                 FROM turns
                 WHERE session_id = :session_id
@@ -1977,6 +1986,7 @@ final class SessionStorage
         string $userPrompt,
         ?string $model = null,
         ?string $turnProcessId = null,
+        ?string $actorPersonaId = null,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
@@ -1990,14 +2000,17 @@ final class SessionStorage
         $stmt->execute(['session_id' => $sessionId]);
         $turnNumber = (int) $stmt->fetchColumn();
 
+        // A turn opens in the 'running' state; actor_persona_id records the member
+        // persona that produced it (null in a solo session).
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, turn_process_id, created_at)
-            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :turn_process_id, :created_at)
+            INSERT INTO turns (id, session_id, actor_persona_id, turn_number, user_prompt, model, status, turn_process_id, created_at)
+            VALUES (:id, :session_id, :actor_persona_id, :turn_number, :user_prompt, :model, 'running', :turn_process_id, :created_at)
         SQL);
 
         $stmt->execute([
             'id' => $id,
             'session_id' => $sessionId,
+            'actor_persona_id' => $actorPersonaId,
             'turn_number' => $turnNumber,
             'user_prompt' => $userPrompt,
             'model' => $model,
@@ -2034,6 +2047,7 @@ final class SessionStorage
                 duration_ms = :duration_ms,
                 tools_used = :tools_used,
                 child_agent_count = :child_agent_count,
+                status = 'completed',
                 completed_at = :completed_at
             WHERE id = :id
         SQL);
@@ -2079,9 +2093,9 @@ final class SessionStorage
     public function getTurns(string $sessionId, int $limit = 50): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
                    result_payload, created_at, completed_at
             FROM turns
             WHERE session_id = :session_id
@@ -2107,9 +2121,9 @@ final class SessionStorage
     public function getTurn(string $turnId): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
                    result_payload, created_at, completed_at
             FROM turns
             WHERE id = :id
@@ -2164,6 +2178,12 @@ final class SessionStorage
 
         $normalized = $turn;
         $normalized['tools_used'] = $this->decodeToolsUsed($turn['tools_used'] ?? null);
+        $normalized['actor_persona_id'] = is_string($turn['actor_persona_id'] ?? null) && $turn['actor_persona_id'] !== ''
+            ? (string) $turn['actor_persona_id']
+            : null;
+        $normalized['status'] = is_string($turn['status'] ?? null) && $turn['status'] !== ''
+            ? (string) $turn['status']
+            : 'running';
         $normalized['content'] = (string) ($turn['response_text'] ?? '');
         $normalized['restart_requested'] = false;
         $normalized['iteration_limit_reached'] = false;
