@@ -93,7 +93,7 @@ final readonly class ConfigHandler
     public function __construct(
         private OpenClawConfig $config,
         private ConfigValidator $validator,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private ?ModelMetadataResolver $modelMetadataResolver = null,
         private ?RoleResolver $roleResolver = null,
         private ?ConfigManager $configManager = null,
@@ -379,8 +379,8 @@ final readonly class ConfigHandler
     public function personas(ServerRequestInterface $request): Response
     {
         $personas = array_values(array_map(
-            fn(array $profile): array => $this->normalizePersonaSummary($profile),
-            $this->profileDiscovery->discoverAll(),
+            fn(array $persona): array => $this->normalizePersonaSummary($persona),
+            $this->personaDiscovery->discoverAll(),
         ));
 
         return Router::jsonResponse([
@@ -407,12 +407,12 @@ final readonly class ConfigHandler
      */
     public function persona(ServerRequestInterface $request, string $name): Response
     {
-        $profile = $this->profileDiscovery->discoverAll()[strtolower($name)] ?? null;
-        if ($profile === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
+        $persona = $this->personaDiscovery->discoverAll()[strtolower($name)] ?? null;
+        if ($persona === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Persona "%s" not found', $name));
         }
 
-        return Router::jsonResponse($this->normalizePersonaDetail($profile));
+        return Router::jsonResponse($this->normalizePersonaDetail($persona));
     }
 
     /**
@@ -425,7 +425,7 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $name = $this->normalizeProfileName($body['name'] ?? null);
+        $name = $this->normalizePersonaName($body['name'] ?? null);
         if ($name === null) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
@@ -433,8 +433,8 @@ final readonly class ConfigHandler
             );
         }
 
-        if ($this->profileDiscovery->profileExists($name)) {
-            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Profile "%s" already exists.', $name));
+        if ($this->personaDiscovery->personaExists($name)) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Persona "%s" already exists.', $name));
         }
 
         $description = $this->optionalString($body['description'] ?? null);
@@ -444,7 +444,7 @@ final readonly class ConfigHandler
         if ($description === null && $soul === null) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                'Provide either description or soul to create a profile.',
+                'Provide either description or soul to create a persona.',
             );
         }
 
@@ -453,25 +453,25 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'preferences must be an object.');
         }
 
-        $profileDir = 'personas/' . $name;
+        $personaDir = 'personas/' . $name;
         $preferences = $preferencesPayload !== null
-            ? PersonaPreferences::fromArray($preferencesPayload, $this->workspacePath() . '/' . $profileDir)
+            ? PersonaPreferences::fromArray($preferencesPayload, $this->workspacePath() . '/' . $personaDir)
             : PersonaPreferences::empty();
 
         if (!$preferences->isValid()) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                'Profile preferences failed validation.',
+                'Persona preferences failed validation.',
                 ['errors' => $preferences->getValidationErrors()],
             );
         }
 
         try {
             $operations = $this->workspaceOperations();
-            $operations->write($profileDir . '/soul.md', $this->buildSoulMarkdown($name, $description, $soul));
+            $operations->write($personaDir . '/soul.md', $this->buildSoulMarkdown($name, $description, $soul));
 
             if ($backstory !== null) {
-                $operations->write($profileDir . '/backstory.md', $backstory . "\n");
+                $operations->write($personaDir . '/backstory.md', $backstory . "\n");
             }
 
             if ($preferencesPayload !== null) {
@@ -479,20 +479,20 @@ final readonly class ConfigHandler
                     $preferencesPayload,
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
                 );
-                $operations->write($profileDir . '/preferences.json', $encodedPreferences . "\n");
+                $operations->write($personaDir . '/preferences.json', $encodedPreferences . "\n");
             }
         } catch (\Throwable $e) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to create profile', ['error' => $e->getMessage()]);
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to create persona', ['error' => $e->getMessage()]);
         }
 
-        $this->profileDiscovery->invalidateCache();
-        $profile = $this->profileDiscovery->discoverAll()[$name] ?? null;
+        $this->personaDiscovery->invalidateCache();
+        $persona = $this->personaDiscovery->discoverAll()[$name] ?? null;
 
-        if ($profile === null) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Profile was created but could not be reloaded.');
+        if ($persona === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Persona was created but could not be reloaded.');
         }
 
-        return Router::jsonResponse($this->normalizePersonaDetail($profile), 201);
+        return Router::jsonResponse($this->normalizePersonaDetail($persona), 201);
     }
 
     /**
@@ -506,17 +506,17 @@ final readonly class ConfigHandler
         }
 
         $normalizedName = strtolower(trim($name));
-        $profile = $this->profileDiscovery->discoverAll()[$normalizedName] ?? null;
-        if ($profile === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
+        $persona = $this->personaDiscovery->discoverAll()[$normalizedName] ?? null;
+        if ($persona === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Persona "%s" not found', $name));
         }
 
         if (array_key_exists('name', $body)) {
-            $requestedName = $this->normalizeProfileName($body['name']);
+            $requestedName = $this->normalizePersonaName($body['name']);
             if ($requestedName === null || $requestedName !== $normalizedName) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
-                    'Profile renaming is not supported by this endpoint.',
+                    'Persona renaming is not supported by this endpoint.',
                 );
             }
         }
@@ -569,60 +569,60 @@ final readonly class ConfigHandler
         }
 
         $preferences = $updatesPreferences && $preferencesPayload !== null
-            ? PersonaPreferences::fromArray($preferencesPayload, $profile['path'])
+            ? PersonaPreferences::fromArray($preferencesPayload, $persona['path'])
             : null;
 
         if ($preferences !== null && !$preferences->isValid()) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                'Profile preferences failed validation.',
+                'Persona preferences failed validation.',
                 ['errors' => $preferences->getValidationErrors()],
             );
         }
 
         try {
             $operations = $this->workspaceOperations();
-            $profileDir = 'personas/' . $normalizedName;
+            $personaDir = 'personas/' . $normalizedName;
 
             if ($updatesSoul) {
                 $operations->write(
-                    $profileDir . '/soul.md',
+                    $personaDir . '/soul.md',
                     $this->buildSoulMarkdown(
                         $normalizedName,
                         $description,
                         $soul,
-                        $this->readRawSoulMarkdown($profile['path']),
+                        $this->readRawSoulMarkdown($persona['path']),
                     ),
                 );
             }
 
             if ($updatesBackstory) {
-                $this->writeOrDeleteOptionalFile($profileDir . '/backstory.md', $backstory);
+                $this->writeOrDeleteOptionalFile($personaDir . '/backstory.md', $backstory);
             }
 
             if ($updatesPreferences) {
                 if ($preferencesPayload === null) {
-                    $this->writeOrDeleteOptionalFile($profileDir . '/preferences.json', null);
+                    $this->writeOrDeleteOptionalFile($personaDir . '/preferences.json', null);
                 } else {
                     $encodedPreferences = json_encode(
                         $preferencesPayload,
                         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
                     );
-                    $operations->write($profileDir . '/preferences.json', $encodedPreferences . "\n");
+                    $operations->write($personaDir . '/preferences.json', $encodedPreferences . "\n");
                 }
             }
         } catch (\Throwable $e) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to update profile', ['error' => $e->getMessage()]);
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to update persona', ['error' => $e->getMessage()]);
         }
 
-        $this->profileDiscovery->invalidateCache();
-        $updatedProfile = $this->profileDiscovery->discoverAll()[$normalizedName] ?? null;
+        $this->personaDiscovery->invalidateCache();
+        $updatedPersona = $this->personaDiscovery->discoverAll()[$normalizedName] ?? null;
 
-        if ($updatedProfile === null) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Profile was updated but could not be reloaded.');
+        if ($updatedPersona === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Persona was updated but could not be reloaded.');
         }
 
-        return Router::jsonResponse($this->normalizePersonaDetail($updatedProfile));
+        return Router::jsonResponse($this->normalizePersonaDetail($updatedPersona));
     }
 
     /**
@@ -631,20 +631,20 @@ final readonly class ConfigHandler
     public function deletePersona(ServerRequestInterface $request, string $name): Response
     {
         $normalizedName = strtolower(trim($name));
-        $profile = $this->profileDiscovery->discoverAll()[$normalizedName] ?? null;
-        if ($profile === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
+        $persona = $this->personaDiscovery->discoverAll()[$normalizedName] ?? null;
+        if ($persona === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Persona "%s" not found', $name));
         }
 
         if ($this->currentConfig()->getDefaultPersona() === $normalizedName) {
             return Router::errorResponse(
                 ApiErrorCode::CONFLICT,
-                sprintf('Profile "%s" is the configured default profile and cannot be deleted yet.', $normalizedName),
+                sprintf('Persona "%s" is the configured default persona and cannot be deleted yet.', $normalizedName),
             );
         }
 
-        $this->deleteDirectory($profile['path']);
-        $this->profileDiscovery->invalidateCache();
+        $this->deleteDirectory($persona['path']);
+        $this->personaDiscovery->invalidateCache();
 
         return Router::jsonResponse([
             'deleted' => true,
@@ -681,12 +681,12 @@ final readonly class ConfigHandler
     }
 
     /**
-     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @param array{name: string, display_name: string, description: string, path: string} $persona
      * @return array<string, mixed>
      */
-    private function normalizePersonaSummary(array $profile): array
+    private function normalizePersonaSummary(array $persona): array
     {
-        $preferences = PersonaPreferences::fromProfilePath($profile['path']);
+        $preferences = PersonaPreferences::fromPersonaPath($persona['path']);
         $selectableRoles = $this->roleResolver !== null
             ? array_values($this->roleResolver->selectableRoles())
             : [];
@@ -695,11 +695,11 @@ final readonly class ConfigHandler
             : [];
 
         return [
-            'name' => $profile['name'],
-            'display_name' => $profile['display_name'],
-            'description' => $profile['description'],
-            'model' => $this->profileDiscovery->readProfileModel($profile['name']),
-            'is_default' => $this->currentConfig()->getDefaultPersona() === $profile['name'],
+            'name' => $persona['name'],
+            'display_name' => $persona['display_name'],
+            'description' => $persona['description'],
+            'model' => $this->personaDiscovery->readPersonaModel($persona['name']),
+            'is_default' => $this->currentConfig()->getDefaultPersona() === $persona['name'],
             'allowed_roles' => $allowedRoles,
             'role_restrictions' => [
                 'allow' => $preferences->allowedRoles(),
@@ -710,19 +710,19 @@ final readonly class ConfigHandler
     }
 
     /**
-     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @param array{name: string, display_name: string, description: string, path: string} $persona
      * @return array<string, mixed>
      */
-    private function normalizePersonaDetail(array $profile): array
+    private function normalizePersonaDetail(array $persona): array
     {
-        $preferences = PersonaPreferences::fromProfilePath($profile['path']);
+        $preferences = PersonaPreferences::fromPersonaPath($persona['path']);
 
         return [
-            ...$this->normalizePersonaSummary($profile),
+            ...$this->normalizePersonaSummary($persona),
             'preferences' => $preferences->inspectionSummary(),
             'preference_values' => $preferences->editorValues(),
-            'preference_document' => $this->readPreferenceDocument($profile['path']),
-            'soul' => $this->profileDiscovery->readSoul($profile['name']),
+            'preference_document' => $this->readPreferenceDocument($persona['path']),
+            'soul' => $this->personaDiscovery->readSoul($persona['name']),
         ];
     }
 
@@ -915,7 +915,7 @@ final readonly class ConfigHandler
         ];
     }
 
-    private function normalizeProfileName(mixed $value): ?string
+    private function normalizePersonaName(mixed $value): ?string
     {
         if (!is_string($value)) {
             return null;
@@ -963,7 +963,7 @@ final readonly class ConfigHandler
 
     private function workspacePath(): string
     {
-        return dirname($this->profileDiscovery->profilesDir());
+        return dirname($this->personaDiscovery->personasDir());
     }
 
     private function workspaceOperations(): FileSystemOperations
@@ -971,9 +971,9 @@ final readonly class ConfigHandler
         return new FileSystemOperations($this->workspacePath());
     }
 
-    private function readRawSoulMarkdown(string $profilePath): ?string
+    private function readRawSoulMarkdown(string $personaPath): ?string
     {
-        $path = rtrim($profilePath, '/') . '/soul.md';
+        $path = rtrim($personaPath, '/') . '/soul.md';
         $content = @file_get_contents($path);
 
         return is_string($content) ? $content : null;
@@ -982,9 +982,9 @@ final readonly class ConfigHandler
     /**
      * @return array<string, mixed>
      */
-    private function readPreferenceDocument(string $profilePath): array
+    private function readPreferenceDocument(string $personaPath): array
     {
-        $path = rtrim($profilePath, '/') . '/preferences.json';
+        $path = rtrim($personaPath, '/') . '/preferences.json';
         $content = @file_get_contents($path);
         if (!is_string($content) || trim($content) === '') {
             return [];
@@ -1032,7 +1032,7 @@ final readonly class ConfigHandler
     {
         $entries = scandir($path);
         if ($entries === false) {
-            throw new \RuntimeException(sprintf('Failed to read profile directory "%s".', $path));
+            throw new \RuntimeException(sprintf('Failed to read persona directory "%s".', $path));
         }
 
         foreach ($entries as $entry) {
@@ -1047,12 +1047,12 @@ final readonly class ConfigHandler
             }
 
             if (!@unlink($entryPath)) {
-                throw new \RuntimeException(sprintf('Failed to delete profile file "%s".', $entryPath));
+                throw new \RuntimeException(sprintf('Failed to delete persona file "%s".', $entryPath));
             }
         }
 
         if (!@rmdir($path)) {
-            throw new \RuntimeException(sprintf('Failed to delete profile directory "%s".', $path));
+            throw new \RuntimeException(sprintf('Failed to delete persona directory "%s".', $path));
         }
     }
 }

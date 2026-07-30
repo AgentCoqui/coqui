@@ -163,7 +163,7 @@ test('constructs with null mountManager using null-safe allowedPaths', function 
 });
 
 test('tools returns expected standalone tools', function () {
-    // Full profile: standalone tools like spawn_agent/package_info are non-core
+    // Full persona: standalone tools like spawn_agent/package_info are non-core
     // under lean (the shipped default) and would otherwise be deferred from
     // tools() — see LeanDefaultStandaloneToolDeferralTest.php.
     $config = OpenClawConfig::fromArray([
@@ -207,7 +207,7 @@ test('tools excludes restart_coqui when no onRestart callback', function () {
 });
 
 test('tools includes restart_coqui when onRestart callback provided', function () {
-    // Full profile: restart_coqui is non-core under lean and would otherwise be
+    // Full persona: restart_coqui is non-core under lean and would otherwise be
     // deferred from tools() regardless of the onRestart callback.
     $config = OpenClawConfig::fromArray([
         'agents' => [
@@ -403,13 +403,13 @@ test('prompt section breakdown includes conversation history when set', function
     expect($ids)->toContain('context.conversation-history');
 });
 
-test('instructions include profile preferences and scoped core memories', function () {
-    $profilePath = $this->workspace . '/personas/caelum';
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+test('instructions include persona preferences and scoped core memories', function () {
+    $personaPath = $this->workspace . '/personas/caelum';
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($personaPath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
 
-    $preferencesPath = $profilePath . '/preferences.json';
+    $preferencesPath = $personaPath . '/preferences.json';
     file_put_contents($preferencesPath, json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
@@ -431,9 +431,9 @@ test('instructions include profile preferences and scoped core memories', functi
             deps: new OrchestratorDependencies(
                 memoryStore: $memoryStore,
                 memorySummarizer: new MemorySummarizer($memoryStore),
-                activeProfile: 'caelum',
-                activeProfilePath: $profilePath,
-                profilePreferences: PersonaPreferences::fromFile($preferencesPath),
+                activePersona: 'caelum',
+                activePersonaPath: $personaPath,
+                personaPreferences: PersonaPreferences::fromFile($preferencesPath),
             ),
         );
 
@@ -448,14 +448,14 @@ test('instructions include profile preferences and scoped core memories', functi
     }
 });
 
-test('role prompt section breakdown includes profile identity backstory and preferences', function () {
-    $profilePath = $this->workspace . '/personas/caelum';
-    mkdir($profilePath . '/context', 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
-    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
+test('role prompt section breakdown includes persona identity backstory and preferences', function () {
+    $personaPath = $this->workspace . '/personas/caelum';
+    mkdir($personaPath . '/context', 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($personaPath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($personaPath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
 
-    $preferencesPath = $profilePath . '/preferences.json';
+    $preferencesPath = $personaPath . '/preferences.json';
     file_put_contents($preferencesPath, json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
@@ -475,9 +475,9 @@ test('role prompt section breakdown includes profile identity backstory and pref
         deps: new OrchestratorDependencies(
             roleDiscovery: new RoleDiscovery($this->workspace, $this->projectRoot),
             activeRole: 'coder',
-            activeProfile: 'caelum',
-            activeProfilePath: $profilePath,
-            profilePreferences: PersonaPreferences::fromFile($preferencesPath),
+            activePersona: 'caelum',
+            activePersonaPath: $personaPath,
+            personaPreferences: PersonaPreferences::fromFile($preferencesPath),
         ),
     );
 
@@ -647,13 +647,13 @@ test('activeRole instructions uses role markdown when role exists', function () 
     rmdir($this->workspace . '/prompts');
 });
 
-test('profile policy can disable project toolkits and stub non-core standalone tools', function () {
+test('persona policy can disable project toolkits and stub non-core standalone tools', function () {
     $dbPath = sys_get_temp_dir() . '/coqui-agent-policy-' . bin2hex(random_bytes(4)) . '.db';
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
 
-    // Full profile: spawn_agent is non-core under lean and would otherwise be
+    // Full persona: spawn_agent is non-core under lean and would otherwise be
     // deferred from tools() independent of the PersonaPreferences stubbing
     // this test actually exercises.
     $config = OpenClawConfig::fromArray([
@@ -677,7 +677,7 @@ test('profile policy can disable project toolkits and stub non-core standalone t
                 storage: $storage,
                 sessionId: $sessionId,
                 projectStore: $projectStore,
-                profilePreferences: PersonaPreferences::fromArray([
+                personaPreferences: PersonaPreferences::fromArray([
                     'prompts' => [
                         'features' => [
                             'artifacts' => false,
@@ -698,7 +698,7 @@ test('profile policy can disable project toolkits and stub non-core standalone t
             static fn(array $entry): string => $entry['class'],
             $agent->getToolkitTokenBreakdown(new HeuristicCounter()),
         );
-        $policy = $agent->getProfilePolicySummary();
+        $policy = $agent->getPersonaPolicySummary();
 
         expect($toolNames)->toContain('spawn_agent');
         expect($stubbedTools)->not->toBeEmpty();
@@ -714,12 +714,12 @@ test('profile policy can disable project toolkits and stub non-core standalone t
     }
 });
 
-// --- Profile soul loading ---
+// --- Persona soul loading ---
 
-test('profile soul.md replaces default soul in orchestrator instructions', function () {
-    $profileDir = $this->workspace . '/personas/test-persona';
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/soul.md', "# Test Persona\n\nBond glyph: ∞\n\nYou are Test Persona: calm and precise.");
+test('persona soul.md replaces default soul in orchestrator instructions', function () {
+    $personaDir = $this->workspace . '/personas/test-persona';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "# Test Persona\n\nBond glyph: ∞\n\nYou are Test Persona: calm and precise.");
 
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -728,8 +728,8 @@ test('profile soul.md replaces default soul in orchestrator instructions', funct
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'test-persona',
-            activeProfilePath: $profileDir,
+            activePersona: 'test-persona',
+            activePersonaPath: $personaDir,
         ),
     );
 
@@ -740,15 +740,15 @@ test('profile soul.md replaces default soul in orchestrator instructions', funct
     expect($instructions)->toContain('You are Test Persona: calm and precise.');
 });
 
-test('profile soul.md overrides workspace soul.md', function () {
+test('persona soul.md overrides workspace soul.md', function () {
     // Set up workspace soul
     mkdir($this->workspace . '/prompts', 0755, true);
     file_put_contents($this->workspace . '/prompts/soul.md', '# Workspace Soul' . "\n\nDefault workspace identity.");
 
-    // Set up profile soul
-    $profileDir = $this->workspace . '/personas/custom';
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/soul.md', "# Custom Profile\n\nBond glyph: \$\n\nYou are Custom.");
+    // Set up persona soul
+    $personaDir = $this->workspace . '/personas/custom';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "# Custom Persona\n\nBond glyph: \$\n\nYou are Custom.");
 
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -757,24 +757,24 @@ test('profile soul.md overrides workspace soul.md', function () {
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'custom',
-            activeProfilePath: $profileDir,
+            activePersona: 'custom',
+            activePersonaPath: $personaDir,
         ),
     );
 
     $instructions = $agent->instructions();
 
-    expect($instructions)->toContain('# Custom Profile');
+    expect($instructions)->toContain('# Custom Persona');
     expect($instructions)->toContain('You are Custom.');
     expect($instructions)->not->toContain('# Workspace Soul');
     expect($instructions)->not->toContain('Default workspace identity.');
 });
 
-test('profile identity preamble prepended to role instructions', function () {
-    // Set up profile
-    $profileDir = $this->workspace . '/personas/persona';
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/soul.md', "# Persona\n\nBond glyph: \$\n\nYou are Persona.");
+test('persona identity preamble prepended to role instructions', function () {
+    // Set up persona
+    $personaDir = $this->workspace . '/personas/persona';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "# Persona\n\nBond glyph: \$\n\nYou are Persona.");
 
     // Set up role
     $rolesDir = $this->workspace . '/roles';
@@ -794,27 +794,27 @@ test('profile identity preamble prepended to role instructions', function () {
         deps: new OrchestratorDependencies(
             roleDiscovery: $roleDiscovery,
             activeRole: 'coder',
-            activeProfile: 'persona',
-            activeProfilePath: $profileDir,
+            activePersona: 'persona',
+            activePersonaPath: $personaDir,
         ),
     );
 
     $instructions = $agent->instructions();
 
-    // Both profile identity preamble AND role instructions should be present
+    // Both persona identity preamble AND role instructions should be present
     expect($instructions)->toContain('You are Persona.');
     expect($instructions)->toContain('You write excellent code.');
 
-    // Profile preamble should appear before role instructions
+    // Persona preamble should appear before role instructions
     $preamblePos = strpos($instructions, 'You are Persona.');
     $rolePos = strpos($instructions, 'You write excellent code.');
     expect($preamblePos)->toBeLessThan($rolePos);
 });
 
-test('profile soul frontmatter is stripped from instructions', function () {
-    $profileDir = $this->workspace . '/personas/frontmatter-test';
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Frontmatter Profile\n\nYou have personality.");
+test('persona soul frontmatter is stripped from instructions', function () {
+    $personaDir = $this->workspace . '/personas/frontmatter-test';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Frontmatter Persona\n\nYou have personality.");
 
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -823,22 +823,22 @@ test('profile soul frontmatter is stripped from instructions', function () {
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'frontmatter-test',
-            activeProfilePath: $profileDir,
+            activePersona: 'frontmatter-test',
+            activePersonaPath: $personaDir,
         ),
     );
 
     $instructions = $agent->instructions();
 
-    expect($instructions)->toContain('# Frontmatter Profile');
+    expect($instructions)->toContain('# Frontmatter Persona');
     expect($instructions)->toContain('You have personality.');
     expect($instructions)->not->toContain('model: anthropic/claude-sonnet-4-20250514');
 });
 
-test('getSystemPromptText includes profile soul content', function () {
-    $profileDir = $this->workspace . '/personas/system-test';
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/soul.md', "# System Test Profile\n\nBond glyph: 𑁍\n\nYou are the system test profile.");
+test('getSystemPromptText includes persona soul content', function () {
+    $personaDir = $this->workspace . '/personas/system-test';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "# System Test Persona\n\nBond glyph: 𑁍\n\nYou are the system test persona.");
 
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -847,14 +847,14 @@ test('getSystemPromptText includes profile soul content', function () {
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'system-test',
-            activeProfilePath: $profileDir,
+            activePersona: 'system-test',
+            activePersonaPath: $personaDir,
         ),
     );
 
     $systemPromptText = $agent->getSystemPromptText();
 
-    expect($systemPromptText)->toContain('# System Test Profile');
+    expect($systemPromptText)->toContain('# System Test Persona');
     expect($systemPromptText)->toContain('Bond glyph: 𑁍');
-    expect($systemPromptText)->toContain('You are the system test profile.');
+    expect($systemPromptText)->toContain('You are the system test persona.');
 });

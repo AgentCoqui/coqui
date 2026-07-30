@@ -28,5 +28,5 @@ interface GroupSessionEndpointHandlerInterface
      * @param array<string, mixed> $session
      * @return array<string, mixed>
      */
-    public function removeMember(array $session, string $profile, mixed $body): array;
+    public function removeMember(array $session, string $persona, mixed $body): array;
 }

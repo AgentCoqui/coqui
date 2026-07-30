@@ -96,7 +96,7 @@ A readonly services object passed to `handle()`:
 | `$context->io` | `SymfonyStyle` for formatted output |
 | `$context->prompt` | `InterruptiblePrompt` with ESC cancellation |
 | `$context->workspacePath` | Absolute workspace directory |
-| `$context->activeProfile` | Current personality profile (nullable) |
+| `$context->activePersona` | Current personality persona (nullable) |
 | `$context->sessionId` | Current session ID |
 | `$context->createSpinner(string $context = '')` | Returns an `AnimatedTickCallback` for progress |
 | `$context->openDatabase(string $name)` | Returns a WAL-mode SQLite PDO |
@@ -271,7 +271,7 @@ final class ExampleFeature implements ApiFeatureInterface
 |---|---|
 | `$services->sessionStorage()` | The shared session store (`SessionStorage`) |
 | `$services->pdo()` | The core SQLite `PDO` handle |
-| `$services->profileDiscovery()` | Profile resolution (`ProfileDiscovery`) |
+| `$services->personaDiscovery()` | Persona resolution (`PersonaDiscovery`) |
 | `$services->config()` | Runtime configuration (`OpenClawConfig`) |
 
 ### Authenticated vs public routes

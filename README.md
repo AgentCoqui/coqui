@@ -218,7 +218,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/role [name]` | Show/switch active role |
-| `/profile [name]` | Show/switch the active profile |
+| `/persona [name]` | Show/switch the active persona |
 | `/group` | Inspect or manage orchestrator-led group sessions |
 | `/toolkits` | Manage toolkit visibility |
 | `/prompt` | Inspect or export the rendered system prompt |

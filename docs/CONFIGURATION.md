@@ -100,7 +100,7 @@ The simplest valid config only needs a primary model:
                 "vision": "gemini/gemini-2.5-flash"
             },
             "workspace": "~/.coqui/.workspace",
-            "profile": "caelum",
+            "persona": "caelum",
             "maxIterations": 256,
             "backgroundTaskMaxIterations": 512,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
@@ -269,7 +269,7 @@ Optional default startup persona name. The value must match a directory under `w
 }
 ```
 
-When set, Coqui tries to reattach the current `.coqui-session` if it already belongs to that profile. Otherwise it resumes the most recent session for that profile or creates a new one.
+When set, Coqui tries to reattach the current `.coqui-session` if it already belongs to that persona. Otherwise it resumes the most recent session for that persona or creates a new one.
 
 ### Tool profile (`agents.defaults.toolProfile`)
 

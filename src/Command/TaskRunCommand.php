@@ -113,20 +113,20 @@ final class TaskRunCommand extends Command
             $taskProjectId = null;
         }
         $session = $storage->getSession($sessionId);
-        $taskProfile = is_array($session) && is_string($session['persona_id'] ?? null) && $session['persona_id'] !== ''
+        $taskPersona = is_array($session) && is_string($session['persona_id'] ?? null) && $session['persona_id'] !== ''
             ? $session['persona_id']
             : null;
-        if ($taskProfile !== null && $boot->profileDiscovery()->profileExists($taskProfile)) {
-            $preferences = PersonaPreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));
+        if ($taskPersona !== null && $boot->personaDiscovery()->personaExists($taskPersona)) {
+            $preferences = PersonaPreferences::fromPersonaPath($boot->personaDiscovery()->getPersonaPath($taskPersona));
             if (!$preferences->isRoleAllowed($role)) {
-                $message = sprintf('Profile "%s" does not allow role "%s".', $taskProfile, $role);
+                $message = sprintf('Persona "%s" does not allow role "%s".', $taskPersona, $role);
                 $storage->updateTaskStatus($taskId, 'failed', ['error' => $message]);
                 $storage->appendTaskEvent($taskId, 'failed', ['error' => $message]);
                 return 1;
             }
         }
 
-        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskProfile);
+        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskPersona);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)
         $cap = $boot->config()->getBackgroundTaskMaxIterations();
@@ -219,7 +219,7 @@ final class TaskRunCommand extends Command
                 maxIterations: $maxIterations,
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $taskProjectId,
-                profile: $taskProfile,
+                persona: $taskPersona,
                 questionResponder: $questionResponder,
             );
 

@@ -16,7 +16,7 @@ final readonly class CoreServices
 {
     public function __construct(
         private SessionStorage $sessionStorage,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private OpenClawConfig $config,
     ) {}
 
@@ -30,9 +30,9 @@ final readonly class CoreServices
         return $this->sessionStorage->getPdo();
     }
 
-    public function profileDiscovery(): PersonaDiscovery
+    public function personaDiscovery(): PersonaDiscovery
     {
-        return $this->profileDiscovery;
+        return $this->personaDiscovery;
     }
 
     public function config(): OpenClawConfig

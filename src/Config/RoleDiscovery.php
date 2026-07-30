@@ -30,8 +30,8 @@ final class RoleDiscovery
     /** @var array<string, RoleProperties>|null Cached discovery results keyed by name */
     private ?array $discovered = null;
 
-    /** @var array<string, array<string, RoleProperties>> Cached profile role results keyed by profile path */
-    private array $profileDiscovered = [];
+    /** @var array<string, array<string, RoleProperties>> Cached persona role results keyed by persona path */
+    private array $personaDiscovered = [];
 
     public function __construct(
         string $workspacePath,
@@ -99,12 +99,12 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function getRole(string $name, ?string $profilePath = null): RoleProperties
+    public function getRole(string $name, ?string $personaPath = null): RoleProperties
     {
-        if ($profilePath !== null) {
-            $profileRole = $this->getProfileRole($name, $profilePath);
-            if ($profileRole !== null) {
-                return $profileRole;
+        if ($personaPath !== null) {
+            $personaRole = $this->getPersonaRole($name, $personaPath);
+            if ($personaRole !== null) {
+                return $personaRole;
             }
         }
 
@@ -122,9 +122,9 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function readInstructions(string $name, ?string $profilePath = null): string
+    public function readInstructions(string $name, ?string $personaPath = null): string
     {
-        $role = $this->getRole($name, $profilePath);
+        $role = $this->getRole($name, $personaPath);
 
         return $this->parser->readBody($role->path);
     }
@@ -132,10 +132,10 @@ final class RoleDiscovery
     /**
      * Check if a role exists.
      */
-    public function roleExists(string $name, ?string $profilePath = null): bool
+    public function roleExists(string $name, ?string $personaPath = null): bool
     {
         try {
-            $this->getRole($name, $profilePath);
+            $this->getRole($name, $personaPath);
             return true;
         } catch (RoleNotFoundException) {
             return false;
@@ -147,21 +147,21 @@ final class RoleDiscovery
      *
      * @return string[]
      */
-    public function availableRoles(?string $profilePath = null): array
+    public function availableRoles(?string $personaPath = null): array
     {
         $roles = array_keys($this->discoverAll());
 
-        if ($profilePath !== null) {
-            $roles = array_unique([...$roles, ...array_keys($this->discoverProfileRoles($profilePath))]);
+        if ($personaPath !== null) {
+            $roles = array_unique([...$roles, ...array_keys($this->discoverPersonaRoles($personaPath))]);
             sort($roles);
         }
 
         return $roles;
     }
 
-    public function getProfileRole(string $name, string $profilePath): ?RoleProperties
+    public function getPersonaRole(string $name, string $personaPath): ?RoleProperties
     {
-        $roles = $this->discoverProfileRoles($profilePath);
+        $roles = $this->discoverPersonaRoles($personaPath);
 
         return $roles[$name] ?? null;
     }
@@ -398,28 +398,28 @@ final class RoleDiscovery
     public function invalidateCache(): void
     {
         $this->discovered = null;
-        $this->profileDiscovered = [];
+        $this->personaDiscovered = [];
     }
 
     /**
      * @return array<string, RoleProperties>
      */
-    private function discoverProfileRoles(string $profilePath): array
+    private function discoverPersonaRoles(string $personaPath): array
     {
-        if (isset($this->profileDiscovered[$profilePath])) {
-            return $this->profileDiscovered[$profilePath];
+        if (isset($this->personaDiscovered[$personaPath])) {
+            return $this->personaDiscovered[$personaPath];
         }
 
-        $rolesDir = rtrim($profilePath, '/') . '/roles';
-        $this->profileDiscovered[$profilePath] = [];
+        $rolesDir = rtrim($personaPath, '/') . '/roles';
+        $this->personaDiscovered[$personaPath] = [];
 
         if (!is_dir($rolesDir)) {
-            return $this->profileDiscovered[$profilePath];
+            return $this->personaDiscovered[$personaPath];
         }
 
         $entries = scandir($rolesDir);
         if ($entries === false) {
-            return $this->profileDiscovered[$profilePath];
+            return $this->personaDiscovered[$personaPath];
         }
 
         foreach ($entries as $entry) {
@@ -434,13 +434,13 @@ final class RoleDiscovery
 
             try {
                 $properties = $this->parser->readProperties($filePath);
-                $this->profileDiscovered[$profilePath][$properties->name] = $properties;
+                $this->personaDiscovered[$personaPath][$properties->name] = $properties;
             } catch (RoleParseException) {
                 continue;
             }
         }
 
-        return $this->profileDiscovered[$profilePath];
+        return $this->personaDiscovered[$personaPath];
     }
 
     /**

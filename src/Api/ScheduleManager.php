@@ -118,13 +118,13 @@ final class ScheduleManager
         $prompt = (string) ($schedule['prompt'] ?? '');
         $maxIterations = (int) ($schedule['max_iterations'] ?? 48);
         $scheduleName = (string) ($schedule['name'] ?? 'schedule');
-        $activeProfile = $this->extractScheduleProfile($schedule);
+        $activePersona = $this->extractSchedulePersona($schedule);
 
         // Create a session for this scheduled task
         $sessionId = $this->storage->createSession(
             modelRole: $role,
             model: '',
-            profile: $activeProfile,
+            persona: $activePersona,
             visibility: 'hidden',
         );
 
@@ -148,7 +148,7 @@ final class ScheduleManager
     /**
      * @param array<string, mixed> $schedule
      */
-    private function extractScheduleProfile(array $schedule): ?string
+    private function extractSchedulePersona(array $schedule): ?string
     {
         $metadata = $schedule['metadata'] ?? null;
         if (!is_string($metadata) || trim($metadata) === '') {
@@ -165,8 +165,8 @@ final class ScheduleManager
             return null;
         }
 
-        $profile = $decoded['profile'] ?? null;
+        $persona = $decoded['persona'] ?? null;
 
-        return is_string($profile) && $profile !== '' ? $profile : null;
+        return is_string($persona) && $persona !== '' ? $persona : null;
     }
 }

@@ -63,16 +63,16 @@ There is no boot-time cleanup sweep and no `final`-deletes-on-restart footgun.
 
 ### Memory-on-promotion
 
-The pinned index (below) ages out. So when an artifact is a **canonical, reusable deliverable**, the agent records a durable **memory pointer** to it via the existing `memory_save` tool — a high-signal, profile-scoped fact naming the artifact's `path` + subject (e.g. "`artifacts/plan/pricing-a1b2.md` is the canonical pricing model"). There is **no** `pinned` column and **no** artifact-schema change: the memory *is* the promotion.
+The pinned index (below) ages out. So when an artifact is a **canonical, reusable deliverable**, the agent records a durable **memory pointer** to it via the existing `memory_save` tool — a high-signal, persona-scoped fact naming the artifact's `path` + subject (e.g. "`artifacts/plan/pricing-a1b2.md` is the canonical pricing model"). There is **no** `pinned` column and **no** artifact-schema change: the memory *is* the promotion.
 
 - **Gate** (both must hold): the artifact is canonical/reusable (a plan/design/config the work depends on, or one the user asked to keep) **and** a durability signal holds — it was edited more than once (`version` > 1) **or** the user said keep/remember. Drafts, one-off answers, sketches, and superseded versions are not remembered.
 - **Supersession**: before writing a new pointer for a subject that already has one, the agent calls `memory_forget` (semantic match on the subject) so the KB doesn't accrete stale pointers.
 - **Separation of concerns**: artifacts are work products, memory holds facts, skills hold procedures. The pointer is a fact *about* a work product — the artifact body is never copied into memory.
-- **Scope**: the pointer is per-profile (the active profile's judgment); the artifact stays shared. The agent-facing convention lives in `prompts/tools/artifacts.md`.
+- **Scope**: the pointer is per-persona (the active persona's judgment); the artifact stays shared. The agent-facing convention lives in `prompts/tools/artifacts.md`.
 
 ## Provenance (`created_by`)
 
-Each artifact records a display-only `created_by` label — the active profile/persona if present, else the role/agent identity (for `loop_output`, the loop/stage identity). It is shown in listings and the pinned index so an agent can judge relevance, but it is **never** used to filter: artifacts are shared, not profile-scoped. (Only *memories* are profile-scoped.)
+Each artifact records a display-only `created_by` label — the active persona/persona if present, else the role/agent identity (for `loop_output`, the loop/stage identity). It is shown in listings and the pinned index so an agent can judge relevance, but it is **never** used to filter: artifacts are shared, not persona-scoped. (Only *memories* are persona-scoped.)
 
 ## Cross-agent sharing
 

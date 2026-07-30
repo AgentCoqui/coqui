@@ -194,7 +194,7 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `question_invalid_answer` | 422 | Answer is not valid for this question |
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
-| `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
+| `persona_session_active` | 409 | A personaScoped session is already active and the client must confirm closure before creating or reassigning a fresh one |
 | `group_session_active` | 409 | A group session with the requested composition is already active and the client must confirm closure before forcing a fresh composition session |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
@@ -224,7 +224,7 @@ Use this document as the canonical HTTP API reference. The current API is best s
 
 ### Recommended Integration Flow
 
-1. If your client exposes personalities, call `GET /api/v1/profiles` first.
+1. If your client exposes personalities, call `GET /api/v1/personas` first.
 2. Prefer `POST /api/v1/sessions/resolve` for sticky app sessions, or `POST /api/v1/sessions` when you explicitly need a fresh conversation.
 3. Upload files with `POST /api/v1/sessions/{id}/files` before sending a prompt when the turn needs images or document context.
 4. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
@@ -293,7 +293,7 @@ Liveness check. Does **not** require authentication.
 
 A session is a persistent conversation context. Messages and turns are scoped to a session.
 
-Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
+Persona-scoped sessions enforce a single active interactive conversation per persona. `POST /api/v1/sessions/resolve` keeps the newest active personaScoped session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a personaScoped session is already active it returns `409 persona_session_active` until the client explicitly confirms closure of that active personaScoped session.
 
 Group sessions are orchestrator-managed interactive sessions identified by a normalized member composition. Create or resolve them by setting `group_enabled=true` and passing a `members` array. `POST /api/v1/sessions/resolve` reuses the active group session for the same member composition, while `POST /api/v1/sessions` forces a fresh one and returns `409 group_session_active` unless the client explicitly confirms closure of the conflicting active composition.
 
@@ -301,7 +301,7 @@ Session lifecycle fields have distinct meanings:
 
 - `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
 - `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
-- In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
+- In the current persona-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
 
 Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
 
@@ -318,7 +318,7 @@ This endpoint is user-facing and only returns surfaced sessions (`visibility = v
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
 | `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
-| `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
+| `persona` | string | unset | Filter by persona scope. Use a persona name like `caelum` or `none` for unpersonaScoped sessions only |
 
 Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions or `background` for hidden background sessions.
 
@@ -345,7 +345,7 @@ Each returned session also includes `session_origin`, which is `user` for ordina
   ],
   "count": 1,
   "status": "active",
-  "profile": null,
+  "persona": null,
   "counts": {
     "active": 1,
     "closed": 3,
@@ -357,7 +357,7 @@ Each returned session also includes `session_origin`, which is `user` for ordina
 
 Use `GET /api/v1/sessions?status=archived` to browse historical conversations without making them active again. Once you have a session ID, the normal read endpoints such as `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/messages`, and `GET /api/v1/sessions/{id}/turns` continue to work for archived history.
 
-Use `GET /api/v1/sessions?profile=caelum&status=all` to browse a single profile scope, or `GET /api/v1/sessions?profile=none&status=all` to browse only unprofiled sessions.
+Use `GET /api/v1/sessions?persona=caelum&status=all` to browse a single persona scope, or `GET /api/v1/sessions?persona=none&status=all` to browse only unpersonaScoped sessions.
 
 #### `POST /api/v1/sessions`
 
@@ -370,12 +370,12 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum",
-  "confirm_close_active_profile_session": true
+  "persona": "caelum",
+  "confirm_close_active_persona_session": true
 }
 ```
 
-Group-session requests use the same endpoint with a group scope instead of `profile`:
+Group-session requests use the same endpoint with a group scope instead of `persona`:
 
 ```json
 {
@@ -389,11 +389,11 @@ Group-session requests use the same endpoint with a group scope instead of `prof
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
-| `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
-| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-profile or unprofiled session. Group sessions must remain orchestrator-managed. |
-| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Must be unique, known profiles. |
+| `persona` | string | No | `null` | Personality persona name. Must match a `personas/{name}/soul.md` in the workspace. |
+| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-persona or unpersonaScoped session. Group sessions must remain orchestrator-managed. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member persona names. Must be unique, known personas. |
 | `group_max_rounds` | int | No | `3` | Max same-turn coordination rounds for a group session. Minimum `1`. |
-| `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
+| `confirm_close_active_persona_session` | bool | No | `false` | Required when `persona` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 | `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
 Successful session create and resolve responses now include:
@@ -408,7 +408,7 @@ Successful session create and resolve responses now include:
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "active_project_id": null,
   "created": true,
   "closed_session_ids": []
@@ -422,16 +422,16 @@ Successful session create and resolve responses now include:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": null,
+  "persona": null,
   "group_enabled": 1,
   "group_max_rounds": 4,
   "group_members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -441,17 +441,17 @@ Successful session create and resolve responses now include:
 }
 ```
 
-**Response `409`** — active profiled session must be confirmed first:
+**Response `409`** — active personaScoped session must be confirmed first:
 
 ```json
 {
-  "error": "Profile \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
-  "code": "profile_session_active",
+  "error": "Persona \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
+  "code": "persona_session_active",
   "details": {
-    "profile": "caelum",
+    "persona": "caelum",
     "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
     "active_session_count": 1,
-    "confirm_field": "confirm_close_active_profile_session"
+    "confirm_field": "confirm_close_active_persona_session"
   }
 }
 ```
@@ -485,17 +485,17 @@ Resolve the latest interactive session for a scope, or create one if none exists
 
 This mirrors REPL startup behavior:
 
-- Omit `profile` to target the unprofiled interactive session pool.
-- Pass `profile` to target a profile-specific interactive session pool.
+- Omit `persona` to target the unpersonaScoped interactive session pool.
+- Pass `persona` to target a persona-specific interactive session pool.
 - Hidden worker sessions are excluded from ordinary reuse.
-- If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
+- If multiple active interactive sessions exist for the same persona, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
 
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum"
+  "persona": "caelum"
 }
 ```
 
@@ -512,9 +512,9 @@ Group-session resolve requests use the same endpoint:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role used only when a new session must be created. Existing scoped sessions keep their stored role and model. |
-| `profile` | string | No | `null` | Personality profile scope. Omit to resolve the unprofiled session pool. |
+| `persona` | string | No | `null` | Personality persona scope. Omit to resolve the unpersonaScoped session pool. |
 | `group_enabled` | bool | No | `false` | When `true`, resolve the group-session pool for the supplied member composition. |
-| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Order is normalized, so the same set resolves the same active session. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member persona names. Order is normalized, so the same set resolves the same active session. |
 | `group_max_rounds` | int | No | `3` | Used only when a new group session must be created. Existing sessions keep their stored round cap. |
 
 **Response `200`** — existing session reused:
@@ -524,7 +524,7 @@ Group-session resolve requests use the same endpoint:
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "active_project_id": null,
   "created": false,
   "closed_session_ids": ["f0e1d2c3b4a5968778695a4b3c2d1e0f"]
@@ -538,16 +538,16 @@ Group-session resolve requests use the same endpoint:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": null,
+  "persona": null,
   "group_enabled": 1,
   "group_max_rounds": 4,
   "group_members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -570,7 +570,7 @@ Get session details.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "status": "active",
   "is_closed": 0,
   "is_archived": 0,
@@ -596,7 +596,7 @@ Return a compact dashboard view for a session without fetching every child colle
 {
   "session": {
     "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-    "profile": "caelum",
+    "persona": "caelum",
     "status": "active"
   },
   "counts": {
@@ -648,7 +648,7 @@ Return a compact dashboard view for a session without fetching every child colle
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Supports renaming the title, updating the role, changing the profile scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
+Update session metadata. Supports renaming the title, updating the role, changing the persona scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
 
 Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
@@ -657,8 +657,8 @@ Closed or archived sessions are read-only. This endpoint returns `409 session_cl
 ```json
 {
   "title": "My refactoring session",
-  "profile": "caelum",
-  "confirm_close_active_profile_session": true
+  "persona": "caelum",
+  "confirm_close_active_persona_session": true
 }
 ```
 
@@ -674,14 +674,14 @@ Group-session patch example:
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
 | `model_role` | string | No | Update the stored role and re-resolve the model |
-| `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `persona` | string | No | Set or clear the session persona (`""` clears it) |
 | `group_max_rounds` | int | No | Update the round cap for an existing group session |
-| `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
+| `confirm_close_active_persona_session` | bool | No | Required when reassigning an active session into a persona that already has another active interactive session |
 
 Group-session constraints:
 
 - `model_role` must remain `orchestrator`.
-- `profile` cannot be assigned to a group session.
+- `persona` cannot be assigned to a group session.
 - `group_enabled` cannot be toggled after session creation.
 - `members` cannot be patched here; use the dedicated member endpoints below.
 
@@ -734,11 +734,11 @@ Return the normalized member list for a group session.
   "group_max_rounds": 4,
   "members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -767,12 +767,12 @@ Add one member to an existing group session.
 
 ```json
 {
-  "profile": "iris",
+  "persona": "iris",
   "confirm_close_active_group_session": true
 }
 ```
 
-#### `DELETE /api/v1/sessions/{id}/members/{profile}`
+#### `DELETE /api/v1/sessions/{id}/members/{persona}`
 
 Remove one member from an existing group session.
 
@@ -926,7 +926,7 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 
 When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
 
-Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
+Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a personaScoped conversation has been archived and closed.
 
 **Query Parameters**
 
@@ -1791,7 +1791,7 @@ Returns all roles with full metadata. The response merges three layers:
 
 Supports two optional picker-oriented query parameters:
 
-- `profile={name}` resolves models and role overrides for a specific profile and filters out roles disallowed by that profile's `preferences.json` role policy.
+- `persona={name}` resolves models and role overrides for a specific persona and filters out roles disallowed by that persona's `preferences.json` role policy.
 - `selectable=true` excludes template-only roles such as internal utility roles.
 
 **Response `200`**
@@ -1821,7 +1821,7 @@ Supports two optional picker-oriented query parameters:
     }
   ],
   "count": 2,
-  "profile": null,
+  "persona": null,
   "selectable_only": false
 }
 ```
@@ -1836,7 +1836,7 @@ Unlike the config route, this alias defaults to `selectable=true` so picker UIs 
 
 Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
 
-Supports `?profile={name}` to resolve profile-specific role overrides and effective models.
+Supports `?persona={name}` to resolve persona-specific role overrides and effective models.
 
 **Response `200`** (custom role):
 
@@ -1852,8 +1852,8 @@ Supports `?profile={name}` to resolve profile-specific role overrides and effect
   "editable": true,
   "model": "openai/gpt-5",
   "instructions": "You are a coding specialist...",
-  "profile": null,
-  "profile_override": false,
+  "persona": null,
+  "persona_override": false,
   "selectable": true
 }
 ```
@@ -1873,15 +1873,15 @@ App-facing alias for `GET /api/v1/config/roles/{name}`.
 
 Role creation, updates, and deletion are REPL-only operations in the current API design.
 
-#### `GET /api/v1/config/profiles`
+#### `GET /api/v1/config/personas`
 
-Lists discovered profiles so clients can offer a profile picker instead of manual text entry.
+Lists discovered personas so clients can offer a persona picker instead of manual text entry.
 
 **Response `200`**
 
 ```json
 {
-  "profiles": [
+  "personas": [
     {
       "name": "caelum",
       "display_name": "Caelum",
@@ -1910,13 +1910,13 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
     }
   ],
   "count": 2,
-  "default_profile": "caelum"
+  "default_persona": "caelum"
 }
 ```
 
-#### `GET /api/v1/config/profile-preferences/schema`
+#### `GET /api/v1/config/persona-preferences/schema`
 
-Returns the curated, app-facing schema for the first-class profile preferences editor.
+Returns the curated, app-facing schema for the first-class persona preferences editor.
 
 This endpoint exists so the app can render domain-specific sections and controls without exposing raw `preferences.json` structure or internal inspection fields directly.
 
@@ -1929,14 +1929,14 @@ This endpoint exists so the app can render domain-specific sections and controls
     {
       "id": "communication_style",
       "label": "Communication Style",
-      "description": "How the profile speaks, collaborates, and frames feedback.",
+      "description": "How the persona speaks, collaborates, and frames feedback.",
       "fields": [
         {
           "id": "response_style",
           "label": "Response Style",
           "storage_path": "prompt_directives.response_style",
           "input": "suggested_text",
-          "description": "Choose how the profile should sound in normal replies.",
+          "description": "Choose how the persona should sound in normal replies.",
           "suggestions": [
             "structured and measured",
             "brief and exact",
@@ -1977,9 +1977,9 @@ This endpoint exists so the app can render domain-specific sections and controls
 }
 ```
 
-#### `GET /api/v1/config/profiles/{name}`
+#### `GET /api/v1/config/personas/{name}`
 
-Return a single profile record with picker-friendly policy details.
+Return a single persona record with picker-friendly policy details.
 
 **Response `200`**
 
@@ -2073,23 +2073,23 @@ Return a single profile record with picker-friendly policy details.
 
 `preferences` remains the inspection-oriented summary. `preference_values` is the curated value payload intended for app-side preference editors. `preference_document` is the raw persisted preference document for clients that need to merge curated edits without dropping unsupported keys.
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-#### `GET /api/v1/profiles`
+#### `GET /api/v1/personas`
 
-App-facing alias for `GET /api/v1/config/profiles`.
+App-facing alias for `GET /api/v1/config/personas`.
 
-#### `GET /api/v1/profiles/{name}`
+#### `GET /api/v1/personas/{name}`
 
-App-facing alias for `GET /api/v1/config/profiles/{name}`.
+App-facing alias for `GET /api/v1/config/personas/{name}`.
 
-#### `POST /api/v1/profiles`
+#### `POST /api/v1/personas`
 
-Create a new profile for app onboarding and profile-first setup flows.
+Create a new persona for app onboarding and persona-first setup flows.
 
 This first phase-1 slice supports:
 
-- `name`: required lowercase profile slug using letters, numbers, hyphens, or underscores
+- `name`: required lowercase persona slug using letters, numbers, hyphens, or underscores
 - `description`: optional shortcut used to generate a default `soul.md` when `soul` is omitted
 - `soul`: optional full markdown body for `soul.md`
 - `backstory`: optional markdown content written to `backstory.md`
@@ -2120,15 +2120,15 @@ Provide either `description` or `soul`.
 
 **Response `201`**
 
-Returns the same profile detail shape as `GET /api/v1/profiles/{name}`. The new profile is immediately visible in subsequent list and detail requests without a server restart.
+Returns the same persona detail shape as `GET /api/v1/personas/{name}`. The new persona is immediately visible in subsequent list and detail requests without a server restart.
 
-**Response `409`** — profile already exists.
+**Response `409`** — persona already exists.
 
 **Response `400`** — invalid name, invalid JSON body, invalid preferences, or missing `description`/`soul`.
 
-#### `PATCH /api/v1/profiles/{name}`
+#### `PATCH /api/v1/personas/{name}`
 
-Update an existing profile for onboarding and profile management flows.
+Update an existing persona for onboarding and persona management flows.
 
 This initial update slice supports:
 
@@ -2137,7 +2137,7 @@ This initial update slice supports:
 - `backstory`: string to write `backstory.md`, or `null` to remove it
 - `preferences`: typed preferences object to write `preferences.json`, or `null` to remove it
 
-Profile renaming is not supported by this endpoint yet.
+Persona renaming is not supported by this endpoint yet.
 
 **Request Body**
 
@@ -2158,17 +2158,17 @@ Profile renaming is not supported by this endpoint yet.
 
 **Response `200`**
 
-Returns the same profile detail shape as `GET /api/v1/profiles/{name}`.
+Returns the same persona detail shape as `GET /api/v1/personas/{name}`.
 
 **Response `400`** — invalid JSON, invalid preferences, unsupported rename attempt, or no supported fields.
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-#### `DELETE /api/v1/profiles/{name}`
+#### `DELETE /api/v1/personas/{name}`
 
-Delete a profile directory that is no longer needed.
+Delete a persona directory that is no longer needed.
 
-This initial slice intentionally refuses to delete the configured default profile so the app cannot leave the workspace pointing at a broken default profile.
+This initial slice intentionally refuses to delete the configured default persona so the app cannot leave the workspace pointing at a broken default persona.
 
 **Response `200`**
 
@@ -2179,11 +2179,11 @@ This initial slice intentionally refuses to delete the configured default profil
 }
 ```
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-**Response `409`** — the requested profile is still the configured default profile.
+**Response `409`** — the requested persona is still the configured default persona.
 
-> **Breaking change:** the profile-scoped backstory source-management routes (`GET`/`PUT`/`DELETE /api/v1/profiles/{name}/backstory/entries`, `POST /api/v1/profiles/{name}/backstory/folders`, and `GET /api/v1/profiles/{name}/backstory`) have been removed from core. Source-file backstory generation now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` above still accepts a `backstory` field that writes `backstory.md` content directly.
+> **Breaking change:** the persona-scoped backstory source-management routes (`GET`/`PUT`/`DELETE /api/v1/personas/{name}/backstory/entries`, `POST /api/v1/personas/{name}/backstory/folders`, and `GET /api/v1/personas/{name}/backstory`) have been removed from core. Source-file backstory generation now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/personas/{name}` above still accepts a `backstory` field that writes `backstory.md` content directly.
 
 #### `GET /api/v1/config/models`
 
@@ -2586,7 +2586,7 @@ Create a new background task. The task is started immediately if under the concu
 {
   "prompt": "Refactor the authentication module",
   "role": "coder",
-  "profile": "caelum",
+  "persona": "caelum",
   "title": "Auth refactor",
   "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "max_iterations": 25,
@@ -2598,9 +2598,9 @@ Create a new background task. The task is started immediately if under the concu
 |-------|------|----------|---------|-------------|
 | `prompt` | string | Yes | — | The task prompt (max 1 MiB) |
 | `role` | string | No | `"orchestrator"` | Agent role for the task. Must be a known role. |
-| `profile` | string | No | `null` | Explicit profile for the task session. Must exist under `profiles/{name}/soul.md`. If `parent_session_id` is provided, it must match the parent session profile. |
+| `persona` | string | No | `null` | Explicit persona for the task session. Must exist under `personas/{name}/soul.md`. If `parent_session_id` is provided, it must match the parent session persona. |
 | `title` | string | No | `null` | Human-readable title for the task |
-| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's profile when one is set. |
+| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's persona when one is set. |
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
 | `project_id` | string | No | `null` | Attach the task to an existing project |
 
@@ -2615,7 +2615,7 @@ When `parent_session_id` is provided, it must refer to a writable session. Close
   "status": "running",
   "prompt": "Refactor the authentication module",
   "role": "coder",
-  "profile": "caelum",
+  "persona": "caelum",
   "title": "Auth refactor",
   "project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00"
@@ -3276,7 +3276,7 @@ Loop stage advancement only happens while the API server is running. `LoopManage
 
 Create and start a loop.
 
-Use `session_id` when the loop should inherit the session's active project and downstream profile context. Use `project_id` or `project_slug` to pin the loop to a project directly. When no project is supplied, the loop resolves or auto-creates one for its run.
+Use `session_id` when the loop should inherit the session's active project and downstream persona context. Use `project_id` or `project_slug` to pin the loop to a project directly. When no project is supplied, the loop resolves or auto-creates one for its run.
 
 When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
@@ -4278,14 +4278,14 @@ Return the fully constructed system prompt that the agent would receive on its n
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `role` | string | `orchestrator` | Role scope to resolve before rendering the prompt preview |
-| `profile` | string | `null` | Optional profile scope to apply while rendering the prompt preview |
+| `persona` | string | `null` | Optional persona scope to apply while rendering the prompt preview |
 | `session_id` | string | `null` | Optional session to inspect. When `conversationHistoryInSystemPrompt` is enabled, Coqui uses this to render the real `Conversation History` block with stored timestamps, summary/full markers, tool markers, and actor-backed `@speaker` labels |
 
 **Response `200`**
 
 ```json
 {
-  "profile": "caelum",
+  "persona": "caelum",
   "role": "orchestrator",
   "resolved_model": "ollama/qwen3:latest",
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
@@ -4356,13 +4356,13 @@ Return the fully constructed system prompt that the agent would receive on its n
 }
 ```
 
-When `session_id` is omitted, prompt inspection renders the static role/profile/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section. This is the same session-aware path used by `/prompt export` in the REPL.
+When `session_id` is omitted, prompt inspection renders the static role/persona/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section. This is the same session-aware path used by `/prompt export` in the REPL.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `profile` | string\|null | Explicit profile scope used to render the prompt preview |
+| `persona` | string\|null | Explicit persona scope used to render the prompt preview |
 | `role` | string | Effective role used to render the prompt preview |
-| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `profile` scope |
+| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `persona` scope |
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
@@ -4418,7 +4418,7 @@ Return the runtime slash-command catalog that powers REPL help output. This is t
 | `commands` | array | Flat list of command metadata for search/filter UIs |
 | `count` | int | Total number of commands returned |
 
-> **Breaking change:** `GET /api/v1/server/backstory` has been removed from core. It returned generated `backstory.md` content and source-manifest metadata for the source-file backstory generator, which now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` still accepts a `backstory` field that writes `backstory.md` content directly.
+> **Breaking change:** `GET /api/v1/server/backstory` has been removed from core. It returned generated `backstory.md` content and source-manifest metadata for the source-file backstory generator, which now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/personas/{name}` still accepts a `backstory` field that writes `backstory.md` content directly.
 
 ## Middleware
 
@@ -4549,7 +4549,7 @@ The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-m
 | `/mcp set-env <name> <ENV_KEY>` | `POST /api/v1/mcp/servers/{name}/env` | Links a secret or env placeholder to an MCP server |
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
-| profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
+| persona preference schema | `GET /api/v1/config/persona-preferences/schema` | Returns the curated app-facing preference editor schema |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/audit` | `GET /api/v1/audit` | Lists audit entries (approval decisions and questions) with filters |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
@@ -4598,11 +4598,11 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
-| `GET` | `/api/v1/profiles` | Yes | List discovered profiles for app pickers |
-| `GET` | `/api/v1/profiles/{name}` | Yes | Get profile detail |
-| `POST` | `/api/v1/profiles` | Yes | Create a profile |
-| `PATCH` | `/api/v1/profiles/{name}` | Yes | Update soul, backstory, and preferences for a profile |
-| `DELETE` | `/api/v1/profiles/{name}` | Yes | Delete a non-default profile |
+| `GET` | `/api/v1/personas` | Yes | List discovered personas for app pickers |
+| `GET` | `/api/v1/personas/{name}` | Yes | Get persona detail |
+| `POST` | `/api/v1/personas` | Yes | Create a persona |
+| `PATCH` | `/api/v1/personas/{name}` | Yes | Update soul, backstory, and preferences for a persona |
+| `DELETE` | `/api/v1/personas/{name}` | Yes | Delete a non-default persona |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
 | `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |

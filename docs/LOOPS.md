@@ -210,7 +210,7 @@ Stage agents receive toolkits based on their role's access level:
 | `readonly` (e.g., plan, reviewer) | Read-only files only |
 | `minimal` | No file or shell access |
 
-Access level gates file, shell, web, and auto-discovered toolkits only. Independently of access level — including `minimal` — every stage agent also receives `CoquiDocsToolkit` (unconditional), `MemoryToolkit` (whenever a memory store is configured), `ArtifactToolkit` (storage + session + the `artifacts` profile feature), and the always-loaded `CoquiSkillsTool`. `SkillToolkit` is never constructed for stage agents; it is only wired for `spawn_agent` children.
+Access level gates file, shell, web, and auto-discovered toolkits only. Independently of access level — including `minimal` — every stage agent also receives `CoquiDocsToolkit` (unconditional), `MemoryToolkit` (whenever a memory store is configured), `ArtifactToolkit` (storage + session + the `artifacts` persona feature), and the always-loaded `CoquiSkillsTool`. `SkillToolkit` is never constructed for stage agents; it is only wired for `spawn_agent` children.
 
 ### Excluded from Stage Agents
 
@@ -219,7 +219,7 @@ Stage agents intentionally do **not** receive:
 - `LoopToolkit` — prevents infinite loop recursion
 - `ScheduleToolkit` — prevents unbounded schedule creation
 
-Stage agents run through the same `OrchestratorAgent` class as top-level agents; the exclusion comes from a guard inside it. Both toolkits require `access_level === 'full'` **and** `workScopeSessionId === null`, and a stage agent always has a work-scope session set. `LoopToolkit` additionally requires the `loops` profile feature, and both consult the role's toolkit allowlist — so two of the three gates are configuration.
+Stage agents run through the same `OrchestratorAgent` class as top-level agents; the exclusion comes from a guard inside it. Both toolkits require `access_level === 'full'` **and** `workScopeSessionId === null`, and a stage agent always has a work-scope session set. `LoopToolkit` additionally requires the `loops` persona feature, and both consult the role's toolkit allowlist — so two of the three gates are configuration.
 
 ## Custom Loop Definitions
 

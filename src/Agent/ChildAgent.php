@@ -35,8 +35,8 @@ final class ChildAgent extends AbstractAgent
         private readonly ?RoleDiscovery $roleDiscovery = null,
         ?ToolExecutorInterface $toolExecutor = null,
         ?TickCallbackInterface $tickCallback = null,
-        private readonly ?string $profileIdentityPreamble = null,
-        private readonly ?string $activeProfilePath = null,
+        private readonly ?string $personaIdentityPreamble = null,
+        private readonly ?string $activePersonaPath = null,
     ) {
         parent::__construct(
             $provider,
@@ -58,9 +58,9 @@ final class ChildAgent extends AbstractAgent
     {
         $roleInstructions = $this->resolveRoleInstructions();
 
-        // Prepend profile identity when a personality profile is active
-        if ($this->profileIdentityPreamble !== null && $this->profileIdentityPreamble !== '') {
-            $roleInstructions = $this->profileIdentityPreamble . "\n\n" . $roleInstructions;
+        // Prepend persona identity when a personality persona is active
+        if ($this->personaIdentityPreamble !== null && $this->personaIdentityPreamble !== '') {
+            $roleInstructions = $this->personaIdentityPreamble . "\n\n" . $roleInstructions;
         }
 
         return <<<PROMPT
@@ -83,8 +83,8 @@ final class ChildAgent extends AbstractAgent
     private function resolveRoleInstructions(): string
     {
         // Try file-based role discovery first
-        if ($this->roleDiscovery !== null && $this->roleDiscovery->roleExists($this->role, $this->activeProfilePath)) {
-            return $this->roleDiscovery->readInstructions($this->role, $this->activeProfilePath);
+        if ($this->roleDiscovery !== null && $this->roleDiscovery->roleExists($this->role, $this->activePersonaPath)) {
+            return $this->roleDiscovery->readInstructions($this->role, $this->activePersonaPath);
         }
 
         // Fall back to hardcoded defaults for backward compatibility

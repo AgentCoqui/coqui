@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 /**
- * Integration test: verify that switching profiles produces correct system prompts.
+ * Integration test: verify that switching personas produces correct system prompts.
  *
- * Creates synthetic profiles with unique soul content and bond glyphs,
- * then verifies each profile's soul.md is correctly loaded into the
+ * Creates synthetic personas with unique soul content and bond glyphs,
+ * then verifies each persona's soul.md is correctly loaded into the
  * OrchestratorAgent system prompt via the PromptLoader 3-tier chain.
  */
 
@@ -20,7 +20,7 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
 
 beforeEach(function () {
-    $this->workspace = sys_get_temp_dir() . '/coqui-profile-integration-' . bin2hex(random_bytes(4));
+    $this->workspace = sys_get_temp_dir() . '/coqui-persona-integration-' . bin2hex(random_bytes(4));
     mkdir($this->workspace, 0755, true);
     file_put_contents($this->workspace . '/.env', '');
 
@@ -74,8 +74,8 @@ beforeEach(function () {
         }
     };
 
-    // Create three test profiles mimicking the real profiles
-    $profiles = [
+    // Create three test personas mimicking the real personas
+    $personas = [
         'alpha' => [
             'name' => 'Alpha',
             'glyph' => '$',
@@ -93,25 +93,25 @@ beforeEach(function () {
         ],
     ];
 
-    $profilesDir = $this->workspace . '/personas';
-    foreach ($profiles as $slug => $profile) {
-        mkdir($profilesDir . '/' . $slug, 0755, true);
+    $personasDir = $this->workspace . '/personas';
+    foreach ($personas as $slug => $persona) {
+        mkdir($personasDir . '/' . $slug, 0755, true);
         file_put_contents(
-            $profilesDir . '/' . $slug . '/soul.md',
-            "# {$profile['name']}\n\nBond glyph: {$profile['glyph']}\n\n{$profile['identity']}\n",
+            $personasDir . '/' . $slug . '/soul.md',
+            "# {$persona['name']}\n\nBond glyph: {$persona['glyph']}\n\n{$persona['identity']}\n",
         );
     }
 
-    $this->profiles = $profiles;
+    $this->personas = $personas;
 });
 
 afterEach(function () {
     cleanupTestTree($this->workspace);
 });
 
-test('switching between profiles loads correct soul.md into system prompt', function () {
-    foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/personas/' . $slug;
+test('switching between personas loads correct soul.md into system prompt', function () {
+    foreach ($this->personas as $slug => $persona) {
+        $personaPath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,
@@ -120,30 +120,30 @@ test('switching between profiles loads correct soul.md into system prompt', func
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
             deps: new OrchestratorDependencies(
-                activeProfile: $slug,
-                activeProfilePath: $profilePath,
+                activePersona: $slug,
+                activePersonaPath: $personaPath,
             ),
         );
 
         $instructions = $agent->instructions();
         $systemPrompt = $agent->getSystemPromptText();
 
-        // Each profile's name appears in the instructions
-        expect($instructions)->toContain("# {$profile['name']}")
-            ->and($instructions)->toContain($profile['identity']);
+        // Each persona's name appears in the instructions
+        expect($instructions)->toContain("# {$persona['name']}")
+            ->and($instructions)->toContain($persona['identity']);
 
         // Bond glyph is present
-        expect($instructions)->toContain("Bond glyph: {$profile['glyph']}");
+        expect($instructions)->toContain("Bond glyph: {$persona['glyph']}");
 
         // getSystemPromptText also includes the soul
-        expect($systemPrompt)->toContain("# {$profile['name']}");
-        expect($systemPrompt)->toContain("Bond glyph: {$profile['glyph']}");
+        expect($systemPrompt)->toContain("# {$persona['name']}");
+        expect($systemPrompt)->toContain("Bond glyph: {$persona['glyph']}");
     }
 });
 
-test('profile switching does not leak soul content between profiles', function () {
-    foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/personas/' . $slug;
+test('persona switching does not leak soul content between personas', function () {
+    foreach ($this->personas as $slug => $persona) {
+        $personaPath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,
@@ -152,44 +152,44 @@ test('profile switching does not leak soul content between profiles', function (
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspace,
             deps: new OrchestratorDependencies(
-                activeProfile: $slug,
-                activeProfilePath: $profilePath,
+                activePersona: $slug,
+                activePersonaPath: $personaPath,
             ),
         );
 
         $instructions = $agent->instructions();
 
-        // Only THIS profile's identity should appear, not others
-        foreach ($this->profiles as $otherSlug => $otherProfile) {
+        // Only THIS persona's identity should appear, not others
+        foreach ($this->personas as $otherSlug => $otherPersona) {
             if ($otherSlug === $slug) {
                 continue;
             }
-            expect($instructions)->not->toContain($otherProfile['identity']);
+            expect($instructions)->not->toContain($otherPersona['identity']);
         }
     }
 });
 
-test('profile discovery finds all profiles and round-trips correctly', function () {
+test('persona discovery finds all personas and round-trips correctly', function () {
     $discovery = new PersonaDiscovery($this->workspace);
 
     $discovered = $discovery->discoverAll();
     expect($discovered)->toHaveCount(3);
 
-    foreach ($this->profiles as $slug => $profile) {
-        expect($discovery->profileExists($slug))->toBeTrue();
+    foreach ($this->personas as $slug => $persona) {
+        expect($discovery->personaExists($slug))->toBeTrue();
 
         $soul = $discovery->readSoul($slug);
-        expect($soul)->toContain("# {$profile['name']}");
-        expect($soul)->toContain("Bond glyph: {$profile['glyph']}");
-        expect($soul)->toContain($profile['identity']);
+        expect($soul)->toContain("# {$persona['name']}");
+        expect($soul)->toContain("Bond glyph: {$persona['glyph']}");
+        expect($soul)->toContain($persona['identity']);
 
-        $path = $discovery->getProfilePath($slug);
+        $path = $discovery->getPersonaPath($slug);
         expect(is_dir($path))->toBeTrue();
         expect(is_file($path . '/soul.md'))->toBeTrue();
     }
 });
 
-test('profile with role prepends identity preamble to role instructions', function () {
+test('persona with role prepends identity preamble to role instructions', function () {
     // Create a role
     $rolesDir = $this->workspace . '/roles';
     mkdir($rolesDir, 0755, true);
@@ -197,9 +197,9 @@ test('profile with role prepends identity preamble to role instructions', functi
 
     $roleDiscovery = new RoleDiscovery(workspacePath: $this->workspace);
 
-    // Test each profile with the coder role
-    foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/personas/' . $slug;
+    // Test each persona with the coder role
+    foreach ($this->personas as $slug => $persona) {
+        $personaPath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,
@@ -210,28 +210,28 @@ test('profile with role prepends identity preamble to role instructions', functi
             deps: new OrchestratorDependencies(
                 roleDiscovery: $roleDiscovery,
                 activeRole: 'coder',
-                activeProfile: $slug,
-                activeProfilePath: $profilePath,
+                activePersona: $slug,
+                activePersonaPath: $personaPath,
             ),
         );
 
         $instructions = $agent->instructions();
 
-        // Profile identity preamble present
-        expect($instructions)->toContain($profile['identity']);
-        expect($instructions)->toContain("Bond glyph: {$profile['glyph']}");
+        // Persona identity preamble present
+        expect($instructions)->toContain($persona['identity']);
+        expect($instructions)->toContain("Bond glyph: {$persona['glyph']}");
 
         // Role instructions present
         expect($instructions)->toContain('You write excellent code.');
 
         // Preamble appears before role instructions
-        $preamblePos = strpos($instructions, $profile['identity']);
+        $preamblePos = strpos($instructions, $persona['identity']);
         $rolePos = strpos($instructions, 'You write excellent code.');
         expect($preamblePos)->toBeLessThan($rolePos);
     }
 });
 
-test('no profile shows default soul instead of profile soul', function () {
+test('no persona shows default soul instead of persona soul', function () {
     $agent = new OrchestratorAgent(
         provider: $this->provider,
         roleResolver: $this->roleResolver,
@@ -242,8 +242,8 @@ test('no profile shows default soul instead of profile soul', function () {
 
     $instructions = $agent->instructions();
 
-    // No profile soul content should appear
-    foreach ($this->profiles as $profile) {
-        expect($instructions)->not->toContain($profile['identity']);
+    // No persona soul content should appear
+    foreach ($this->personas as $persona) {
+        expect($instructions)->not->toContain($persona['identity']);
     }
 });

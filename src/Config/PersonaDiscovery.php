@@ -7,13 +7,13 @@ namespace CoquiBot\Coqui\Config;
 
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 /**
- * Discovers and resolves personality profiles from the workspace.
+ * Discovers and resolves personality personas from the workspace.
  *
- * Profiles live under {workspace}/profiles/{name}/ and must contain a soul.md.
- * Each profile defines an alternate persona/identity for the agent while sharing
+ * Personas live under {workspace}/personas/{name}/ and must contain a soul.md.
+ * Each persona defines an alternate persona/identity for the agent while sharing
  * the global memory store and toolkit surface.
  *
- * Resolution: profile dir → workspace prompts → default prompts dir (3-tier fallback).
+ * Resolution: persona dir → workspace prompts → default prompts dir (3-tier fallback).
  */
 final class PersonaDiscovery
 {
@@ -29,28 +29,28 @@ final class PersonaDiscovery
     }
 
     /**
-     * Absolute path to the profiles directory.
+     * Absolute path to the personas directory.
      */
-    public function profilesDir(): string
+    public function personasDir(): string
     {
         return rtrim($this->workspacePath, '/') . '/personas';
     }
 
     /**
-     * Ensure the profiles directory exists.
+     * Ensure the personas directory exists.
      */
-    public function ensureProfilesDir(): void
+    public function ensurePersonasDir(): void
     {
-        $dir = $this->profilesDir();
+        $dir = $this->personasDir();
         if (!is_dir($dir)) {
             mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 
     /**
-     * Discover all available profiles.
+     * Discover all available personas.
      *
-     * A valid profile is a subdirectory of profiles/ that contains a soul.md file.
+     * A valid persona is a subdirectory of personas/ that contains a soul.md file.
      *
      * @return array<string, array{name: string, display_name: string, description: string, path: string}>
      */
@@ -60,7 +60,7 @@ final class PersonaDiscovery
             return $this->cache;
         }
 
-        $dir = $this->profilesDir();
+        $dir = $this->personasDir();
         if (!is_dir($dir)) {
             $this->cache = [];
             return $this->cache;
@@ -72,78 +72,78 @@ final class PersonaDiscovery
             return $this->cache;
         }
 
-        $profiles = [];
+        $personas = [];
         foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
 
-            $profileDir = $dir . '/' . $entry;
-            if (!is_dir($profileDir)) {
+            $personaDir = $dir . '/' . $entry;
+            if (!is_dir($personaDir)) {
                 continue;
             }
 
-            $soulPath = $profileDir . '/soul.md';
+            $soulPath = $personaDir . '/soul.md';
             if (!is_file($soulPath)) {
                 continue;
             }
 
             $name = strtolower($entry);
-            $profiles[$name] = [
+            $personas[$name] = [
                 'name' => $name,
                 'display_name' => $this->humanizeName($name),
                 'description' => $this->extractDescriptionFromFile($soulPath),
-                'path' => $profileDir,
+                'path' => $personaDir,
             ];
         }
 
-        ksort($profiles);
-        $this->cache = $profiles;
+        ksort($personas);
+        $this->cache = $personas;
 
         return $this->cache;
     }
 
     /**
-     * Check if a named profile exists.
+     * Check if a named persona exists.
      */
-    public function profileExists(string $name): bool
+    public function personaExists(string $name): bool
     {
-        $profiles = $this->discoverAll();
-        return isset($profiles[strtolower($name)]);
+        $personas = $this->discoverAll();
+        return isset($personas[strtolower($name)]);
     }
 
     /**
-     * Get the absolute path to a profile directory.
+     * Get the absolute path to a persona directory.
      *
-     * @throws \InvalidArgumentException If the profile does not exist.
+     * @throws \InvalidArgumentException If the persona does not exist.
      */
-    public function getProfilePath(string $name): string
+    public function getPersonaPath(string $name): string
     {
-        $profiles = $this->discoverAll();
+        $personas = $this->discoverAll();
         $key = strtolower($name);
 
-        if (!isset($profiles[$key])) {
-            throw new \InvalidArgumentException(sprintf('Profile "%s" not found.', $name));
+        if (!isset($personas[$key])) {
+            throw new \InvalidArgumentException(sprintf('Persona "%s" not found.', $name));
         }
 
-        return $profiles[$key]['path'];
+        return $personas[$key]['path'];
     }
 
     /**
-     * Read the soul.md content for a profile.
+     * Read the soul.md content for a persona.
      *
-     * @throws \InvalidArgumentException If the profile does not exist.
+     * @throws \InvalidArgumentException If the persona does not exist.
      */
     public function readSoul(string $name): string
     {
-        $path = $this->getProfilePath($name) . '/soul.md';
+        $path = $this->getPersonaPath($name) . '/soul.md';
 
         return $this->parser->readFile($path)['body'];
     }
 
-    public function readProfileModel(string $name): ?string
+    public function readPersonaModel(string $name): ?string
     {
-        $path = $this->getProfilePath($name) . '/soul.md';
+        $path = $this->getPersonaPath($name) . '/soul.md';
         $metadata = $this->parser->readFile($path)['metadata'];
         $model = $metadata['model'] ?? null;
 
@@ -151,17 +151,17 @@ final class PersonaDiscovery
     }
 
     /**
-     * List available profile names.
+     * List available persona names.
      *
      * @return list<string>
      */
-    public function availableProfiles(): array
+    public function availablePersonas(): array
     {
         return array_keys($this->discoverAll());
     }
 
     /**
-     * Clear the discovery cache (e.g. after creating a new profile directory).
+     * Clear the discovery cache (e.g. after creating a new persona directory).
      */
     public function invalidateCache(): void
     {
@@ -169,15 +169,15 @@ final class PersonaDiscovery
     }
 
     /**
-     * Absolute path to the samples/responses/ directory for a profile.
+     * Absolute path to the samples/responses/ directory for a persona.
      */
     public function getSamplesDir(string $name): string
     {
-        return $this->getProfilePath($name) . '/samples/responses';
+        return $this->getPersonaPath($name) . '/samples/responses';
     }
 
     /**
-     * List response sample files for a profile.
+     * List response sample files for a persona.
      *
      * @return list<string> Absolute paths to .md files in samples/responses/
      */
@@ -212,18 +212,18 @@ final class PersonaDiscovery
     /**
      * Extract a brief description from the first paragraph of soul.md.
      *
-     * Accepts a profile name and looks up its soul.md path. Returns null if
-     * the profile does not exist or soul.md is empty.
+     * Accepts a persona name and looks up its soul.md path. Returns null if
+     * the persona does not exist or soul.md is empty.
      */
     public function extractDescription(string $name): ?string
     {
-        $profiles = $this->discoverAll();
+        $personas = $this->discoverAll();
         $key = strtolower($name);
-        if (!isset($profiles[$key])) {
+        if (!isset($personas[$key])) {
             return null;
         }
 
-        return $this->extractDescriptionFromFile($profiles[$key]['path'] . '/soul.md');
+        return $this->extractDescriptionFromFile($personas[$key]['path'] . '/soul.md');
     }
 
     /**

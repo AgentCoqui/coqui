@@ -95,7 +95,7 @@ test('task handler create returns a pending task when concurrency is unavailable
     }
 });
 
-test('task handler create inherits profile from parent session', function () {
+test('task handler create inherits persona from parent session', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
@@ -116,7 +116,7 @@ test('task handler create inherits profile from parent session', function () {
         $session = $fixture['storage']->getSession($body['session_id']);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
         expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
@@ -150,7 +150,7 @@ test('task handler create rejects closed parent sessions', function () {
     }
 });
 
-test('task handler create accepts explicit profile without parent session', function () {
+test('task handler create accepts explicit persona without parent session', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
@@ -161,7 +161,7 @@ test('task handler create accepts explicit profile without parent session', func
             json_encode([
                 'prompt' => 'Review the recent changes',
                 'role' => 'coder',
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ]) ?: '',
         );
 
@@ -170,14 +170,14 @@ test('task handler create accepts explicit profile without parent session', func
         $session = $fixture['storage']->getSession($body['session_id']);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
         expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }
 });
 
-test('task handler create rejects roles disallowed by the resolved profile', function () {
+test('task handler create rejects roles disallowed by the resolved persona', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
@@ -196,7 +196,7 @@ test('task handler create rejects roles disallowed by the resolved profile', fun
             json_encode([
                 'prompt' => 'Review the recent changes',
                 'role' => 'coder',
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ]) ?: '',
         );
 

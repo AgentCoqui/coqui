@@ -299,7 +299,7 @@ final class ApiCommand extends Command
 
         // Create handlers
         $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $lifecycle);
-        $profileSessionLifecycle = new PersonaSessionLifecycleManager(
+        $personaSessionLifecycle = new PersonaSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
             roleResolver: $boot->roleResolver(),
@@ -307,13 +307,13 @@ final class ApiCommand extends Command
             artifactStore: $boot->artifactStore(),
         );
 
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle, artifactStore: $artifactStore);
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->personaDiscovery(), $personaSessionLifecycle, artifactStore: $artifactStore);
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
             new ConfigValidator(),
-            $boot->profileDiscovery(),
+            $boot->personaDiscovery(),
             new ModelMetadataResolver(
                 $boot->defaultsLoader(),
                 new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
@@ -326,8 +326,8 @@ final class ApiCommand extends Command
             $lifecycle,
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->personaDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle);
 
@@ -375,7 +375,7 @@ final class ApiCommand extends Command
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
-        $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->profileDiscovery(), $boot->config());
+        $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->personaDiscovery(), $boot->config());
         $apiFeatureDiscovery = new \CoquiBot\Coqui\Config\ApiFeatureDiscovery();
         $apiFeatureDiscovery->registerAll(
             $apiFeatureDiscovery->discover(),

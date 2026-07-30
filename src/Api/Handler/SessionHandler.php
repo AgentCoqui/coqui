@@ -45,7 +45,7 @@ final readonly class SessionHandler
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private ?PersonaSessionLifecycleManager $lifecycleManager = null,
         private ?GroupSessionService $groupSessionService = null,
         private ?ArtifactStore $artifactStore = null,
@@ -60,8 +60,8 @@ final readonly class SessionHandler
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
         $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
-        $profileFilterSpecified = array_key_exists('profile', $params);
-        $profileParam = $profileFilterSpecified ? strtolower(trim((string) ($params['profile'] ?? ''))) : null;
+        $personaFilterSpecified = array_key_exists('persona_id', $params);
+        $personaParam = $personaFilterSpecified ? strtolower(trim((string) ($params['persona_id'] ?? ''))) : null;
 
         if ($status === '') {
             $status = null;
@@ -78,32 +78,32 @@ final readonly class SessionHandler
             $status = 'all';
         }
 
-        $profile = null;
-        $unprofiledOnly = false;
-        if ($profileFilterSpecified) {
-            if ($profileParam === null || $profileParam === '' || $profileParam === 'none') {
-                $unprofiledOnly = true;
+        $persona = null;
+        $unpersonaScopedOnly = false;
+        if ($personaFilterSpecified) {
+            if ($personaParam === null || $personaParam === '' || $personaParam === 'none') {
+                $unpersonaScopedOnly = true;
             } else {
-                if (!$this->profileDiscovery->profileExists($profileParam)) {
+                if (!$this->personaDiscovery->personaExists($personaParam)) {
                     return Router::errorResponse(
                         ApiErrorCode::VALIDATION_ERROR,
-                        sprintf('Unknown profile "%s". Use GET /api/v1/personas to see available personas.', $profileParam),
+                        sprintf('Unknown persona "%s". Use GET /api/v1/personas to see available personas.', $personaParam),
                     );
                 }
-                $profile = $profileParam;
+                $persona = $personaParam;
             }
         }
 
         $sessions = array_map(
             fn(array $session): array => $this->normalizeSessionForResponse($session),
-            $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly),
+            $this->storage->listSessions($limit, true, $status === null, $status, $persona, $unpersonaScopedOnly),
         );
 
         return Router::jsonResponse([
             'sessions' => $sessions,
             'count' => count($sessions),
             'status' => $status ?? 'active',
-            'profile' => $profileFilterSpecified ? ($profile ?? 'none') : null,
+            'persona_id' => $personaFilterSpecified ? ($persona ?? 'none') : null,
             'counts' => $this->storage->getSessionStatusCounts(),
         ]);
     }
@@ -336,7 +336,7 @@ final readonly class SessionHandler
         return new InteractiveSessionService(
             $this->storage,
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
             $this->lifecycleManager,
         );
     }
@@ -346,7 +346,7 @@ final readonly class SessionHandler
         return $this->groupSessionService ?? new GroupSessionService(
             $this->storage,
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
         );
     }
 
@@ -386,7 +386,7 @@ final readonly class SessionHandler
     {
         return new SessionScopeResolver(
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
             $this->groupSessions(),
         );
     }
@@ -421,12 +421,12 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $profile = is_string($session['persona_id'] ?? null) ? trim((string) $session['persona_id']) : null;
-        if ($profile === '') {
-            $profile = null;
+        $persona = is_string($session['persona_id'] ?? null) ? trim((string) $session['persona_id']) : null;
+        if ($persona === '') {
+            $persona = null;
         }
 
-        $session['model'] = $this->roleResolver->resolve($role, $profile);
+        $session['model'] = $this->roleResolver->resolve($role, $persona);
 
         return $session;
     }

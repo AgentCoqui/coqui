@@ -28,10 +28,10 @@ final class RoleHandler
      *
      * Returns the new active role name if changed, or null if unchanged.
      */
-    public function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activeProfile = null): ?string
+    public function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activePersona = null): ?string
     {
         $roleDiscovery = $this->boot->roleDiscovery();
-        $preferences = $this->loadProfilePreferences($activeProfile);
+        $preferences = $this->loadPersonaPreferences($activePersona);
 
         if ($arg === '') {
             $io->writeln(sprintf('<info>Active role:</info> %s', $activeRole));
@@ -66,7 +66,7 @@ final class RoleHandler
         }
 
         if ($preferences !== null && !$preferences->isRoleAllowed($roleName)) {
-            $io->error(sprintf('Profile "%s" does not allow role "%s".', $activeProfile, $roleName));
+            $io->error(sprintf('Persona "%s" does not allow role "%s".', $activePersona, $roleName));
             return null;
         }
 
@@ -122,13 +122,13 @@ final class RoleHandler
         return mb_substr($text, 0, $max - 1) . '…';
     }
 
-    private function loadProfilePreferences(?string $activeProfile): ?PersonaPreferences
+    private function loadPersonaPreferences(?string $activePersona): ?PersonaPreferences
     {
-        if ($activeProfile === null || !$this->boot->profileDiscovery()->profileExists($activeProfile)) {
+        if ($activePersona === null || !$this->boot->personaDiscovery()->personaExists($activePersona)) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->boot->profileDiscovery()->getProfilePath($activeProfile));
+        return PersonaPreferences::fromPersonaPath($this->boot->personaDiscovery()->getPersonaPath($activePersona));
     }
 
     public function handleRoles(SymfonyStyle $io, string $arg, string $activeRole): void

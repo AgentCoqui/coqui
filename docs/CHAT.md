@@ -91,11 +91,11 @@ The system prompt is rebuilt for each turn by `OrchestratorAgent::instructions()
 
 `OrchestratorAgent::instructions()` builds the base instruction text in this order:
 
-1. Profile `soul.md` (identity — first for primacy attention).
-2. Profile `backstory.md`.
-3. Profile `context/*.md`.
+1. Persona `soul.md` (identity — first for primacy attention).
+2. Persona `backstory.md`.
+3. Persona `context/*.md`.
 4. `## BACKGROUND KNOWLEDGE (Core Memories)`.
-5. Profile preferences (`## Preferences`).
+5. Persona preferences (`## Preferences`).
 6. The body — the role prompt or orchestrator prompt, carrying operational instructions, tools, security, and done rules.
 
 Those parts are joined, and three injections then run over the joined text in order:
@@ -117,7 +117,7 @@ flowchart TD
     A[soul.md] --> B[backstory.md]
     B --> B2[context/*.md]
     B2 --> C[BACKGROUND KNOWLEDGE Core Memories]
-    C --> C2[Profile Preferences]
+    C --> C2[Persona Preferences]
     C2 --> A2[Body: Role or Orchestrator Prompt]
     A2 --> D[Inject Deferred Toolkit Hint]
     D --> E[Append ACTIVE PROJECT]

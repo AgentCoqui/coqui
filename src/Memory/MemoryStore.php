@@ -145,7 +145,7 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function search(string $query, int $limit = 10, float $threshold = 0.7, ?string $profileId = null): array
+    public function search(string $query, int $limit = 10, float $threshold = 0.7, ?string $personaId = null): array
     {
         $this->ensureTables();
 
@@ -157,11 +157,11 @@ final class MemoryStore
 
         // Collect vector candidates (if embedding provider available)
         if ($this->embeddingProvider !== null) {
-            $candidates = $this->vectorSearchCandidates($query, $limit * 2, $threshold, $profileId);
+            $candidates = $this->vectorSearchCandidates($query, $limit * 2, $threshold, $personaId);
         }
 
         // Merge FTS candidates (deduplicates by ID, vector results take priority)
-        foreach ($this->ftsSearchCandidates($query, $limit * 2, $profileId) as $id => $candidate) {
+        foreach ($this->ftsSearchCandidates($query, $limit * 2, $personaId) as $id => $candidate) {
             if (!isset($candidates[$id])) {
                 $candidates[$id] = $candidate;
             }
@@ -169,7 +169,7 @@ final class MemoryStore
 
         // LIKE fallback if nothing found from vector + FTS
         if (empty($candidates)) {
-            $candidates = $this->likeSearchCandidates($query, $limit * 2, $profileId);
+            $candidates = $this->likeSearchCandidates($query, $limit * 2, $personaId);
         }
 
         if (empty($candidates)) {
@@ -253,9 +253,9 @@ final class MemoryStore
      *
      * @return int Number of deleted entries
      */
-    public function forget(string $query, float $threshold = 0.7, ?string $profileId = null): int
+    public function forget(string $query, float $threshold = 0.7, ?string $personaId = null): int
     {
-        $matches = $this->search($query, limit: 100, threshold: $threshold, profileId: $profileId);
+        $matches = $this->search($query, limit: 100, threshold: $threshold, personaId: $personaId);
         $count = 0;
 
         foreach ($matches as $entry) {
@@ -273,17 +273,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function list(string $area = 'main', int $limit = 50, ?string $profileId = null): array
+    public function list(string $area = 'main', int $limit = 50, ?string $personaId = null): array
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
-            WHERE area = :area AND archived_at IS NULL{$profileClause}
+            WHERE area = :area AND archived_at IS NULL{$personaClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -379,7 +379,7 @@ final class MemoryStore
      * @param string[] $tags
      * @return MemoryEntry[]
      */
-    public function listByTags(array $tags, int $limit = 50, ?string $profileId = null): array
+    public function listByTags(array $tags, int $limit = 50, ?string $personaId = null): array
     {
         $this->ensureTables();
 
@@ -397,12 +397,12 @@ final class MemoryStore
         }
 
         $where = implode(' OR ', $conditions);
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
-            WHERE ({$where}) AND archived_at IS NULL{$profileClause}
+            WHERE ({$where}) AND archived_at IS NULL{$personaClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -421,17 +421,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function listAll(int $limit = 100, ?string $profileId = null): array
+    public function listAll(int $limit = 100, ?string $personaId = null): array
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
-            WHERE archived_at IS NULL{$profileClause}
+            WHERE archived_at IS NULL{$personaClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -445,14 +445,14 @@ final class MemoryStore
     /**
      * Count total memories, optionally filtered by area.
      */
-    public function count(?string $area = null, ?string $profileId = null): int
+    public function count(?string $area = null, ?string $personaId = null): int
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         if ($area !== null) {
-            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL' . $profileClause);
+            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL' . $personaClause);
             if ($stmt === false) {
                 return 0;
             }
@@ -461,7 +461,7 @@ final class MemoryStore
             return (int) $stmt->fetchColumn();
         }
 
-        $stmt = $this->db->query('SELECT COUNT(*) FROM memories WHERE archived_at IS NULL' . $profileClause);
+        $stmt = $this->db->query('SELECT COUNT(*) FROM memories WHERE archived_at IS NULL' . $personaClause);
         if ($stmt === false) {
             return 0;
         }
@@ -493,12 +493,12 @@ final class MemoryStore
     * Prioritizes continuity-heavy areas such as identity and developmental arc
     * ahead of more general preferences, facts, and project context.
      */
-    public function getCoreSummary(int $limit = 30, ?string $profileId = null): string
+    public function getCoreSummary(int $limit = 30, ?string $personaId = null): string
     {
         $this->ensureTables();
 
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         // Fetch active knowledge memories — exclude task-type and expired memories
         $stmt = $this->db->prepare(<<<SQL
@@ -508,7 +508,7 @@ final class MemoryStore
             WHERE archived_at IS NULL
               AND area != :excluded_area
               AND memory_type != 'task'
-              AND (valid_until IS NULL OR valid_until > :now){$profileClause}
+              AND (valid_until IS NULL OR valid_until > :now){$personaClause}
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -630,17 +630,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function getTopImportantMemories(int $limit = 5, ?string $profileId = null): array
+    public function getTopImportantMemories(int $limit = 5, ?string $personaId = null): array
     {
         $this->ensureTables();
 
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
-            WHERE archived_at IS NULL AND area != :excluded_area{$profileClause}
+            WHERE archived_at IS NULL AND area != :excluded_area{$personaClause}
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -840,13 +840,13 @@ final class MemoryStore
             }
         }
 
-        // Migrate: add profile and session attribution columns
-        $profileMigrations = [
+        // Migrate: add persona and session attribution columns
+        $personaMigrations = [
             'ALTER TABLE memories ADD COLUMN persona_id TEXT',
             'ALTER TABLE memories ADD COLUMN session_id TEXT',
         ];
 
-        foreach ($profileMigrations as $sql) {
+        foreach ($personaMigrations as $sql) {
             try {
                 $this->db->exec($sql);
             } catch (\PDOException) {
@@ -919,7 +919,7 @@ final class MemoryStore
     /**
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function vectorSearchCandidates(string $query, int $limit, float $threshold, ?string $profileId = null): array
+    private function vectorSearchCandidates(string $query, int $limit, float $threshold, ?string $personaId = null): array
     {
         try {
             $queryEmbedding = $this->embeddingProvider?->embedText($query);
@@ -931,7 +931,7 @@ final class MemoryStore
             return [];
         }
 
-        $profileClause = $this->buildPersonaClause($profileId, 'm');
+        $personaClause = $this->buildPersonaClause($personaId, 'm');
 
         // Load all embeddings for active memories and compute cosine similarity in PHP
         $stmt = $this->db->query(<<<SQL
@@ -940,7 +940,7 @@ final class MemoryStore
                    m.importance, m.access_count, m.last_accessed_at, m.persona_id, m.session_id
             FROM memory_embeddings e
             JOIN memories m ON m.id = e.memory_id
-            WHERE m.archived_at IS NULL{$profileClause}
+            WHERE m.archived_at IS NULL{$personaClause}
         SQL);
 
         if ($stmt === false) {
@@ -977,15 +977,15 @@ final class MemoryStore
     /**
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function ftsSearchCandidates(string $query, int $limit, ?string $profileId = null): array
+    private function ftsSearchCandidates(string $query, int $limit, ?string $personaId = null): array
     {
         $sanitized = $this->sanitizeFtsQuery($query);
 
         if ($sanitized === '') {
-            return $this->likeSearchCandidates($query, $limit, $profileId);
+            return $this->likeSearchCandidates($query, $limit, $personaId);
         }
 
-        $profileClause = $this->buildPersonaClause($profileId, 'm');
+        $personaClause = $this->buildPersonaClause($personaId, 'm');
 
         try {
             $stmt = $this->db->prepare(<<<SQL
@@ -994,7 +994,7 @@ final class MemoryStore
                 FROM memories_fts f
                 JOIN memories_fts_lookup l ON l.rowid = f.rowid
                 JOIN memories m ON m.id = l.memory_id
-                WHERE memories_fts MATCH :query AND m.archived_at IS NULL{$profileClause}
+                WHERE memories_fts MATCH :query AND m.archived_at IS NULL{$personaClause}
                 ORDER BY rank
                 LIMIT :limit
             SQL);
@@ -1028,7 +1028,7 @@ final class MemoryStore
             // FTS query syntax error — fall back to LIKE
         }
 
-        return $this->likeSearchCandidates($query, $limit, $profileId);
+        return $this->likeSearchCandidates($query, $limit, $personaId);
     }
 
     /**
@@ -1036,15 +1036,15 @@ final class MemoryStore
      *
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function likeSearchCandidates(string $query, int $limit, ?string $profileId = null): array
+    private function likeSearchCandidates(string $query, int $limit, ?string $personaId = null): array
     {
-        $profileClause = $this->buildPersonaClause($profileId);
+        $personaClause = $this->buildPersonaClause($personaId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, persona_id, session_id
             FROM memories
-            WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL{$profileClause}
+            WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL{$personaClause}
             ORDER BY updated_at DESC
             LIMIT :limit
         SQL);
@@ -1183,19 +1183,19 @@ final class MemoryStore
 
     /**
     /**
-     * Build a SQL WHERE clause fragment for profile filtering.
+     * Build a SQL WHERE clause fragment for persona filtering.
      *
-     * When a profile is active, returns memories belonging to that profile
+     * When a persona is active, returns memories belonging to that persona
      * plus untagged (legacy) memories. When null, returns no additional filter.
      */
-    private function buildPersonaClause(?string $profileId, string $alias = ''): string
+    private function buildPersonaClause(?string $personaId, string $alias = ''): string
     {
-        if ($profileId === null) {
+        if ($personaId === null) {
             return '';
         }
 
         $col = $alias !== '' ? "{$alias}.persona_id" : 'persona_id';
-        $escaped = $this->db->quote($profileId);
+        $escaped = $this->db->quote($personaId);
 
         return " AND ({$col} = {$escaped} OR {$col} IS NULL)";
     }

@@ -259,7 +259,7 @@ test('resolves aliases through config', function () {
     expect($resolver->resolve('coder'))->toBe('anthropic/claude-sonnet-4-20250514');
 });
 
-test('uses profile soul frontmatter model when no role-specific override exists', function () {
+test('uses persona soul frontmatter model when no role-specific override exists', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
     mkdir($workspacePath . '/personas/artist', 0755, true);
@@ -288,7 +288,7 @@ test('uses profile soul frontmatter model when no role-specific override exists'
     }
 });
 
-test('profile role override beats global role config and profile default model', function () {
+test('persona role override beats global role config and persona default model', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
     mkdir($workspacePath . '/roles', 0755, true);

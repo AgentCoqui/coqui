@@ -129,11 +129,11 @@ test('fromFile parses prompts policy and backstory label', function () {
 });
 
 test('fromFile records validation errors for invalid prompt policy', function () {
-    $profileDir = sys_get_temp_dir() . '/coqui-prefs-invalid-' . bin2hex(random_bytes(4));
-    mkdir($profileDir, 0755, true);
-    file_put_contents($profileDir . '/security.md', '');
+    $personaDir = sys_get_temp_dir() . '/coqui-prefs-invalid-' . bin2hex(random_bytes(4));
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/security.md', '');
 
-    $path = $profileDir . '/preferences.json';
+    $path = $personaDir . '/preferences.json';
     file_put_contents($path, json_encode([
         'prompts' => [
             'prompt_sections' => [
@@ -150,13 +150,13 @@ test('fromFile records validation errors for invalid prompt policy', function ()
 
     expect($prefs->isValid())->toBeFalse();
     expect($prefs->getPromptSectionMode('security'))->toBeTrue();
-    expect($prefs->getValidationErrors())->toContain('prompts.prompt_sections.security cannot be changed. Use a profile-specific security.md override instead.');
+    expect($prefs->getValidationErrors())->toContain('prompts.prompt_sections.security cannot be changed. Use a persona-specific security.md override instead.');
     expect($prefs->getValidationErrors())->toContain('prompts.roles.allow must include orchestrator.');
     expect($prefs->getValidationErrors())->toContain('prompts.roles.deny cannot include orchestrator.');
     expect($prefs->getValidationErrors())->toContain('prompts.roles.allow and prompts.roles.deny overlap for: muse.');
-    expect($prefs->getValidationErrors())->toContain('Profile security.md override must not be empty. Remove the file to fall back to workspace or default security.');
+    expect($prefs->getValidationErrors())->toContain('Persona security.md override must not be empty. Remove the file to fall back to workspace or default security.');
 
     unlink($path);
-    unlink($profileDir . '/security.md');
-    rmdir($profileDir);
+    unlink($personaDir . '/security.md');
+    rmdir($personaDir);
 });

@@ -22,81 +22,81 @@ final class PersonaHandler
     /**
      * Handle /persona [name|reset].
      *
-        * Returns a RouteResult with the new profile and a scoped session ID when switching.
+        * Returns a RouteResult with the new persona and a scoped session ID when switching.
      */
     public function handlePersona(
         SymfonyStyle $io,
         string $arg,
         string $activeRole,
-        ?string $activeProfile,
+        ?string $activePersona,
     ): RouteResult {
-        $profileDiscovery = $this->boot->profileDiscovery();
+        $personaDiscovery = $this->boot->personaDiscovery();
 
         if ($arg === '') {
-            return $this->showCurrentProfile($io, $activeProfile, $profileDiscovery);
+            return $this->showCurrentPersona($io, $activePersona, $personaDiscovery);
         }
 
         $parts = preg_split('/\s+/', trim($arg), 2);
-        $profileName = strtolower(trim($parts[0] ?? ''));
+        $personaName = strtolower(trim($parts[0] ?? ''));
         $subArg = isset($parts[1]) ? trim($parts[1]) : '';
 
-        if ($profileName === 'default') {
-            return $this->handleDefaultProfile($io, $subArg);
+        if ($personaName === 'default') {
+            return $this->handleDefaultPersona($io, $subArg);
         }
 
-        if ($profileName === 'reset' || $profileName === 'none') {
-            return $this->resetProfile($io, $activeRole, $activeProfile);
+        if ($personaName === 'reset' || $personaName === 'none') {
+            return $this->resetPersona($io, $activeRole, $activePersona);
         }
 
-        if (!$profileDiscovery->profileExists($profileName)) {
-            $available = $profileDiscovery->availableProfiles();
+        if (!$personaDiscovery->personaExists($personaName)) {
+            $available = $personaDiscovery->availablePersonas();
             $io->error(sprintf(
-                'Profile "%s" not found. Available: %s',
-                $profileName,
-                $available !== [] ? implode(', ', $available) : '(none — create profiles/{name}/soul.md in your workspace)',
+                'Persona "%s" not found. Available: %s',
+                $personaName,
+                $available !== [] ? implode(', ', $available) : '(none — create personas/{name}/soul.md in your workspace)',
             ));
             return RouteResult::continue();
         }
 
-        if ($profileName === $activeProfile) {
-            $io->writeln(sprintf('<fg=gray>Already using profile "%s".</>', $profileName));
+        if ($personaName === $activePersona) {
+            $io->writeln(sprintf('<fg=gray>Already using persona "%s".</>', $personaName));
             return RouteResult::continue();
         }
 
-        $sessionId = $this->session->loadOrCreateProfileSession($io, $profileName, $activeRole);
-        $effectiveRole = $this->session->enforceProfileRolePolicy($io, $sessionId, $profileName);
+        $sessionId = $this->session->loadOrCreatePersonaSession($io, $personaName, $activeRole);
+        $effectiveRole = $this->session->enforcePersonaRolePolicy($io, $sessionId, $personaName);
 
-        $description = $profileDiscovery->extractDescription($profileName);
+        $description = $personaDiscovery->extractDescription($personaName);
         $io->success(sprintf(
-            'Switched to profile "%s"%s',
-            $profileName,
+            'Switched to persona "%s"%s',
+            $personaName,
             $description !== null ? ' — ' . $description : '',
         ));
 
         return RouteResult::stateChange(
             newActiveRole: $effectiveRole,
             newSessionId: $sessionId,
-            newActiveProfile: $profileName,
+            newActivePersona: $personaName,
         );
     }
 
     /**
-     * Handle /personas — list all available profiles.
+     * Handle /personas — list all available personas.
      */
-    public function handlePersonas(SymfonyStyle $io, ?string $activeProfile): RouteResult
+    public function handlePersonas(SymfonyStyle $io, ?string $activePersona): RouteResult
     {
-        $profileDiscovery = $this->boot->profileDiscovery();
-        $profiles = $profileDiscovery->discoverAll();
+        $personaDiscovery = $this->boot->personaDiscovery();
+        $personas = $personaDiscovery->discoverAll();
 
-        if ($profiles === []) {
-            $io->writeln('<fg=gray>No profiles found. Create profiles/{name}/soul.md in your workspace.</>');
+        if ($personas === []) {
+            $io->writeln('<fg=gray>No personas found. Create personas/{name}/soul.md in your workspace.</>');
             return RouteResult::continue();
         }
 
-        $io->writeln('<info>Available profiles:</info>');
-        foreach ($profiles as $name => $path) {
-            $marker = $name === $activeProfile ? ' <fg=green>◀ active</>' : '';
-            $description = $profileDiscovery->extractDescription($name);
+        $io->writeln('<info>Available personas:</info>');
+        foreach ($personas as $name => $path) {
+            $marker = $name === $activePersona ? ' <fg=green>◀ active</>' : '';
+            $description = $personaDiscovery->extractDescription($name);
             $desc = $description !== null ? " — <fg=gray>{$description}</>" : '';
             $io->writeln(sprintf('  • %s%s%s', $name, $desc, $marker));
         }
@@ -104,63 +104,63 @@ final class PersonaHandler
         return RouteResult::continue();
     }
 
-    private function showCurrentProfile(
+    private function showCurrentPersona(
         SymfonyStyle $io,
-        ?string $activeProfile,
-        PersonaDiscovery $profileDiscovery,
+        ?string $activePersona,
+        PersonaDiscovery $personaDiscovery,
     ): RouteResult {
-        if ($activeProfile === null) {
-            $io->writeln('<info>Active profile:</info> (default — no profile)');
+        if ($activePersona === null) {
+            $io->writeln('<info>Active persona:</info> (default — no persona)');
         } else {
-            $description = $profileDiscovery->extractDescription($activeProfile);
+            $description = $personaDiscovery->extractDescription($activePersona);
             $io->writeln(sprintf(
-                '<info>Active profile:</info> %s%s',
-                $activeProfile,
+                '<info>Active persona:</info> %s%s',
+                $activePersona,
                 $description !== null ? ' — ' . $description : '',
             ));
         }
 
-        $available = $profileDiscovery->availableProfiles();
+        $available = $personaDiscovery->availablePersonas();
         if ($available !== []) {
-            $io->writeln('<fg=gray>Available profiles:</> ' . implode(', ', $available));
+            $io->writeln('<fg=gray>Available personas:</> ' . implode(', ', $available));
         }
 
         return RouteResult::continue();
     }
 
-    private function resetProfile(
+    private function resetPersona(
         SymfonyStyle $io,
         string $activeRole,
-        ?string $activeProfile,
+        ?string $activePersona,
     ): RouteResult {
-        if ($activeProfile === null) {
-            $io->writeln('<fg=gray>No profile is active.</>');
+        if ($activePersona === null) {
+            $io->writeln('<fg=gray>No persona is active.</>');
             return RouteResult::continue();
         }
 
         $sessionId = $this->session->loadOrCreateSession($io, $activeRole);
 
-        $io->success('Profile cleared. Reverted to default identity.');
+        $io->success('Persona cleared. Reverted to default identity.');
 
         return RouteResult::stateChange(
             newSessionId: $sessionId,
-            newActiveProfile: '',  // Empty string signals "clear profile"
+            newActivePersona: '',  // Empty string signals "clear persona"
         );
     }
 
-    private function handleDefaultProfile(SymfonyStyle $io, string $arg): RouteResult
+    private function handleDefaultPersona(SymfonyStyle $io, string $arg): RouteResult
     {
-        $profileDiscovery = $this->boot->profileDiscovery();
+        $personaDiscovery = $this->boot->personaDiscovery();
         $configManager = $this->boot->configManager();
         $configuredDefault = $configManager->config()->getDefaultPersona();
 
         if ($arg === '') {
             if ($configuredDefault === null) {
-                $io->writeln('<info>Configured default profile:</info> none');
+                $io->writeln('<info>Configured default persona:</info> none');
             } else {
-                $description = $profileDiscovery->extractDescription($configuredDefault);
+                $description = $personaDiscovery->extractDescription($configuredDefault);
                 $io->writeln(sprintf(
-                    '<info>Configured default profile:</info> %s%s',
+                    '<info>Configured default persona:</info> %s%s',
                     $configuredDefault,
                     $description !== null ? ' — ' . $description : '',
                 ));
@@ -173,42 +173,42 @@ final class PersonaHandler
         $target = strtolower(trim($arg));
         if ($target === 'none' || $target === 'reset' || $target === 'clear') {
             if ($configuredDefault === null) {
-                $io->writeln('<fg=gray>No default profile is configured.</>');
+                $io->writeln('<fg=gray>No default persona is configured.</>');
                 return RouteResult::continue();
             }
 
             $errors = $configManager->remove('agents.defaults.persona');
             if ($errors !== []) {
-                $io->error('Failed to clear default profile: ' . implode('; ', $errors));
+                $io->error('Failed to clear default persona: ' . implode('; ', $errors));
                 return RouteResult::continue();
             }
 
-            $io->success('Default profile cleared from openclaw.json.');
+            $io->success('Default persona cleared from openclaw.json.');
             return RouteResult::continue();
         }
 
-        if (!$profileDiscovery->profileExists($target)) {
-            $available = $profileDiscovery->availableProfiles();
+        if (!$personaDiscovery->personaExists($target)) {
+            $available = $personaDiscovery->availablePersonas();
             $io->error(sprintf(
-                'Profile "%s" not found. Available: %s',
+                'Persona "%s" not found. Available: %s',
                 $target,
-                $available !== [] ? implode(', ', $available) : '(none — create profiles/{name}/soul.md in your workspace)',
+                $available !== [] ? implode(', ', $available) : '(none — create personas/{name}/soul.md in your workspace)',
             ));
             return RouteResult::continue();
         }
 
         if ($target === $configuredDefault) {
-            $io->writeln(sprintf('<fg=gray>Default profile is already "%s".</>', $target));
+            $io->writeln(sprintf('<fg=gray>Default persona is already "%s".</>', $target));
             return RouteResult::continue();
         }
 
         $errors = $configManager->set('agents.defaults.persona', $target);
         if ($errors !== []) {
-            $io->error('Failed to save default profile: ' . implode('; ', $errors));
+            $io->error('Failed to save default persona: ' . implode('; ', $errors));
             return RouteResult::continue();
         }
 
-        $io->success(sprintf('Default profile set to "%s" in openclaw.json.', $target));
+        $io->success(sprintf('Default persona set to "%s" in openclaw.json.', $target));
 
         return RouteResult::continue();
     }

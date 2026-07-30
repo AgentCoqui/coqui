@@ -666,13 +666,13 @@ test('listSessions hides closed sessions by default', function () {
     expect(array_column($allSessions, 'id'))->toContain($closedSessionId);
 });
 
-test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function () {
+test('getLatestInteractiveSessionIdForPersona ignores closed sessions', function () {
     $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed', 'caelum');
     $activeSessionId = $this->storage->createSession('orchestrator', 'model-active', 'caelum');
 
     $this->storage->closeSession($closedSessionId, 'test-close');
 
-    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
+    expect($this->storage->getLatestInteractiveSessionIdForPersona('caelum'))->toBe($activeSessionId);
 });
 
 test('listSessions hides hidden worker sessions', function () {

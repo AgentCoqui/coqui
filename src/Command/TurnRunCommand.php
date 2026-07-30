@@ -167,8 +167,8 @@ final class TurnRunCommand extends Command
                 ? (string) $session['model_role']
                 : 'orchestrator';
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
-            $profileRaw = $session['persona_id'] ?? null;
-            $profile = is_string($profileRaw) ? $profileRaw : null;
+            $personaRaw = $session['persona_id'] ?? null;
+            $persona = is_string($personaRaw) ? $personaRaw : null;
             $groupEnabled = is_array($session) && SessionType::fromSessionRow($session) === SessionType::Group;
 
             if ($groupEnabled) {
@@ -207,7 +207,7 @@ final class TurnRunCommand extends Command
                             observer: new TurnProcessObserver($storage, $turnProcessId, $actorName, $role ?? 'orchestrator'),
                             filePaths: $actorFilePaths,
                             role: $role,
-                            profile: $actorName,
+                            persona: $actorName,
                             actorName: $actorName,
                             actorRole: $role ?? 'orchestrator',
                             questionResponder: $questionResponder,
@@ -222,7 +222,7 @@ final class TurnRunCommand extends Command
                     $turnObserver,
                     $filePaths,
                     $role,
-                    $profile,
+                    $persona,
                     $turnProcessId,
                     $questionResponder,
                 );

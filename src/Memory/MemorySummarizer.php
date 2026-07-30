@@ -32,7 +32,7 @@ final class MemorySummarizer
      * generates a fresh one from the raw entries. If no provider is
      * available, returns the raw compact summary from MemoryStore.
      */
-    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0, ?string $profileId = null): string
+    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0, ?string $personaId = null): string
     {
         $effectiveMaxTokens = $maxTokens > 0 ? $maxTokens : $this->maxTokens;
         $currentCount = $this->memoryStore->count();
@@ -41,17 +41,17 @@ final class MemorySummarizer
             return '';
         }
 
-        // Check cached summary — include profile in cache key via version + profile hash
+        // Check cached summary — include persona in cache key via version + persona hash
         $cached = $this->getCachedSummary();
         $currentVersion = $this->memoryStore->getCacheVersion();
-        $personaHash = $profileId !== null ? crc32($profileId) : 0;
+        $personaHash = $personaId !== null ? crc32($personaId) : 0;
 
         if ($cached !== null && $cached['memory_count'] === $currentCount && $cached['cache_version'] === $currentVersion && $cached['persona_hash'] === $personaHash) {
             return $cached['summary'];
         }
 
         // Generate new summary
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit, profileId: $profileId);
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit, personaId: $personaId);
 
         if ($rawSummary === '') {
             return '';

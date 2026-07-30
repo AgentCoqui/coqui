@@ -27,14 +27,14 @@ final readonly class PromptLoader
      * @param array<string, string> $placeholders Map of {{key}} → value for substitution.
     * @param ?string $workspacePath Absolute path to the workspace directory (for prompts/soul.md override resolution).
      * @param list<string> $excludeToolPromptSlugs Tool prompt file slugs to skip (e.g. ['loops'] skips tools/loops.md).
-     * @param ?string $profilePath Absolute path to the active profile directory (for 3-tier prompt override resolution).
+     * @param ?string $personaPath Absolute path to the active persona directory (for 3-tier prompt override resolution).
      */
     public function __construct(
         private string $promptsDir,
         private array $placeholders = [],
         private ?string $workspacePath = null,
         private array $excludeToolPromptSlugs = [],
-        private ?string $profilePath = null,
+        private ?string $personaPath = null,
     ) {}
 
     /**
@@ -161,10 +161,10 @@ final readonly class PromptLoader
     }
 
     /**
-     * Resolve the soul.md file path with profile and user-override support.
+     * Resolve the soul.md file path with persona and user-override support.
      *
      * Resolution order (3-tier fallback):
-     *   1. Active profile: {profilePath}/soul.md
+     *   1. Active persona: {personaPath}/soul.md
      *   2. Workspace override: {workspace}/prompts/soul.md
      *   3. Default: {promptsDir}/soul.md
      *
@@ -179,7 +179,7 @@ final readonly class PromptLoader
      * Resolve a prompt file path using the 3-tier fallback chain.
      *
      * Resolution order:
-     *   1. Active profile directory (if set)
+     *   1. Active persona directory (if set)
      *   2. Workspace prompts directory (if workspacePath set)
      *   3. Default prompts directory
      *
@@ -187,12 +187,12 @@ final readonly class PromptLoader
      */
     public function resolvePromptFile(string $filename): ?string
     {
-        // Tier 1: Profile override
-        if ($this->profilePath !== null) {
-            $profileFile = rtrim($this->profilePath, '/') . '/' . $filename;
-            if (is_file($profileFile)) {
-                if ($filename !== 'security.md' || $this->hasUsableSecurityOverride($profileFile)) {
-                    return $profileFile;
+        // Tier 1: Persona override
+        if ($this->personaPath !== null) {
+            $personaFile = rtrim($this->personaPath, '/') . '/' . $filename;
+            if (is_file($personaFile)) {
+                if ($filename !== 'security.md' || $this->hasUsableSecurityOverride($personaFile)) {
+                    return $personaFile;
                 }
             }
         }
@@ -217,7 +217,7 @@ final readonly class PromptLoader
      * Build just the soul.md content (core identity section).
      *
      * Returns the processed soul text (with placeholder substitution and
-     * profile frontmatter stripped), or null if no soul.md exists.
+     * persona frontmatter stripped), or null if no soul.md exists.
      */
     public function buildSoulContent(): ?string
     {
@@ -234,7 +234,7 @@ final readonly class PromptLoader
             return null;
         }
 
-        $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+        $content = $this->readPromptContent($soulPath, supportsPersonaSoulFrontmatter: true);
         if ($content === null) {
             return null;
         }
@@ -245,7 +245,7 @@ final readonly class PromptLoader
     /**
      * Build the backstory.md content (identity context, continuity markers).
      *
-     * Resolves backstory.md via the standard 3-tier chain (profile → workspace → default).
+     * Resolves backstory.md via the standard 3-tier chain (persona → workspace → default).
      * Returns null if no backstory.md exists in any tier.
      */
     public function buildBackstoryContent(): ?string
@@ -274,7 +274,7 @@ final readonly class PromptLoader
     /**
      * Build the persona context block from context/*.md.
      *
-     * Persona-owned: read only from the active profile dir (no fallback).
+     * Persona-owned: read only from the active persona dir (no fallback).
      * Returns null when disabled, stubbed-empty, or no context files exist.
      */
     public function buildContextContent(): ?string
@@ -287,12 +287,12 @@ final readonly class PromptLoader
             return $this->buildStubContent('context');
         }
 
-        if ($this->profilePath === null) {
+        if ($this->personaPath === null) {
             return null;
         }
 
-        $label = $this->profilePreferences()?->getContextLabel() ?? 'Context';
-        $content = (new PersonaContextReader())->read($this->profilePath, $label);
+        $label = $this->personaPreferences()?->getContextLabel() ?? 'Context';
+        $content = (new PersonaContextReader())->read($this->personaPath, $label);
         if ($content === null) {
             return null;
         }
@@ -320,12 +320,12 @@ final readonly class PromptLoader
         }
 
         // Tool-specific sections (auto-discovered, alphabetical, filtered by exclusions)
-        // Profile tool overrides are merged: profile files replace same-named defaults.
+        // Persona tool overrides are merged: persona files replace same-named defaults.
         if ($this->shouldIncludePromptSection('tools')) {
             if ($this->isPromptSectionStubbed('tools')) {
                 $sections[] = $this->buildStubContent('tools');
             } else {
-                $toolEntries = $this->discoverSectionEntriesWithProfileMerge('tools');
+                $toolEntries = $this->discoverSectionEntriesWithPersonaMerge('tools');
                 $filteredToolContent = [];
                 foreach ($toolEntries as $entry) {
                     $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
@@ -408,14 +408,14 @@ final readonly class PromptLoader
     {
         $sections = [];
 
-        // Soul — core identity, values, personality (profile → workspace → default)
+        // Soul — core identity, values, personality (persona → workspace → default)
         if ($this->shouldIncludePromptSection('soul')) {
             if ($this->isPromptSectionStubbed('soul')) {
                 $sections[] = $this->buildStubSectionEntry('soul', 'Soul', 'soul');
             } else {
                 $soulPath = $this->resolveSoulPath();
                 if ($soulPath !== null) {
-                    $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+                    $content = $this->readPromptContent($soulPath, supportsPersonaSoulFrontmatter: true);
                     if ($content !== null) {
                         $sections[] = [
                             'id' => 'soul',
@@ -452,15 +452,15 @@ final readonly class PromptLoader
         if ($this->shouldIncludePromptSection('context')) {
             if ($this->isPromptSectionStubbed('context')) {
                 $sections[] = $this->buildStubSectionEntry('context', 'Context', 'context');
-            } elseif ($this->profilePath !== null) {
-                $label = $this->profilePreferences()?->getContextLabel() ?? 'Context';
-                $contextContent = (new PersonaContextReader())->read($this->profilePath, $label);
+            } elseif ($this->personaPath !== null) {
+                $label = $this->personaPreferences()?->getContextLabel() ?? 'Context';
+                $contextContent = (new PersonaContextReader())->read($this->personaPath, $label);
                 if ($contextContent !== null) {
                     $sections[] = [
                         'id' => 'context',
                         'title' => 'Context',
                         'content' => $this->substitutePlaceholders($contextContent),
-                        'source' => rtrim($this->profilePath, '/') . '/context',
+                        'source' => rtrim($this->personaPath, '/') . '/context',
                     ];
                 }
             }
@@ -489,7 +489,7 @@ final readonly class PromptLoader
             if ($this->isPromptSectionStubbed('tools')) {
                 $sections[] = $this->buildStubSectionEntry('tools.stub', 'Tool Prompts', 'tools');
             } else {
-                foreach ($this->discoverSectionEntriesWithProfileMerge('tools') as $entry) {
+                foreach ($this->discoverSectionEntriesWithPersonaMerge('tools') as $entry) {
                     $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
                     if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
                         continue;
@@ -561,11 +561,11 @@ final readonly class PromptLoader
         return $this->substitutePlaceholders(trim($content));
     }
 
-    private function readPromptContent(string $path, bool $supportsProfileSoulFrontmatter = false): ?string
+    private function readPromptContent(string $path, bool $supportsPersonaSoulFrontmatter = false): ?string
     {
-        if ($supportsProfileSoulFrontmatter && $this->profilePath !== null) {
-            $expectedProfileSoulPath = rtrim($this->profilePath, '/') . '/soul.md';
-            if ($path === $expectedProfileSoulPath) {
+        if ($supportsPersonaSoulFrontmatter && $this->personaPath !== null) {
+            $expectedPersonaSoulPath = rtrim($this->personaPath, '/') . '/soul.md';
+            if ($path === $expectedPersonaSoulPath) {
                 return (new PersonaParser())->readFile($path)['body'];
             }
         }
@@ -576,15 +576,15 @@ final readonly class PromptLoader
     }
 
     /**
-     * Discover section entries with profile-aware merging.
+     * Discover section entries with persona-aware merging.
      *
-     * When a profile is active and provides files in the same section subdirectory
-     * (e.g. profiles/{name}/tools/memory.md), those files override same-named
+     * When a persona is active and provides files in the same section subdirectory
+     * (e.g. personas/{name}/tools/memory.md), those files override same-named
      * defaults from the base prompts directory.
      *
      * @return array<int, array{id: string, title: string, filename: string, content: string, source: string}>
      */
-    private function discoverSectionEntriesWithProfileMerge(string $section): array
+    private function discoverSectionEntriesWithPersonaMerge(string $section): array
     {
         // Start with default entries (keyed by filename for merge)
         $entriesByFilename = [];
@@ -592,11 +592,11 @@ final readonly class PromptLoader
             $entriesByFilename[$entry['filename']] = $entry;
         }
 
-        // Merge profile overrides if a profile is active
-        if ($this->profilePath !== null) {
-            $profileSectionDir = rtrim($this->profilePath, '/') . '/' . $section;
-            if (is_dir($profileSectionDir)) {
-                $files = glob($profileSectionDir . '/*.md');
+        // Merge persona overrides if a persona is active
+        if ($this->personaPath !== null) {
+            $personaSectionDir = rtrim($this->personaPath, '/') . '/' . $section;
+            if (is_dir($personaSectionDir)) {
+                $files = glob($personaSectionDir . '/*.md');
                 if ($files !== false) {
                     sort($files);
                     foreach ($files as $file) {
@@ -639,21 +639,21 @@ final readonly class PromptLoader
 
     private function shouldIncludePromptSection(string $section): bool
     {
-        return $this->profilePreferences()?->isPromptSectionEnabled($section, true) ?? true;
+        return $this->personaPreferences()?->isPromptSectionEnabled($section, true) ?? true;
     }
 
     private function isPromptSectionStubbed(string $section): bool
     {
-        return $this->profilePreferences()?->isPromptSectionStubbed($section) === true;
+        return $this->personaPreferences()?->isPromptSectionStubbed($section) === true;
     }
 
-    private function profilePreferences(): ?PersonaPreferences
+    private function personaPreferences(): ?PersonaPreferences
     {
-        if ($this->profilePath === null) {
+        if ($this->personaPath === null) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->profilePath);
+        return PersonaPreferences::fromPersonaPath($this->personaPath);
     }
 
     private function hasUsableSecurityOverride(string $path): bool
@@ -665,20 +665,20 @@ final readonly class PromptLoader
 
     private function promptPolicySource(): string
     {
-        return $this->profilePath !== null
-            ? rtrim($this->profilePath, '/') . '/preferences.json'
-            : 'profile_preferences';
+        return $this->personaPath !== null
+            ? rtrim($this->personaPath, '/') . '/preferences.json'
+            : 'persona_preferences';
     }
 
     private function buildStubContent(string $section): string
     {
         return match ($section) {
-            'soul' => '# Soul' . "\n\n" . 'Core identity instructions are intentionally condensed for this profile.',
-            'backstory' => '## Backstory' . "\n\n" . 'Narrative continuity is intentionally condensed for this profile.',
-            'base' => '## Base Prompt' . "\n\n" . 'Operational guidance is intentionally condensed for this profile.',
-            'tools' => '## Tool Prompts' . "\n\n" . 'Tool guidance is intentionally condensed for this profile. Use tool schemas and discovery surfaces to choose tools.',
-            'done' => '## Completion Rules' . "\n\n" . 'Completion guidance is intentionally condensed for this profile.',
-            default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this profile.',
+            'soul' => '# Soul' . "\n\n" . 'Core identity instructions are intentionally condensed for this persona.',
+            'backstory' => '## Backstory' . "\n\n" . 'Narrative continuity is intentionally condensed for this persona.',
+            'base' => '## Base Prompt' . "\n\n" . 'Operational guidance is intentionally condensed for this persona.',
+            'tools' => '## Tool Prompts' . "\n\n" . 'Tool guidance is intentionally condensed for this persona. Use tool schemas and discovery surfaces to choose tools.',
+            'done' => '## Completion Rules' . "\n\n" . 'Completion guidance is intentionally condensed for this persona.',
+            default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this persona.',
         };
     }
 

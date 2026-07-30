@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Config\RoleResolver;
 
 /**
- * Finalizes profiled sessions by preserving continuity before closure.
+ * Finalizes personaScoped sessions by preserving continuity before closure.
  */
 final readonly class PersonaSessionLifecycleManager
 {
@@ -30,9 +30,9 @@ final readonly class PersonaSessionLifecycleManager
     /**
      * @return list<string>
      */
-    public function finalizeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
+    public function finalizeOtherActiveInteractiveSessionsForPersona(string $persona, string $keepSessionId, string $reason): array
     {
-        $sessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
+        $sessions = $this->storage->listActiveInteractiveSessionsForPersona($persona);
         $finalized = [];
 
         foreach ($sessions as $session) {
@@ -55,7 +55,7 @@ final readonly class PersonaSessionLifecycleManager
             return;
         }
 
-        $profileId = $this->normalizeProfile($session['persona_id'] ?? null);
+        $personaId = $this->normalizePersona($session['persona_id'] ?? null);
         $provider = $this->resolveProvider();
 
         if ($provider !== null && $this->memoryStore !== null) {
@@ -72,7 +72,7 @@ final readonly class PersonaSessionLifecycleManager
                     provider: $provider,
                     keepRecentTurns: CoquiDefaults::KEEP_RECENT_TURNS,
                     workflowContext: $this->buildWorkflowContext($sessionId),
-                    profileId: $profileId,
+                    personaId: $personaId,
                 );
             } catch (\Throwable) {
                 // Best-effort continuity preservation should never block closure.
@@ -86,7 +86,7 @@ final readonly class PersonaSessionLifecycleManager
                         provider: $provider,
                         recentTurns: 8,
                         bypassCooldown: true,
-                        profileId: $profileId,
+                        personaId: $personaId,
                     );
                 }
             } catch (\Throwable) {
@@ -150,8 +150,8 @@ final readonly class PersonaSessionLifecycleManager
         return $sections !== [] ? implode("\n", $sections) : null;
     }
 
-    private function normalizeProfile(mixed $profile): ?string
+    private function normalizePersona(mixed $persona): ?string
     {
-        return is_string($profile) && $profile !== '' ? $profile : null;
+        return is_string($persona) && $persona !== '' ? $persona : null;
     }
 }

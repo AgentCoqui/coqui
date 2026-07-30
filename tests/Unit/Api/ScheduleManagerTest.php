@@ -17,13 +17,13 @@ afterEach(function () {
     cleanupSqliteTestDb($this->dbPath);
 });
 
-test('tick creates scheduled task session with persisted profile metadata', function () {
+test('tick creates scheduled task session with persisted persona metadata', function () {
     $scheduleId = $this->scheduleStore->create(
         name: 'caelum-daily',
         scheduleExpression: '@once',
         prompt: 'Check project continuity',
         role: 'orchestrator',
-        metadata: json_encode(['profile' => 'caelum'], JSON_UNESCAPED_SLASHES),
+        metadata: json_encode(['persona' => 'caelum'], JSON_UNESCAPED_SLASHES),
     );
     $this->scheduleStore->forceNextRun($scheduleId, gmdate('Y-m-d\TH:i:s\Z', time() - 120));
 

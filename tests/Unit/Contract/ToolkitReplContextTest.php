@@ -34,7 +34,7 @@ describe('ToolkitReplContext (text portal)', function (): void {
             io: $io,
             prompt: new InterruptiblePrompt($io),
             workspacePath: sys_get_temp_dir(),
-            activeProfile: null,
+            activePersona: null,
             sessionId: 'session-1',
             output: $output,
             databaseFactory: new ToolkitDatabaseFactory(sys_get_temp_dir()),

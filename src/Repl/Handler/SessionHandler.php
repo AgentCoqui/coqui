@@ -25,36 +25,36 @@ final class SessionHandler
         private ?PersonaSessionLifecycleManager $lifecycleManager = null,
     ) {}
 
-    public function createNewSession(string $role = 'orchestrator', ?string $profile = null): string
+    public function createNewSession(string $role = 'orchestrator', ?string $persona = null): string
     {
-        $result = $this->interactiveSessions()->createSession($role, $profile);
+        $result = $this->interactiveSessions()->createSession($role, $persona);
         $sessionId = (string) $result->session['id'];
         $this->saveSessionFile($sessionId);
 
         return $sessionId;
     }
 
-    public function startFreshSession(?SymfonyStyle $io, string $currentSessionId, ?string $activeProfile): ?string
+    public function startFreshSession(?SymfonyStyle $io, string $currentSessionId, ?string $activePersona): ?string
     {
-        if ($activeProfile === null) {
+        if ($activePersona === null) {
             return $this->createNewSession();
         }
 
         $io?->warning(sprintf(
-            'Starting a new session for profile "%s" will summarize the current chat, store memories, archive the conversation, and close the current session while preserving it in the database.',
-            $activeProfile,
+            'Starting a new session for persona "%s" will summarize the current chat, store memories, archive the conversation, and close the current session while preserving it in the database.',
+            $activePersona,
         ));
 
-        if ($io !== null && !$io->confirm('Start a fresh session for this profile?', false)) {
-            $this->writeInfo($io, 'Kept the current profiled session open.');
+        if ($io !== null && !$io->confirm('Start a fresh session for this persona?', false)) {
+            $this->writeInfo($io, 'Kept the current personaScoped session open.');
             return null;
         }
 
-        $result = $this->interactiveSessions()->createFreshProfileSession(
+        $result = $this->interactiveSessions()->createFreshPersonaSession(
             currentSessionId: $currentSessionId,
-            profile: $activeProfile,
+            persona: $activePersona,
             modelRole: SystemRole::Orchestrator->value,
-            closureReasonPrefix: 'repl_new_profile_session',
+            closureReasonPrefix: 'repl_new_persona_session',
         );
         $newSessionId = (string) $result->session['id'];
         $this->saveSessionFile($newSessionId);
@@ -67,9 +67,9 @@ final class SessionHandler
         return $this->loadOrCreateScopedSession($io, null, $role);
     }
 
-    public function loadOrCreateProfileSession(?SymfonyStyle $io, string $profile, string $role = 'orchestrator'): string
+    public function loadOrCreatePersonaSession(?SymfonyStyle $io, string $persona, string $role = 'orchestrator'): string
     {
-        return $this->loadOrCreateScopedSession($io, $profile, $role);
+        return $this->loadOrCreateScopedSession($io, $persona, $role);
     }
 
     public function loadOrCreateAttachedSession(?SymfonyStyle $io, string $role = 'orchestrator'): string
@@ -117,19 +117,19 @@ final class SessionHandler
         return null;
     }
 
-    public function restoreActiveProfileFromSession(string $sessionId): ?string
+    public function restoreActivePersonaFromSession(string $sessionId): ?string
     {
         $session = $this->storage->getSession($sessionId);
         if ($session === null) {
             return null;
         }
 
-        $storedProfile = $session['persona_id'] ?? null;
+        $storedPersona = $session['persona_id'] ?? null;
 
-        return is_string($storedProfile) && $storedProfile !== '' ? $storedProfile : null;
+        return is_string($storedPersona) && $storedPersona !== '' ? $storedPersona : null;
     }
 
-    public function enforceProfileRolePolicy(?SymfonyStyle $io, string $sessionId, ?string $profile): string
+    public function enforcePersonaRolePolicy(?SymfonyStyle $io, string $sessionId, ?string $persona): string
     {
         $session = $this->storage->getSession($sessionId);
         if ($session === null) {
@@ -141,11 +141,11 @@ final class SessionHandler
             $currentRole = SystemRole::Orchestrator->value;
         }
 
-        $effectiveRole = $this->interactiveSessions()->enforceProfileRolePolicy($sessionId, $profile);
+        $effectiveRole = $this->interactiveSessions()->enforcePersonaRolePolicy($sessionId, $persona);
         if ($effectiveRole !== $currentRole) {
             $this->writeInfo(
                 $io,
-                sprintf('Profile "%s" does not allow role "%s". Reverted session to orchestrator.', $profile, $currentRole),
+                sprintf('Persona "%s" does not allow role "%s". Reverted session to orchestrator.', $persona, $currentRole),
             );
         }
 
@@ -255,45 +255,45 @@ final class SessionHandler
         return $arg;
     }
 
-    private function loadOrCreateScopedSession(?SymfonyStyle $io, ?string $profile, string $role): string
+    private function loadOrCreateScopedSession(?SymfonyStyle $io, ?string $persona, string $role): string
     {
-        if ($profile !== null) {
-            return $this->loadOrCreateProfileScopedSession($io, $profile, $role);
+        if ($persona !== null) {
+            return $this->loadOrCreatePersonaScopedSession($io, $persona, $role);
         }
 
-        $attachedId = $this->loadAttachedInteractiveSessionIdForScope($profile);
+        $attachedId = $this->loadAttachedInteractiveSessionIdForScope($persona);
         if ($attachedId !== null) {
-            $this->writeInfo($io, $this->attachedScopeMessage($profile, $attachedId));
+            $this->writeInfo($io, $this->attachedScopeMessage($persona, $attachedId));
             return $attachedId;
         }
 
-        $result = $this->interactiveSessions()->resolveScopedSession($role, $profile, 'repl_unprofiled_duplicate_cleanup');
+        $result = $this->interactiveSessions()->resolveScopedSession($role, $persona, 'repl_unpersona_duplicate_cleanup');
         $sessionId = (string) $result->session['id'];
         $this->saveSessionFile($sessionId);
-        $this->writeInfo($io, $result->created ? $this->createdScopeMessage($profile, $sessionId) : $this->latestScopeMessage($profile, $sessionId));
+        $this->writeInfo($io, $result->created ? $this->createdScopeMessage($persona, $sessionId) : $this->latestScopeMessage($persona, $sessionId));
 
         return $sessionId;
     }
 
-    private function loadOrCreateProfileScopedSession(?SymfonyStyle $io, string $profile, string $role): string
+    private function loadOrCreatePersonaScopedSession(?SymfonyStyle $io, string $persona, string $role): string
     {
-        $attachedId = $this->loadAttachedInteractiveSessionIdForScope($profile);
-        $result = $this->interactiveSessions()->resolveScopedSession($role, $profile, 'profile_duplicate_cleanup');
+        $attachedId = $this->loadAttachedInteractiveSessionIdForScope($persona);
+        $result = $this->interactiveSessions()->resolveScopedSession($role, $persona, 'persona_duplicate_cleanup');
         $sessionId = (string) $result->session['id'];
 
         if ($result->closedSessionIds !== []) {
             $this->writeInfo(
                 $io,
-                sprintf('Archived %d older active session(s) for profile "%s".', count($result->closedSessionIds), $profile),
+                sprintf('Archived %d older active session(s) for persona "%s".', count($result->closedSessionIds), $persona),
             );
         }
 
         $this->saveSessionFile($sessionId);
         $message = $result->created
-            ? $this->createdScopeMessage($profile, $sessionId)
+            ? $this->createdScopeMessage($persona, $sessionId)
             : ($attachedId === $sessionId
-                ? $this->attachedScopeMessage($profile, $sessionId)
-                : $this->latestScopeMessage($profile, $sessionId));
+                ? $this->attachedScopeMessage($persona, $sessionId)
+                : $this->latestScopeMessage($persona, $sessionId));
         $this->writeInfo($io, $message);
 
         return $sessionId;
@@ -313,7 +313,7 @@ final class SessionHandler
         return $this->storage->isInteractiveSession($sessionId) ? $sessionId : null;
     }
 
-    private function loadAttachedInteractiveSessionIdForScope(?string $profile): ?string
+    private function loadAttachedInteractiveSessionIdForScope(?string $persona): ?string
     {
         $sessionId = $this->loadAttachedInteractiveSessionId();
         if ($sessionId === null) {
@@ -325,10 +325,10 @@ final class SessionHandler
             return null;
         }
 
-        $sessionProfile = $session['persona_id'] ?? null;
-        $resolvedProfile = is_string($sessionProfile) && $sessionProfile !== '' ? $sessionProfile : null;
+        $sessionPersona = $session['persona_id'] ?? null;
+        $resolvedPersona = is_string($sessionPersona) && $sessionPersona !== '' ? $sessionPersona : null;
 
-        return $resolvedProfile === $profile ? $sessionId : null;
+        return $resolvedPersona === $persona ? $sessionId : null;
     }
 
     private function readSessionFile(): ?string
@@ -373,35 +373,35 @@ final class SessionHandler
         return new InteractiveSessionService(
             $this->storage,
             $this->boot->roleResolver(),
-            $this->boot->profileDiscovery(),
+            $this->boot->personaDiscovery(),
             $this->lifecycleManager(),
         );
     }
 
-    private function attachedScopeMessage(?string $profile, string $sessionId): string
+    private function attachedScopeMessage(?string $persona, string $sessionId): string
     {
-        if ($profile === null) {
-            return 'Resumed attached unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        if ($persona === null) {
+            return 'Resumed attached unpersonaScoped session: ' . substr($sessionId, 0, 8) . '...';
         }
 
-        return sprintf('Resumed attached profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
+        return sprintf('Resumed attached persona session "%s": %s...', $persona, substr($sessionId, 0, 8));
     }
 
-    private function latestScopeMessage(?string $profile, string $sessionId): string
+    private function latestScopeMessage(?string $persona, string $sessionId): string
     {
-        if ($profile === null) {
-            return 'Resumed latest unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        if ($persona === null) {
+            return 'Resumed latest unpersonaScoped session: ' . substr($sessionId, 0, 8) . '...';
         }
 
-        return sprintf('Resumed latest profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
+        return sprintf('Resumed latest persona session "%s": %s...', $persona, substr($sessionId, 0, 8));
     }
 
-    private function createdScopeMessage(?string $profile, string $sessionId): string
+    private function createdScopeMessage(?string $persona, string $sessionId): string
     {
-        if ($profile === null) {
-            return 'Created new unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        if ($persona === null) {
+            return 'Created new unpersonaScoped session: ' . substr($sessionId, 0, 8) . '...';
         }
 
-        return sprintf('Created new profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
+        return sprintf('Created new persona session "%s": %s...', $persona, substr($sessionId, 0, 8));
     }
 }

@@ -90,7 +90,7 @@ final class SlashCommandRouter
      *
      * @return RouteResult Result containing exit code or state changes.
      */
-    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null, ?string $activeProfile = null): RouteResult
+    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null, ?string $activePersona = null): RouteResult
     {
         $parts = explode(' ', $command, 2);
         $cmd = $parts[0];
@@ -99,12 +99,12 @@ final class SlashCommandRouter
         $result = match ($cmd) {
             '/quit', '/exit', '/q' => $this->handleQuit($io),
             '/restart' => RouteResult::exit(ConfigHandler::RESTART_EXIT_CODE),
-            '/new' => $this->handleNew($io, $sessionId, $activeProfile),
+            '/new' => $this->handleNew($io, $sessionId, $activePersona),
             '/history' => $this->handleHistory($io, $sessionId),
             '/sessions' => $this->handleSessions($io, $sessionId),
             '/resume' => $this->handleResume($io, $arg),
             '/model' => $this->handleModel($io, $arg),
-            '/thinking' => $this->handleThinking($io, $arg, $activeRole, $activeProfile),
+            '/thinking' => $this->handleThinking($io, $arg, $activeRole, $activePersona),
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
             '/projects' => $this->handleProjects($io, $arg, $sessionId, $activeProjectId),
@@ -112,21 +112,21 @@ final class SlashCommandRouter
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
-            '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile, $sessionId),
-            '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile, $sessionId),
+            '/budget' => $this->handleBudget($io, $arg, $activeRole, $activePersona, $sessionId),
+            '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activePersona, $sessionId),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
-            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
+            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activePersona),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/group' => $this->handleGroup($io, $arg, $sessionId),
-            '/persona' => $this->handlePersona($io, $arg, $activeRole, $activeProfile),
-            '/personas' => $this->handlePersonas($io, $activeProfile),
+            '/persona' => $this->handlePersona($io, $arg, $activeRole, $activePersona),
+            '/personas' => $this->handlePersonas($io, $activePersona),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/audit' => $this->handleAudit($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
-            default => $this->dispatchToolkitOrUnknown($io, $cmd, $arg, $activeProfile, $sessionId),
+            default => $this->dispatchToolkitOrUnknown($io, $cmd, $arg, $activePersona, $sessionId),
         };
 
         return $result;
@@ -141,9 +141,9 @@ final class SlashCommandRouter
         return RouteResult::exit(Command::SUCCESS);
     }
 
-    private function handleNew(SymfonyStyle $io, string $sessionId, ?string $activeProfile): RouteResult
+    private function handleNew(SymfonyStyle $io, string $sessionId, ?string $activePersona): RouteResult
     {
-        $newSessionId = $this->session->startFreshSession($io, $sessionId, $activeProfile);
+        $newSessionId = $this->session->startFreshSession($io, $sessionId, $activePersona);
         if ($newSessionId === null) {
             return RouteResult::continue();
         }
@@ -180,9 +180,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleThinking(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    private function handleThinking(SymfonyStyle $io, string $arg, string $activeRole, ?string $activePersona): RouteResult
     {
-        $this->thinking->handle($io, $arg, $activeRole, $activeProfile);
+        $this->thinking->handle($io, $arg, $activeRole, $activePersona);
         return RouteResult::continue();
     }
 
@@ -243,17 +243,17 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile, string $sessionId): RouteResult
+    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activePersona, string $sessionId): RouteResult
     {
         $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
 
         if (trim($arg) === 'export') {
-            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile, $sessionId);
+            $filePath = $this->agentRunner->exportPromptToFile($role, $activePersona, $sessionId);
             $io->success('Prompt exported to: ' . $filePath);
             return RouteResult::continue();
         }
 
-        $preview = $this->promptInspection->inspect($role, $activeProfile, $sessionId);
+        $preview = $this->promptInspection->inspect($role, $activePersona, $sessionId);
         $io->section('System Prompt');
         $this->renderMarkdown($io, $preview['prompt']);
         $io->newLine();
@@ -341,14 +341,14 @@ final class SlashCommandRouter
         }
     }
 
-    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile, string $sessionId): RouteResult
+    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activePersona, string $sessionId): RouteResult
     {
         $requestedRole = trim($arg);
         $role = $requestedRole !== ''
             ? $requestedRole
             : ($activeRole !== SystemRole::Orchestrator->value ? $activeRole : null);
 
-        $this->budget->handle($io, $role, $activeProfile, $sessionId);
+        $this->budget->handle($io, $role, $activePersona, $sessionId);
 
         return RouteResult::continue();
     }
@@ -359,9 +359,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activeProfile): RouteResult
+    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activePersona): RouteResult
     {
-        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile);
+        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId, $activePersona);
         if ($newRole !== null) {
             return RouteResult::stateChange(newActiveRole: $newRole);
         }
@@ -379,14 +379,14 @@ final class SlashCommandRouter
         return $this->group->handle($io, $arg, $sessionId);
     }
 
-    private function handlePersona(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    private function handlePersona(SymfonyStyle $io, string $arg, string $activeRole, ?string $activePersona): RouteResult
     {
-        return $this->persona->handlePersona($io, $arg, $activeRole, $activeProfile);
+        return $this->persona->handlePersona($io, $arg, $activeRole, $activePersona);
     }
 
-    private function handlePersonas(SymfonyStyle $io, ?string $activeProfile): RouteResult
+    private function handlePersonas(SymfonyStyle $io, ?string $activePersona): RouteResult
     {
-        return $this->persona->handlePersonas($io, $activeProfile);
+        return $this->persona->handlePersonas($io, $activePersona);
     }
 
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult
@@ -472,7 +472,7 @@ final class SlashCommandRouter
     /**
      * Dispatch to a toolkit-provided command handler, or show unknown command error.
      */
-    private function dispatchToolkitOrUnknown(SymfonyStyle $io, string $cmd, string $arg, ?string $activeProfile, string $sessionId): RouteResult
+    private function dispatchToolkitOrUnknown(SymfonyStyle $io, string $cmd, string $arg, ?string $activePersona, string $sessionId): RouteResult
     {
         // Strip leading slash for handler lookup
         $name = ltrim($cmd, '/');
@@ -489,7 +489,7 @@ final class SlashCommandRouter
                 io: $io,
                 prompt: new InterruptiblePrompt($io),
                 workspacePath: $this->workspacePath,
-                activeProfile: $activeProfile,
+                activePersona: $activePersona,
                 sessionId: $sessionId,
                 output: $this->output,
                 databaseFactory: new ToolkitDatabaseFactory($this->workspacePath),

@@ -71,7 +71,7 @@ function createTabCompletionFixture(): array
     ]));
 
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 3));
-    $profileDiscovery = new PersonaDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $loopDiscovery = new LoopDiscovery($workspacePath, dirname(__DIR__, 3));
     $loopDiscovery->seedBuiltinLoops();
     $skillDiscovery = new SkillDiscovery($workspacePath);
@@ -85,7 +85,7 @@ function createTabCompletionFixture(): array
         workspacePath: $workspacePath,
         roleResolver: $roleResolver,
         roleDiscovery: $roleDiscovery,
-        profileDiscovery: $profileDiscovery,
+        personaDiscovery: $personaDiscovery,
         projectStore: $projectStore,
         loopDiscovery: $loopDiscovery,
         discovery: $discovery,
@@ -133,7 +133,7 @@ function testBootManagerForTabCompletion(
     string $workspacePath,
     RoleResolver $roleResolver,
     RoleDiscovery $roleDiscovery,
-    PersonaDiscovery $profileDiscovery,
+    PersonaDiscovery $personaDiscovery,
     ProjectStore $projectStore,
     LoopDiscovery $loopDiscovery,
     ToolkitDiscovery $discovery,
@@ -148,7 +148,7 @@ function testBootManagerForTabCompletion(
         $workspacePath,
         $roleResolver,
         $roleDiscovery,
-        $profileDiscovery,
+        $personaDiscovery,
         $projectStore,
         $loopDiscovery,
         $discovery,
@@ -158,7 +158,7 @@ function testBootManagerForTabCompletion(
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
         $this->roleDiscovery = $roleDiscovery;
-        $this->profileDiscovery = $profileDiscovery;
+        $this->personaDiscovery = $personaDiscovery;
         $this->projectStore = $projectStore;
         $this->loopDiscovery = $loopDiscovery;
         $this->discovery = $discovery;
@@ -216,7 +216,7 @@ test('static command completion covers catalog argument hints', function (): voi
     }
 });
 
-test('role, profile, session, task, and todo completion use live state', function (): void {
+test('role, persona, session, task, and todo completion use live state', function (): void {
     $fixture = createTabCompletionFixture();
 
     try {

@@ -97,10 +97,10 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
             $resolvedRole = $request->modelRole;
         }
 
-        if ($request->updatesProfile) {
+        if ($request->updatesPersona) {
             throw new SessionTypeException(
                 ApiErrorCode::VALIDATION_ERROR,
-                'Group sessions do not support a single active profile.',
+                'Group sessions do not support a single active persona.',
             );
         }
 
@@ -166,10 +166,10 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
         $groupSession = $this->requireGroupSession($session);
         $requestBody = $this->requireRequestBody($body);
 
-        $profile = $this->groupSessions->normalizeMember($requestBody['profile'] ?? null);
+        $persona = $this->groupSessions->normalizeMember($requestBody['persona_id'] ?? null);
         $result = $this->groupSessions->addSessionMember(
             sessionId: $sessionId,
-            profile: $profile,
+            persona: $persona,
             confirmCloseActive: $this->confirmCloseActiveGroupSession($requestBody),
             groupMaxRounds: $this->resolveGroupMaxRounds($groupSession),
             closureReasonPrefix: 'api_group_membership_update',
@@ -182,16 +182,16 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
      * @param array<string, mixed> $session
      * @return array<string, mixed>
      */
-    public function removeMember(array $session, string $profile, mixed $body): array
+    public function removeMember(array $session, string $persona, mixed $body): array
     {
         $sessionId = $this->requireSessionId($session);
         $groupSession = $this->requireGroupSession($session);
-        $targetProfile = $this->groupSessions->normalizeMember($profile);
+        $targetPersona = $this->groupSessions->normalizeMember($persona);
         $requestBody = is_array($body) ? $body : [];
 
         $result = $this->groupSessions->removeSessionMember(
             sessionId: $sessionId,
-            profile: $targetProfile,
+            persona: $targetPersona,
             confirmCloseActive: $this->confirmCloseActiveGroupSession($requestBody),
             groupMaxRounds: $this->resolveGroupMaxRounds($groupSession),
             closureReasonPrefix: 'api_group_membership_update',

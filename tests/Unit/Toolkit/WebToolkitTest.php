@@ -337,7 +337,7 @@ test('http_download queues a background task when session context is available',
     }
 });
 
-test('http_download inherits profile from parent session for queued task session', function () {
+test('http_download inherits persona from parent session for queued task session', function () {
     $workspacePath = webCreateTempPath('web-toolkit-workspace');
     $dbPath = webCreateTempPath('web-toolkit-db') . '.sqlite';
     mkdir($workspacePath, 0777, true);

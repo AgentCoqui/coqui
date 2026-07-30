@@ -71,9 +71,9 @@ test('tick creates a background task for the next pending stage', function () {
     expect($task['prompt'])->toContain('Build the feature');
 });
 
-test('tick inherits active profile from parent loop session', function () {
-    $profiledParentSessionId = $this->storage->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $profiledParentSessionId);
+test('tick inherits active persona from parent loop session', function () {
+    $personaScopedParentSessionId = $this->storage->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $personaScopedParentSessionId);
 
     $this->manager->tick();
 

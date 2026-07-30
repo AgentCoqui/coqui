@@ -76,9 +76,9 @@ MD);
 
     $configManager = new ConfigManager($workspacePath, $projectRoot, new DefaultsLoader(), new ConfigValidator());
     $config = $configManager->load();
-    $profileDiscovery = new PersonaDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
-    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
+    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, personaDiscovery: $personaDiscovery);
     $pdo = new PDO('sqlite::memory:');
     $runtimeStateStore = new RuntimeStateStore($pdo);
     $lifecycle = new ApiLifecycleController(
@@ -98,7 +98,7 @@ MD);
         'handler' => new ConfigHandler(
             $config,
             new ConfigValidator(),
-            $profileDiscovery,
+            $personaDiscovery,
             null,
             $roleResolver,
             $configManager,
@@ -114,7 +114,7 @@ function cleanupApiConfigHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['projectRoot']);
 }
 
-test('config handler lists discovered profiles and default profile', function () {
+test('config handler lists discovered personas and default persona', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -135,7 +135,7 @@ test('config handler lists discovered profiles and default profile', function ()
     }
 });
 
-test('config handler returns a curated profile preference schema for the app', function () {
+test('config handler returns a curated persona preference schema for the app', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -171,7 +171,7 @@ test('config handler returns a curated profile preference schema for the app', f
     }
 });
 
-test('config handler returns profile detail for picker UIs', function () {
+test('config handler returns persona detail for picker UIs', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -192,7 +192,7 @@ test('config handler returns profile detail for picker UIs', function () {
     }
 });
 
-test('config handler creates a profile and makes it immediately discoverable', function () {
+test('config handler creates a persona and makes it immediately discoverable', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -219,8 +219,8 @@ test('config handler creates a profile and makes it immediately discoverable', f
         ));
         $body = json_decode((string) $response->getBody(), true);
 
-        $profilesResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
-        $profilesBody = json_decode((string) $profilesResponse->getBody(), true);
+        $personasResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
+        $personasBody = json_decode((string) $personasResponse->getBody(), true);
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['name'])->toBe('nova');
@@ -228,8 +228,8 @@ test('config handler creates a profile and makes it immediately discoverable', f
         expect($body['soul'])->toContain('# Nova');
         expect($body['preferences']['features']['projects'])->toBeFalse();
         expect($body['preferences']['features']['loops'])->toBeTrue();
-        expect($profilesBody['count'])->toBe(3);
-        expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
+        expect($personasBody['count'])->toBe(3);
+        expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('A bold collaborative strategist.');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/backstory.md'))->toContain('## Origins');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/preferences.json'))->toContain('planning_mode');
@@ -238,7 +238,7 @@ test('config handler creates a profile and makes it immediately discoverable', f
     }
 });
 
-test('config handler rejects duplicate or invalid profile creation payloads', function () {
+test('config handler rejects duplicate or invalid persona creation payloads', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -248,7 +248,7 @@ test('config handler rejects duplicate or invalid profile creation payloads', fu
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'caelum',
-                'description' => 'Duplicate profile',
+                'description' => 'Duplicate persona',
             ], JSON_THROW_ON_ERROR),
         ));
         $duplicateBody = json_decode((string) $duplicateResponse->getBody(), true);
@@ -273,7 +273,7 @@ test('config handler rejects duplicate or invalid profile creation payloads', fu
     }
 });
 
-test('config handler updates a profile and preserves existing frontmatter', function () {
+test('config handler updates a persona and preserves existing frontmatter', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -311,7 +311,7 @@ test('config handler updates a profile and preserves existing frontmatter', func
     }
 });
 
-test('config handler can remove optional profile files during update', function () {
+test('config handler can remove optional persona files during update', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -338,7 +338,7 @@ test('config handler can remove optional profile files during update', function 
     }
 });
 
-test('config handler rejects invalid profile update payloads', function () {
+test('config handler rejects invalid persona update payloads', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -347,7 +347,7 @@ test('config handler rejects invalid profile update payloads', function () {
             '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
             json_encode([
-                'name' => 'renamed-profile',
+                'name' => 'renamed-persona',
             ], JSON_THROW_ON_ERROR),
         ), 'caelum');
         $body = json_decode((string) $response->getBody(), true);
@@ -359,7 +359,7 @@ test('config handler rejects invalid profile update payloads', function () {
     }
 });
 
-test('config handler deletes a non-default profile and invalidates discovery', function () {
+test('config handler deletes a non-default persona and invalidates discovery', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -369,23 +369,23 @@ test('config handler deletes a non-default profile and invalidates discovery', f
         );
         $body = json_decode((string) $response->getBody(), true);
 
-        $profilesResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
-        $profilesBody = json_decode((string) $profilesResponse->getBody(), true);
+        $personasResponse = $fixture['handler']->personas(new ServerRequest('GET', '/api/v1/config/personas'));
+        $personasBody = json_decode((string) $personasResponse->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
         expect($body)->toBe([
             'deleted' => true,
             'name' => 'trinity',
         ]);
-        expect($profilesBody['count'])->toBe(1);
-        expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum']);
+        expect($personasBody['count'])->toBe(1);
+        expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum']);
         expect(is_dir($fixture['workspacePath'] . '/personas/trinity'))->toBeFalse();
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
 });
 
-test('config handler refuses to delete the configured default profile', function () {
+test('config handler refuses to delete the configured default persona', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {

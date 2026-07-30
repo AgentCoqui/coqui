@@ -39,9 +39,9 @@ final class CodeReviewCycle
         private readonly ?SplObserver $observer = null,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?ProviderFactory $providerFactory = null,
-        private readonly ?string $activeProfile = null,
-        private readonly ?string $activeProfilePath = null,
-        private readonly ?string $profileIdentityPreamble = null,
+        private readonly ?string $activePersona = null,
+        private readonly ?string $activePersonaPath = null,
+        private readonly ?string $personaIdentityPreamble = null,
     ) {}
 
     /**
@@ -153,7 +153,7 @@ final class CodeReviewCycle
         array $toolkits,
         int $round,
     ): array {
-        $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value, $this->activeProfile);
+        $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value, $this->activePersona);
 
         try {
             $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -187,8 +187,8 @@ final class CodeReviewCycle
             maxIterations: self::REVIEWER_MAX_ITERATIONS,
             roleDiscovery: $this->roleDiscovery,
             toolExecutor: $this->toolExecutor,
-            profileIdentityPreamble: $this->profileIdentityPreamble,
-            activeProfilePath: $this->activeProfilePath,
+            personaIdentityPreamble: $this->personaIdentityPreamble,
+            activePersonaPath: $this->activePersonaPath,
         );
 
         if ($this->observer !== null) {
@@ -226,7 +226,7 @@ final class CodeReviewCycle
         int $maxIterations,
         int $round,
     ): array {
-        $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value, $this->activeProfile);
+        $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value, $this->activePersona);
 
         try {
             $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -260,8 +260,8 @@ final class CodeReviewCycle
             maxIterations: $maxIterations,
             roleDiscovery: $this->roleDiscovery,
             toolExecutor: $this->toolExecutor,
-            profileIdentityPreamble: $this->profileIdentityPreamble,
-            activeProfilePath: $this->activeProfilePath,
+            personaIdentityPreamble: $this->personaIdentityPreamble,
+            activePersonaPath: $this->activePersonaPath,
         );
 
         if ($this->observer !== null) {

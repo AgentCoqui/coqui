@@ -76,7 +76,7 @@ final class CapturingAgentRunner implements AgentTurnRunnerInterface
         ToolExecutionPolicyInterface $executionPolicy,
         ?CancellationTokenInterface $cancellationToken = null,
         ?string $role = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         $this->runResponders[] = $questionResponder;
@@ -93,7 +93,7 @@ final class CapturingAgentRunner implements AgentTurnRunnerInterface
         ?SplObserver $observer = null,
         ?array $filePaths = null,
         ?string $role = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?string $actorName = null,
         ?string $actorRole = null,
         ?QuestionResponderInterface $questionResponder = null,

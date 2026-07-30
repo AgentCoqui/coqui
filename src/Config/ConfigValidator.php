@@ -25,7 +25,7 @@ final class ConfigValidator
         $errors = [];
 
         $errors = [...$errors, ...$this->validatePrimaryModel($data)];
-        $errors = [...$errors, ...$this->validateDefaultProfile($data)];
+        $errors = [...$errors, ...$this->validateDefaultPersona($data)];
         $errors = [...$errors, ...$this->validateRoles($data)];
         $errors = [...$errors, ...$this->validateFallbacks($data)];
         $errors = [...$errors, ...$this->validateImageModel($data)];
@@ -84,19 +84,19 @@ final class ConfigValidator
      * @param array<string, mixed> $data
      * @return string[]
      */
-    private function validateDefaultProfile(array $data): array
+    private function validateDefaultPersona(array $data): array
     {
-        $profile = $data['agents']['defaults']['persona'] ?? null;
+        $persona = $data['agents']['defaults']['persona'] ?? null;
 
-        if ($profile === null) {
+        if ($persona === null) {
             return [];
         }
 
-        if (!is_string($profile)) {
+        if (!is_string($persona)) {
             return ['agents.defaults.persona must be a string'];
         }
 
-        if (trim($profile) === '') {
+        if (trim($persona) === '') {
             return ['agents.defaults.persona must be a non-empty string'];
         }
 

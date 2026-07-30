@@ -73,13 +73,13 @@ MD);
         ],
     ]);
 
-    $profileDiscovery = new PersonaDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
-    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
+    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, personaDiscovery: $personaDiscovery);
 
     return [
         'workspacePath' => $workspacePath,
-        'handler' => new RoleHandler($roleDiscovery, $roleResolver, $profileDiscovery),
+        'handler' => new RoleHandler($roleDiscovery, $roleResolver, $personaDiscovery),
     ];
 }
 
@@ -88,15 +88,15 @@ function cleanupApiRoleHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-test('role handler app picker route defaults to selectable roles and honors profile restrictions', function () {
+test('role handler app picker route defaults to selectable roles and honors persona restrictions', function () {
     $fixture = createApiRoleHandlerFixture();
 
     try {
-        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/roles?profile=caelum'));
+        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/roles?persona=caelum'));
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
         expect($body['selectable_only'])->toBeTrue();
 
         $rolesByName = [];
@@ -106,7 +106,7 @@ test('role handler app picker route defaults to selectable roles and honors prof
 
         expect(array_keys($rolesByName))->toContain('analyst', 'orchestrator');
         expect($rolesByName['analyst']['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-        expect($rolesByName['analyst']['profile_override'])->toBeTrue();
+        expect($rolesByName['analyst']['persona_override'])->toBeTrue();
     } finally {
         cleanupApiRoleHandlerFixture($fixture);
     }
@@ -127,16 +127,16 @@ test('role handler config route keeps non-selectable roles available', function 
     }
 });
 
-test('role handler detail resolves profile-specific instructions and model overrides', function () {
+test('role handler detail resolves persona-specific instructions and model overrides', function () {
     $fixture = createApiRoleHandlerFixture();
 
     try {
-        $response = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/roles/analyst?profile=caelum'), 'analyst');
+        $response = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/roles/analyst?persona=caelum'), 'analyst');
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile'])->toBe('caelum');
-        expect($body['profile_override'])->toBeTrue();
+        expect($body['persona'])->toBe('caelum');
+        expect($body['persona_override'])->toBeTrue();
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
         expect($body['instructions'])->toContain('Caelum in analyst mode');
     } finally {

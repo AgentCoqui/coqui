@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 /**
- * Optional frontmatter parser for profile soul files.
+ * Optional frontmatter parser for persona soul files.
  *
- * Profiles may use plain markdown or begin with YAML frontmatter. The body is
- * always returned without the frontmatter block so profile metadata never leaks
+ * Personas may use plain markdown or begin with YAML frontmatter. The body is
+ * always returned without the frontmatter block so persona metadata never leaks
  * into rendered prompts.
  */
 final class PersonaParser
@@ -54,7 +54,7 @@ final class PersonaParser
         $content = file_get_contents($filePath);
 
         if ($content === false) {
-            throw new \RuntimeException(sprintf('Failed to read profile file "%s".', $filePath));
+            throw new \RuntimeException(sprintf('Failed to read persona file "%s".', $filePath));
         }
 
         return $this->parse($content);

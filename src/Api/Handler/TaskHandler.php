@@ -36,7 +36,7 @@ final readonly class TaskHandler
         private SessionStorage $storage,
         private BackgroundTaskManager $taskManager,
         private RoleResolver $roleResolver,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private ?ProjectStore $projectStore = null,
     ) {}
 
@@ -76,9 +76,9 @@ final readonly class TaskHandler
         $title = isset($body['title']) ? trim((string) $body['title']) : null;
         $parentSessionId = isset($body['parent_session_id']) ? (string) $body['parent_session_id'] : null;
         $maxIterations = isset($body['max_iterations']) ? max(1, min((int) $body['max_iterations'], CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS)) : 25;
-        $requestedProfile = isset($body['profile']) ? strtolower(trim((string) $body['profile'])) : null;
-        if ($requestedProfile === '') {
-            $requestedProfile = null;
+        $requestedPersona = isset($body['persona']) ? strtolower(trim((string) $body['persona'])) : null;
+        if ($requestedPersona === '') {
+            $requestedPersona = null;
         }
 
         // Validate parent session exists if provided
@@ -90,29 +90,29 @@ final readonly class TaskHandler
             }
         }
 
-        $inheritedProfile = is_array($parentSession) && is_string($parentSession['persona_id'] ?? null) && $parentSession['persona_id'] !== ''
+        $inheritedPersona = is_array($parentSession) && is_string($parentSession['persona_id'] ?? null) && $parentSession['persona_id'] !== ''
             ? $parentSession['persona_id']
             : null;
 
-        if ($requestedProfile !== null && $inheritedProfile !== null && $requestedProfile !== $inheritedProfile) {
+        if ($requestedPersona !== null && $inheritedPersona !== null && $requestedPersona !== $inheritedPersona) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Requested profile "%s" conflicts with parent session profile "%s".', $requestedProfile, $inheritedProfile),
+                sprintf('Requested persona "%s" conflicts with parent session persona "%s".', $requestedPersona, $inheritedPersona),
             );
         }
 
-        $profile = $requestedProfile ?? $inheritedProfile;
-        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+        $persona = $requestedPersona ?? $inheritedPersona;
+        if ($persona !== null && !$this->personaDiscovery->personaExists($persona)) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or omit the profile.', $profile),
+                sprintf('Unknown persona "%s". Create personas/{name}/soul.md in the workspace or omit the persona.', $persona),
             );
         }
 
-        if (($preferences = $this->loadProfilePreferences($profile)) !== null && !$preferences->isRoleAllowed($role)) {
+        if (($preferences = $this->loadPersonaPreferences($persona)) !== null && !$preferences->isRoleAllowed($role)) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
+                sprintf('Persona "%s" does not allow role "%s".', $persona, $role),
             );
         }
 
@@ -132,8 +132,8 @@ final readonly class TaskHandler
         }
 
         // Create the dedicated session for this task
-        $model = $this->roleResolver->resolve($role, $profile);
-        $sessionId = $this->storage->createSession($role, $model, $profile, visibility: 'hidden');
+        $model = $this->roleResolver->resolve($role, $persona);
+        $sessionId = $this->storage->createSession($role, $model, $persona, visibility: 'hidden');
 
         // Create the task record
         $taskId = $this->storage->createTask(
@@ -157,20 +157,20 @@ final readonly class TaskHandler
             'status' => $started ? 'running' : 'pending',
             'prompt' => $prompt,
             'role' => $role,
-            'profile' => $profile,
+            'persona' => $persona,
             'title' => $title,
             'project_id' => $projectId,
             'created_at' => $task['created_at'] ?? date('c'),
         ], 201);
     }
 
-    private function loadProfilePreferences(?string $profile): ?PersonaPreferences
+    private function loadPersonaPreferences(?string $persona): ?PersonaPreferences
     {
-        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+        if ($persona === null || !$this->personaDiscovery->personaExists($persona)) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
+        return PersonaPreferences::fromPersonaPath($this->personaDiscovery->getPersonaPath($persona));
     }
 
     /**

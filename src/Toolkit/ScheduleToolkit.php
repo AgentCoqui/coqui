@@ -30,7 +30,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 {
     public function __construct(
         private ScheduleStore $scheduleStore,
-        private ?string $activeProfileId = null,
+        private ?string $activePersonaId = null,
     ) {}
 
     public function tools(): array
@@ -316,8 +316,8 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $maxIterations = ScheduleValidator::normalizeMaxIterations((int) ($args['max_iterations'] ?? 48));
         $isOneShot = ($cron === '@once');
         $metadata = null;
-        if ($this->activeProfileId !== null) {
-            $encoded = json_encode(['profile' => $this->activeProfileId], JSON_UNESCAPED_SLASHES);
+        if ($this->activePersonaId !== null) {
+            $encoded = json_encode(['persona' => $this->activePersonaId], JSON_UNESCAPED_SLASHES);
             $metadata = $encoded !== false ? $encoded : null;
         }
 

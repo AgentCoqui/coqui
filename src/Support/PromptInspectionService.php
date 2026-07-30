@@ -20,14 +20,14 @@ final readonly class PromptInspectionService
     /**
      * @return array<string, mixed>
      */
-    public function inspect(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
+    public function inspect(?string $role = null, ?string $persona = null, ?string $sessionId = null): array
     {
-        $preview = $this->agentRunner->buildPromptPreview($role, $profile, $sessionId);
+        $preview = $this->agentRunner->buildPromptPreview($role, $persona, $sessionId);
         $budget = $preview['budget_snapshot'];
         $promptSections = is_array($budget['prompt_sections'] ?? null) ? $budget['prompt_sections'] : [];
 
         return [
-            'profile' => $profile,
+            'persona' => $persona,
             'session_id' => $sessionId,
             'role' => $preview['effective_role'],
             'resolved_model' => $preview['resolved_model'],
@@ -40,7 +40,7 @@ final readonly class PromptInspectionService
             'toolkit_breakdown' => $preview['toolkit_breakdown'],
             'budget' => $budget,
             'prompt_sources' => $this->buildPromptSources($promptSections),
-            'profile_policy' => $preview['profile_policy'] ?? null,
+            'persona_policy' => $preview['persona_policy'] ?? null,
         ];
     }
 

@@ -19,9 +19,9 @@ use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
-function createProfileHandlerFixture(): array
+function createPersonaHandlerFixture(): array
 {
-    $workspacePath = sys_get_temp_dir() . '/coqui-profile-handler-' . bin2hex(random_bytes(8));
+    $workspacePath = sys_get_temp_dir() . '/coqui-persona-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
     mkdir($workspacePath . '/personas', 0755, true);
     mkdir($workspacePath . '/personas/caelum', 0755, true);
@@ -33,7 +33,7 @@ function createProfileHandlerFixture(): array
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $profileDiscovery = new PersonaDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $projectRoot = $workspacePath . '/project';
     mkdir($projectRoot, 0755, true);
     $configManager = new ConfigManager(
@@ -59,7 +59,7 @@ function createProfileHandlerFixture(): array
         roleResolver: $roleResolver,
         memoryStore: new MemoryStore($workspacePath . '/memory.db'),
     );
-    $boot = testBootManagerForProfiles($workspacePath, $profileDiscovery, $roleResolver, $configManager, $config);
+    $boot = testBootManagerForPersonas($workspacePath, $personaDiscovery, $roleResolver, $configManager, $config);
     $sessionHandler = new SessionHandler($boot, $storage, $lifecycleManager);
     $output = new BufferedOutput();
 
@@ -75,21 +75,21 @@ function createProfileHandlerFixture(): array
     ];
 }
 
-function cleanupProfileHandlerFixture(array $fixture): void
+function cleanupPersonaHandlerFixture(array $fixture): void
 {
     cleanupSqliteTestDb($fixture['dbPath']);
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForProfiles(string $workspacePath, PersonaDiscovery $profileDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
+function testBootManagerForPersonas(string $workspacePath, PersonaDiscovery $personaDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($workspacePath, $profileDiscovery, $roleResolver, $configManager, $config): void {
+    $initializer = function () use ($workspacePath, $personaDiscovery, $roleResolver, $configManager, $config): void {
         $this->workspacePath = $workspacePath;
-        $this->profileDiscovery = $profileDiscovery;
+        $this->personaDiscovery = $personaDiscovery;
         $this->roleResolver = $roleResolver;
         $this->configManager = $configManager;
         $this->config = $config;
@@ -100,8 +100,8 @@ function testBootManagerForProfiles(string $workspacePath, PersonaDiscovery $pro
     return $boot;
 }
 
-test('profile handler shows configured default profile state', function () {
-    $fixture = createProfileHandlerFixture();
+test('persona handler shows configured default persona state', function () {
+    $fixture = createPersonaHandlerFixture();
 
     try {
         $existingSession = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
@@ -111,31 +111,31 @@ test('profile handler shows configured default profile state', function () {
 
         expect($result->shouldContinue)->toBeTrue();
         expect($result->newSessionId)->toBeNull();
-        expect($result->newActiveProfile)->toBeNull();
+        expect($result->newActivePersona)->toBeNull();
         expect($sessions)->toHaveCount(1);
         expect($sessions[0]['id'])->toBe($existingSession);
-        expect($fixture['output']->fetch())->toContain('Configured default profile:');
+        expect($fixture['output']->fetch())->toContain('Configured default persona:');
     } finally {
-        cleanupProfileHandlerFixture($fixture);
+        cleanupPersonaHandlerFixture($fixture);
     }
 });
 
-test('profile handler can set the configured default profile', function () {
-    $fixture = createProfileHandlerFixture();
+test('persona handler can set the configured default persona', function () {
+    $fixture = createPersonaHandlerFixture();
 
     try {
         $result = $fixture['handler']->handlePersona($fixture['io'], 'default caelum', 'orchestrator', null);
 
         expect($result->shouldContinue)->toBeTrue();
         expect($fixture['configManager']->config()->getDefaultPersona())->toBe('caelum');
-        expect($fixture['output']->fetch())->toContain('Default profile set to "caelum"');
+        expect($fixture['output']->fetch())->toContain('Default persona set to "caelum"');
     } finally {
-        cleanupProfileHandlerFixture($fixture);
+        cleanupPersonaHandlerFixture($fixture);
     }
 });
 
-test('profile handler can clear the configured default profile', function () {
-    $fixture = createProfileHandlerFixture();
+test('persona handler can clear the configured default persona', function () {
+    $fixture = createPersonaHandlerFixture();
 
     try {
         $fixture['configManager']->set('agents.defaults.persona', 'caelum');
@@ -144,14 +144,14 @@ test('profile handler can clear the configured default profile', function () {
 
         expect($result->shouldContinue)->toBeTrue();
         expect($fixture['configManager']->config()->getDefaultPersona())->toBeNull();
-        expect($fixture['output']->fetch())->toContain('Default profile cleared');
+        expect($fixture['output']->fetch())->toContain('Default persona cleared');
     } finally {
-        cleanupProfileHandlerFixture($fixture);
+        cleanupPersonaHandlerFixture($fixture);
     }
 });
 
-test('profile handler creates a new profiled session when switching profiles', function () {
-    $fixture = createProfileHandlerFixture();
+test('persona handler creates a new personaScoped session when switching personas', function () {
+    $fixture = createPersonaHandlerFixture();
 
     try {
         $result = $fixture['handler']->handlePersona($fixture['io'], 'caelum', 'orchestrator', null);
@@ -159,10 +159,10 @@ test('profile handler creates a new profiled session when switching profiles', f
 
         expect($result->shouldContinue)->toBeTrue();
         expect($result->newSessionId)->not->toBeNull();
-        expect($result->newActiveProfile)->toBe('caelum');
+        expect($result->newActivePersona)->toBe('caelum');
         expect($session)->not->toBeNull();
         expect($session['persona_id'])->toBe('caelum');
     } finally {
-        cleanupProfileHandlerFixture($fixture);
+        cleanupPersonaHandlerFixture($fixture);
     }
 });

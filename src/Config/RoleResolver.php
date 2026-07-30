@@ -26,7 +26,7 @@ final class RoleResolver
         private readonly ConfigInterface $config,
         ?DefaultsLoader $defaults = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
-        private readonly ?PersonaDiscovery $profileDiscovery = null,
+        private readonly ?PersonaDiscovery $personaDiscovery = null,
     ) {
         $roles = $this->config->get('agents.defaults.roles', []);
         $this->roles = is_array($roles) ? $roles : [];
@@ -41,11 +41,11 @@ final class RoleResolver
      *
      * Priority: role file model field → openclaw.json → primary model.
      */
-    public function resolve(string $role, ?string $profile = null): string
+    public function resolve(string $role, ?string $persona = null): string
     {
-        $profileRole = $this->resolveProfileRoleProperties($role, $profile);
-        if ($profileRole?->model !== null) {
-            return $this->config->resolveModel($profileRole->model);
+        $personaRole = $this->resolvePersonaRoleProperties($role, $persona);
+        if ($personaRole?->model !== null) {
+            return $this->config->resolveModel($personaRole->model);
         }
 
         $globalRole = $this->resolveGlobalRoleProperties($role);
@@ -58,9 +58,9 @@ final class RoleResolver
             return $this->config->resolveModel($configuredRoleModel);
         }
 
-        $profileModel = $this->resolveProfileModel($profile);
-        if ($profileModel !== null) {
-            return $this->config->resolveModel($profileModel);
+        $personaModel = $this->resolvePersonaModel($persona);
+        if ($personaModel !== null) {
+            return $this->config->resolveModel($personaModel);
         }
 
         return $this->config->resolveModel($this->primaryModel);
@@ -75,7 +75,7 @@ final class RoleResolver
      * 2. title-generator role (preserves role file model override)
      * 3. Primary model fallback
      */
-    public function resolveUtility(?string $profile = null): string
+    public function resolveUtility(?string $persona = null): string
     {
         if ($this->config instanceof OpenClawConfig) {
             $utilityModel = $this->config->getUtilityModel();
@@ -84,7 +84,7 @@ final class RoleResolver
             }
         }
 
-        return $this->resolve(SystemRole::TitleGenerator->value, $profile);
+        return $this->resolve(SystemRole::TitleGenerator->value, $persona);
     }
 
     /**
@@ -107,11 +107,11 @@ final class RoleResolver
      *
      * A return value of 0 means unlimited (sentinel handled by AbstractAgent).
      */
-    public function resolveMaxIterations(string $role, ?string $profile = null): int
+    public function resolveMaxIterations(string $role, ?string $persona = null): int
     {
-        $profileRole = $this->resolveProfileRoleProperties($role, $profile);
-        if ($profileRole?->maxIterations !== null) {
-            return $profileRole->maxIterations;
+        $personaRole = $this->resolvePersonaRoleProperties($role, $persona);
+        if ($personaRole?->maxIterations !== null) {
+            return $personaRole->maxIterations;
         }
 
         $globalRole = $this->resolveGlobalRoleProperties($role);
@@ -148,29 +148,29 @@ final class RoleResolver
         return null;
     }
 
-    private function resolveProfileModel(?string $profile): ?string
+    private function resolvePersonaModel(?string $persona): ?string
     {
-        if ($profile === null || $this->profileDiscovery === null) {
+        if ($persona === null || $this->personaDiscovery === null) {
             return null;
         }
 
         try {
-            return $this->profileDiscovery->readProfileModel($profile);
+            return $this->personaDiscovery->readPersonaModel($persona);
         } catch (\Throwable) {
             return null;
         }
     }
 
-    private function resolveProfileRoleProperties(string $role, ?string $profile): ?\CoquiBot\Coqui\Contract\RoleProperties
+    private function resolvePersonaRoleProperties(string $role, ?string $persona): ?\CoquiBot\Coqui\Contract\RoleProperties
     {
-        if ($profile === null || $this->roleDiscovery === null || $this->profileDiscovery === null) {
+        if ($persona === null || $this->roleDiscovery === null || $this->personaDiscovery === null) {
             return null;
         }
 
         try {
-            $profilePath = $this->profileDiscovery->getProfilePath($profile);
+            $personaPath = $this->personaDiscovery->getPersonaPath($persona);
 
-            return $this->roleDiscovery->getProfileRole($role, $profilePath);
+            return $this->roleDiscovery->getPersonaRole($role, $personaPath);
         } catch (\Throwable) {
             return null;
         }

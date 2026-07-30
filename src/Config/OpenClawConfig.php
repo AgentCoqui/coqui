@@ -98,15 +98,15 @@ final class OpenClawConfig implements ConfigInterface
 
     public function getDefaultPersona(): ?string
     {
-        $profile = $this->get('agents.defaults.persona');
+        $persona = $this->get('agents.defaults.persona');
 
-        if (!is_string($profile)) {
+        if (!is_string($persona)) {
             return null;
         }
 
-        $profile = strtolower(trim($profile));
+        $persona = strtolower(trim($persona));
 
-        return $profile !== '' ? $profile : null;
+        return $persona !== '' ? $persona : null;
     }
 
     /**

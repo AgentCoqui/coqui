@@ -59,16 +59,16 @@ function cleanupReplSessionHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForSessionHandler(string $workspacePath, RoleResolver $roleResolver, PersonaDiscovery $profileDiscovery): BootManager
+function testBootManagerForSessionHandler(string $workspacePath, RoleResolver $roleResolver, PersonaDiscovery $personaDiscovery): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($workspacePath, $roleResolver, $profileDiscovery): void {
+    $initializer = function () use ($workspacePath, $roleResolver, $personaDiscovery): void {
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
-        $this->profileDiscovery = $profileDiscovery;
+        $this->personaDiscovery = $personaDiscovery;
     };
 
     \Closure::bind($initializer, $boot, BootManager::class)();
@@ -91,11 +91,11 @@ function attachBackgroundTaskToSession(SessionStorage $storage, string $sessionI
     $storage->createTask($sessionId, 'Background task');
 }
 
-test('session handler creates and attaches a new default profile session when none exists', function () {
+test('session handler creates and attaches a new default persona session when none exists', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
-        $sessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $sessionId = $fixture['handler']->loadOrCreatePersonaSession($fixture['io'], 'caelum');
         $session = $fixture['storage']->getSession($sessionId);
         $sessionFile = $fixture['workspacePath'] . '/.coqui-session';
 
@@ -108,23 +108,23 @@ test('session handler creates and attaches a new default profile session when no
     }
 });
 
-test('session handler reuses the attached session when it matches the default profile', function () {
+test('session handler reuses the attached session when it matches the default persona', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
         file_put_contents($fixture['workspacePath'] . '/.coqui-session', $sessionId);
 
-        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $resolvedSessionId = $fixture['handler']->loadOrCreatePersonaSession($fixture['io'], 'caelum');
 
         expect($resolvedSessionId)->toBe($sessionId);
-        expect($fixture['output']->fetch())->toContain('Resumed attached profile session "caelum"');
+        expect($fixture['output']->fetch())->toContain('Resumed attached persona session "caelum"');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler falls back to the latest matching profile session when attached session is out of scope', function () {
+test('session handler falls back to the latest matching persona session when attached session is out of scope', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
@@ -138,41 +138,41 @@ test('session handler falls back to the latest matching profile session when att
 
         file_put_contents($fixture['workspacePath'] . '/.coqui-session', $attachedSessionId);
 
-        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $resolvedSessionId = $fixture['handler']->loadOrCreatePersonaSession($fixture['io'], 'caelum');
 
         expect($resolvedSessionId)->toBe($targetSessionId);
         expect(trim((string) file_get_contents($fixture['workspacePath'] . '/.coqui-session')))->toBe($targetSessionId);
-        expect($fixture['output']->fetch())->toContain('Resumed latest profile session "caelum"');
+        expect($fixture['output']->fetch())->toContain('Resumed latest persona session "caelum"');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler resumes the latest unprofiled session for plain startup', function () {
+test('session handler resumes the latest unpersonaScoped session for plain startup', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
-        $profileSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'trinity');
-        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $olderUnprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $personaSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'trinity');
+        $unpersonaScopedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $olderUnpersonaScopedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
 
-        setSessionUpdatedAt($fixture['storage'], $olderUnprofiledSessionId, '2026-01-01T00:00:00+00:00');
-        setSessionUpdatedAt($fixture['storage'], $unprofiledSessionId, '2026-01-03T00:00:00+00:00');
-        setSessionUpdatedAt($fixture['storage'], $profileSessionId, '2026-01-04T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $olderUnpersonaScopedSessionId, '2026-01-01T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $unpersonaScopedSessionId, '2026-01-03T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $personaSessionId, '2026-01-04T00:00:00+00:00');
 
-        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $profileSessionId);
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $personaSessionId);
 
         $resolvedSessionId = $fixture['handler']->loadOrCreateSession($fixture['io']);
 
-        expect($resolvedSessionId)->toBe($unprofiledSessionId);
-        expect(trim((string) file_get_contents($fixture['workspacePath'] . '/.coqui-session')))->toBe($unprofiledSessionId);
-        expect($fixture['output']->fetch())->toContain('Resumed latest unprofiled session');
+        expect($resolvedSessionId)->toBe($unpersonaScopedSessionId);
+        expect(trim((string) file_get_contents($fixture['workspacePath'] . '/.coqui-session')))->toBe($unpersonaScopedSessionId);
+        expect($fixture['output']->fetch())->toContain('Resumed latest unpersonaScoped session');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler ignores attached and latest background task sessions for unprofiled resume', function () {
+test('session handler ignores attached and latest background task sessions for unpersonaScoped resume', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
@@ -187,13 +187,13 @@ test('session handler ignores attached and latest background task sessions for u
         $resolvedSessionId = $fixture['handler']->loadOrCreateSession($fixture['io']);
 
         expect($resolvedSessionId)->toBe($interactiveSessionId);
-        expect($fixture['output']->fetch())->toContain('Resumed latest unprofiled session');
+        expect($fixture['output']->fetch())->toContain('Resumed latest unpersonaScoped session');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler ignores background task sessions for profile resume', function () {
+test('session handler ignores background task sessions for persona resume', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
@@ -205,16 +205,16 @@ test('session handler ignores background task sessions for profile resume', func
 
         file_put_contents($fixture['workspacePath'] . '/.coqui-session', $backgroundSessionId);
 
-        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $resolvedSessionId = $fixture['handler']->loadOrCreatePersonaSession($fixture['io'], 'caelum');
 
         expect($resolvedSessionId)->toBe($interactiveSessionId);
-        expect($fixture['output']->fetch())->toContain('Resumed latest profile session "caelum"');
+        expect($fixture['output']->fetch())->toContain('Resumed latest persona session "caelum"');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler keeps latest active profile session and closes older duplicates', function () {
+test('session handler keeps latest active persona session and closes older duplicates', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
@@ -226,7 +226,7 @@ test('session handler keeps latest active profile session and closes older dupli
 
         file_put_contents($fixture['workspacePath'] . '/.coqui-session', $olderSessionId);
 
-        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $resolvedSessionId = $fixture['handler']->loadOrCreatePersonaSession($fixture['io'], 'caelum');
         $olderSession = $fixture['storage']->getSession($olderSessionId);
         $visibleSessions = $fixture['storage']->listSessions(10, true, true);
 
@@ -237,13 +237,13 @@ test('session handler keeps latest active profile session and closes older dupli
         expect($visibleSessions[0]['id'])->toBe($latestSessionId);
         $output = preg_replace('/\s+/', ' ', $fixture['output']->fetch()) ?? '';
 
-        expect($output)->toContain('Archived 1 older active session(s) for profile "caelum".');
+        expect($output)->toContain('Archived 1 older active session(s) for persona "caelum".');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler starts fresh profiled session by closing the current one', function () {
+test('session handler starts fresh personaScoped session by closing the current one', function () {
     $fixture = createReplSessionHandlerFixture();
 
     try {
@@ -258,7 +258,7 @@ test('session handler starts fresh profiled session by closing the current one',
         expect($newSessionId)->not->toBeNull();
         expect($newSessionId)->not->toBe($currentSessionId);
         expect($currentSession['is_closed'])->toBe(1);
-        expect($currentSession['closure_reason'])->toBe('repl_new_profile_session:caelum');
+        expect($currentSession['closure_reason'])->toBe('repl_new_persona_session:caelum');
         expect($newSession)->not->toBeNull();
         expect($newSession['persona_id'])->toBe('caelum');
         expect($newSession['model_role'])->toBe('orchestrator');

@@ -358,7 +358,7 @@ final class SessionStorage
     public function createSession(
         string $modelRole,
         string $model,
-        ?string $profile = null,
+        ?string $persona = null,
         bool $groupEnabled = false,
         ?string $groupCompositionKey = null,
         ?int $groupMaxRounds = null,
@@ -383,7 +383,7 @@ final class SessionStorage
             'id' => $id,
             'model_role' => $modelRole,
             'model' => $model,
-            'persona_id' => $profile,
+            'persona_id' => $persona,
             'group_enabled' => $groupEnabled ? 1 : 0,
             'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
@@ -414,7 +414,7 @@ final class SessionStorage
             $sessionId = $this->createSession(
                 modelRole: $modelRole,
                 model: $model,
-                profile: null,
+                persona: null,
                 groupEnabled: true,
                 groupCompositionKey: $compositionKey,
                 groupMaxRounds: $groupMaxRounds,
@@ -488,7 +488,7 @@ final class SessionStorage
     }
 
     /**
-     * @return list<array{profile: string, order: int, joined_at: string}>
+     * @return list<array{persona_id: string, order: int, joined_at: string}>
      */
     public function listSessionGroupMembers(string $sessionId): array
     {
@@ -503,7 +503,7 @@ final class SessionStorage
 
         return array_values(array_map(
             static fn(array $row): array => [
-                'profile' => (string) $row['persona_id'],
+                'persona_id' => (string) $row['persona_id'],
                 'order' => (int) $row['member_order'],
                 'joined_at' => (string) $row['created_at'],
             ],
@@ -517,7 +517,7 @@ final class SessionStorage
     public function listSessionGroupMemberNames(string $sessionId): array
     {
         return array_map(
-            static fn(array $member): string => (string) $member['profile'],
+            static fn(array $member): string => (string) $member['persona_id'],
             $this->listSessionGroupMembers($sessionId),
         );
     }
@@ -602,8 +602,8 @@ final class SessionStorage
         bool $excludeTaskSessions = true,
         bool $activeOnly = true,
         ?string $status = null,
-        ?string $profile = null,
-        bool $unprofiledOnly = false,
+        ?string $persona = null,
+        bool $unpersonaScopedOnly = false,
     ): array
     {
         $conditions = [];
@@ -623,11 +623,11 @@ final class SessionStorage
             $conditions[] = 's.is_closed = 0';
         }
 
-        if ($unprofiledOnly) {
+        if ($unpersonaScopedOnly) {
             $conditions[] = 's.persona_id IS NULL';
-        } elseif ($profile !== null) {
+        } elseif ($persona !== null) {
             $conditions[] = 's.persona_id = :persona_id';
-            $params['persona_id'] = $profile;
+            $params['persona_id'] = $persona;
         }
 
         $filter = $conditions !== []
@@ -923,16 +923,16 @@ final class SessionStorage
     }
 
     /**
-     * Update a session's active personality profile.
+     * Update a session's active personality persona.
      */
-    public function updateSessionPersona(string $sessionId, ?string $profile): void
+    public function updateSessionPersona(string $sessionId, ?string $persona): void
     {
         $stmt = $this->db->prepare(<<<SQL
             UPDATE sessions SET persona_id = :persona_id, updated_at = :updated_at WHERE id = :id
         SQL);
 
         $stmt->execute([
-            'persona_id' => $profile,
+            'persona_id' => $persona,
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
@@ -1549,10 +1549,10 @@ final class SessionStorage
 
         $now = date('c');
 
-        foreach ($members as $index => $profileName) {
+        foreach ($members as $index => $personaName) {
             $stmt->execute([
                 'session_id' => $sessionId,
-                'persona_id' => $profileName,
+                'persona_id' => $personaName,
                 'member_order' => $index,
                 'created_at' => $now,
             ]);
@@ -1651,7 +1651,7 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listActiveInteractiveSessionsForProfile(string $profile): array
+    public function listActiveInteractiveSessionsForPersona(string $persona): array
     {
         $stmt = $this->db->prepare(<<<SQL
                                                 SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
@@ -1667,7 +1667,7 @@ final class SessionStorage
             ORDER BY s.updated_at DESC
         SQL);
 
-        $stmt->execute(['persona_id' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
 
         return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -1675,9 +1675,9 @@ final class SessionStorage
     /**
      * @return list<string>
      */
-    public function closeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
+    public function closeOtherActiveInteractiveSessionsForPersona(string $persona, string $keepSessionId, string $reason): array
     {
-        $sessions = $this->listActiveInteractiveSessionsForProfile($profile);
+        $sessions = $this->listActiveInteractiveSessionsForPersona($persona);
         $closedIds = [];
 
         foreach ($sessions as $session) {
@@ -2215,7 +2215,7 @@ final class SessionStorage
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestSessionIdForProfile(string $profile): ?string
+    public function getLatestSessionIdForPersona(string $persona): ?string
     {
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
@@ -2228,13 +2228,13 @@ final class SessionStorage
             LIMIT 1
         SQL);
 
-        $stmt->execute(['persona_id' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestInteractiveUnprofiledSessionId(): ?string
+    public function getLatestInteractiveUnpersonaScopedSessionId(): ?string
     {
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
@@ -2277,7 +2277,7 @@ final class SessionStorage
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestInteractiveSessionIdForProfile(string $profile): ?string
+    public function getLatestInteractiveSessionIdForPersona(string $persona): ?string
     {
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id
@@ -2290,7 +2290,7 @@ final class SessionStorage
             LIMIT 1
         SQL);
 
-        $stmt->execute(['persona_id' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;

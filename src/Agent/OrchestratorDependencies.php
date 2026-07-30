@@ -92,9 +92,9 @@ final readonly class OrchestratorDependencies
         public ?string $defaultProjectId = null,
         public float $budgetExitThreshold = 0.0,
         public int $budgetExitWrapUpIterations = 2,
-        public ?string $activeProfile = null,
-        public ?string $activeProfilePath = null,
-        public ?PersonaPreferences $profilePreferences = null,
+        public ?string $activePersona = null,
+        public ?string $activePersonaPath = null,
+        public ?PersonaPreferences $personaPreferences = null,
     ) {
     }
 }

@@ -54,11 +54,11 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             sessionId: (string) ($loop['session_id'] ?? ''),
         );
         $targetSession = $this->storage->getSession($targetSessionId);
-        $profile = is_array($targetSession) && is_string($targetSession['persona_id'] ?? null) && $targetSession['persona_id'] !== ''
+        $persona = is_array($targetSession) && is_string($targetSession['persona_id'] ?? null) && $targetSession['persona_id'] !== ''
             ? $targetSession['persona_id']
             : null;
 
-        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $profile, visibility: 'hidden');
+        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $persona, visibility: 'hidden');
         $activeProjectId = $this->storage->getActiveProjectId($targetSessionId);
         if ($activeProjectId !== null) {
             $this->storage->setActiveProject($executionSessionId, $activeProjectId);

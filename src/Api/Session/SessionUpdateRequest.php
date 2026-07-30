@@ -11,13 +11,13 @@ final readonly class SessionUpdateRequest
         public ?string $title = null,
         public bool $updatesModelRole = false,
         public ?string $modelRole = null,
-        public bool $updatesProfile = false,
-        public ?string $profile = null,
+        public bool $updatesPersona = false,
+        public ?string $persona = null,
         public bool $updatesGroupEnabled = false,
         public ?bool $groupEnabled = null,
         public bool $includesMembers = false,
         public bool $updatesGroupMaxRounds = false,
         public mixed $groupMaxRounds = null,
-        public bool $confirmCloseActiveProfileSession = false,
+        public bool $confirmCloseActivePersonaSession = false,
     ) {}
 }

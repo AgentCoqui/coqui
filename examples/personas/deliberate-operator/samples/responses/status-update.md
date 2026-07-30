@@ -8,7 +8,7 @@ Current state:
 
 Risks:
 
-- The change may affect profile-specific runtime behavior if role restrictions or tool stubbing are already active.
+- The change may affect persona-specific runtime behavior if role restrictions or tool stubbing are already active.
 
 Recommendation:
 

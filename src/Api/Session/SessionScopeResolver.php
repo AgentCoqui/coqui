@@ -19,7 +19,7 @@ final readonly class SessionScopeResolver
 {
     public function __construct(
         private RoleResolver $roleResolver,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private GroupSessionService $groupSessions,
     ) {}
 
@@ -43,8 +43,8 @@ final readonly class SessionScopeResolver
             );
         }
 
-        $profile = is_array($body) && array_key_exists('persona_id', $body)
-            ? $this->normalizeProfileValue($body['persona_id'])
+        $persona = is_array($body) && array_key_exists('persona_id', $body)
+            ? $this->normalizePersonaValue($body['persona_id'])
             : null;
 
         $type = is_array($body)
@@ -54,10 +54,10 @@ final readonly class SessionScopeResolver
                 : SessionType::Interactive;
 
         if ($type === SessionType::Group) {
-            if ($profile !== null) {
+            if ($persona !== null) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
-                    'Group sessions do not support a single active profile.',
+                    'Group sessions do not support a single active persona.',
                 );
             }
 
@@ -88,14 +88,14 @@ final readonly class SessionScopeResolver
             );
         }
 
-        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+        if ($persona !== null && !$this->personaDiscovery->personaExists($persona)) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
+                sprintf('Unknown persona "%s". Create personas/{name}/soul.md in the workspace or clear the persona.', $persona),
             );
         }
 
-        $roleError = $this->validateProfileRole($profile, $modelRole);
+        $roleError = $this->validatePersonaRole($persona, $modelRole);
         if ($roleError instanceof Response) {
             return $roleError;
         }
@@ -103,42 +103,42 @@ final readonly class SessionScopeResolver
         return new SessionScope(
             type: SessionType::Interactive,
             modelRole: $modelRole,
-            profile: $profile,
-            confirmCloseActiveProfileSession: $this->confirmFlag($body, 'confirm_close_active_persona_session'),
+            persona: $persona,
+            confirmCloseActivePersonaSession: $this->confirmFlag($body, 'confirm_close_active_persona_session'),
         );
     }
 
-    private function validateProfileRole(?string $profile, string $role): ?Response
+    private function validatePersonaRole(?string $persona, string $role): ?Response
     {
-        $preferences = $this->loadProfilePreferences($profile);
+        $preferences = $this->loadPersonaPreferences($persona);
         if ($preferences === null || $preferences->isRoleAllowed($role)) {
             return null;
         }
 
         return Router::errorResponse(
             ApiErrorCode::VALIDATION_ERROR,
-            sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
+            sprintf('Persona "%s" does not allow role "%s".', $persona, $role),
         );
     }
 
-    private function loadProfilePreferences(?string $profile): ?PersonaPreferences
+    private function loadPersonaPreferences(?string $persona): ?PersonaPreferences
     {
-        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+        if ($persona === null || !$this->personaDiscovery->personaExists($persona)) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
+        return PersonaPreferences::fromPersonaPath($this->personaDiscovery->getPersonaPath($persona));
     }
 
-    private function normalizeProfileValue(mixed $value): ?string
+    private function normalizePersonaValue(mixed $value): ?string
     {
         if (!is_string($value)) {
             return null;
         }
 
-        $profile = strtolower(trim($value));
+        $persona = strtolower(trim($value));
 
-        return $profile !== '' ? $profile : null;
+        return $persona !== '' ? $persona : null;
     }
 
     /**

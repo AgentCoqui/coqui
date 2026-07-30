@@ -19,17 +19,17 @@ final readonly class InteractiveSessionService
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private PersonaDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
         private ?PersonaSessionLifecycleManager $lifecycleManager = null,
     ) {}
 
-    public function createSession(string $modelRole, ?string $profile = null): InteractiveSessionOperationResult
+    public function createSession(string $modelRole, ?string $persona = null): InteractiveSessionOperationResult
     {
-        $model = $this->roleResolver->resolve($modelRole, $profile);
+        $model = $this->roleResolver->resolve($modelRole, $persona);
         $sessionId = $this->storage->createSession(
             modelRole: $modelRole,
             model: $model,
-            profile: $profile,
+            persona: $persona,
             sessionType: SessionType::Interactive,
         );
 
@@ -38,50 +38,50 @@ final readonly class InteractiveSessionService
 
     public function createScopedSession(
         string $modelRole,
-        ?string $profile = null,
-        bool $confirmCloseActiveProfileSession = false,
-        string $closureReasonPrefix = 'api_create_profile_session',
+        ?string $persona = null,
+        bool $confirmCloseActivePersonaSession = false,
+        string $closureReasonPrefix = 'api_create_persona_session',
     ): InteractiveSessionOperationResult {
-        if ($profile !== null) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
-            if ($activeSessions !== [] && !$confirmCloseActiveProfileSession) {
-                throw $this->personaSessionActiveConflict($profile, $activeSessions);
+        if ($persona !== null) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForPersona($persona);
+            if ($activeSessions !== [] && !$confirmCloseActivePersonaSession) {
+                throw $this->personaSessionActiveConflict($persona, $activeSessions);
             }
 
             $closedSessionIds = [];
             if ($activeSessions !== []) {
-                $closedSessionIds = $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForProfile(
-                    $profile,
+                $closedSessionIds = $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForPersona(
+                    $persona,
                     '',
-                    sprintf('%s:%s', $closureReasonPrefix, $profile),
+                    sprintf('%s:%s', $closureReasonPrefix, $persona),
                 ) ?? [];
 
-                $result = $this->createSession($modelRole, $profile);
+                $result = $this->createSession($modelRole, $persona);
 
                 return new InteractiveSessionOperationResult($result->session, $result->created, $closedSessionIds);
             }
         }
 
-        return $this->createSession($modelRole, $profile);
+        return $this->createSession($modelRole, $persona);
     }
 
     public function resolveScopedSession(
         string $modelRole,
-        ?string $profile = null,
-        string $duplicateCleanupReasonPrefix = 'api_profile_duplicate_cleanup',
+        ?string $persona = null,
+        string $duplicateCleanupReasonPrefix = 'api_persona_duplicate_cleanup',
     ): InteractiveSessionOperationResult {
-        if ($profile !== null) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
+        if ($persona !== null) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForPersona($persona);
             if ($activeSessions !== []) {
                 $sessionId = (string) ($activeSessions[0]['id'] ?? '');
                 if ($sessionId !== '') {
-                    $closedSessionIds = $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForProfile(
-                        $profile,
+                    $closedSessionIds = $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForPersona(
+                        $persona,
                         $sessionId,
-                        sprintf('%s:%s', $duplicateCleanupReasonPrefix, $profile),
+                        sprintf('%s:%s', $duplicateCleanupReasonPrefix, $persona),
                     ) ?? [];
 
-                    $session = $this->loadExistingSession($sessionId, $profile);
+                    $session = $this->loadExistingSession($sessionId, $persona);
                     if ($session !== null) {
                         return new InteractiveSessionOperationResult($session, false, $closedSessionIds);
                     }
@@ -89,36 +89,36 @@ final readonly class InteractiveSessionService
             }
         }
 
-        $sessionId = $profile === null
-            ? $this->storage->getLatestInteractiveUnprofiledSessionId()
-            : $this->storage->getLatestInteractiveSessionIdForProfile($profile);
+        $sessionId = $persona === null
+            ? $this->storage->getLatestInteractiveUnpersonaScopedSessionId()
+            : $this->storage->getLatestInteractiveSessionIdForPersona($persona);
 
         if ($sessionId !== null) {
-            $session = $this->loadExistingSession($sessionId, $profile);
+            $session = $this->loadExistingSession($sessionId, $persona);
             if ($session !== null) {
                 return new InteractiveSessionOperationResult($session, false);
             }
         }
 
-        return $this->createSession($modelRole, $profile);
+        return $this->createSession($modelRole, $persona);
     }
 
-    public function createFreshProfileSession(
+    public function createFreshPersonaSession(
         string $currentSessionId,
-        string $profile,
+        string $persona,
         string $modelRole = SystemRole::Orchestrator->value,
-        string $closureReasonPrefix = 'repl_new_profile_session',
+        string $closureReasonPrefix = 'repl_new_persona_session',
     ): InteractiveSessionOperationResult {
         $closedSessionIds = [];
         if ($this->lifecycleManager !== null) {
             $this->lifecycleManager->finalizeSession(
                 $currentSessionId,
-                sprintf('%s:%s', $closureReasonPrefix, $profile),
+                sprintf('%s:%s', $closureReasonPrefix, $persona),
             );
             $closedSessionIds[] = $currentSessionId;
         }
 
-        $result = $this->createSession($modelRole, $profile);
+        $result = $this->createSession($modelRole, $persona);
 
         return new InteractiveSessionOperationResult($result->session, true, $closedSessionIds);
     }
@@ -171,43 +171,43 @@ final readonly class InteractiveSessionService
             $resolvedRole = $request->modelRole;
         }
 
-        $resolvedProfile = $request->updatesProfile
-            ? $request->profile
-            : $this->normalizeProfileValue($session['persona_id'] ?? null);
+        $resolvedPersona = $request->updatesPersona
+            ? $request->persona
+            : $this->normalizePersonaValue($session['persona_id'] ?? null);
 
-        $this->assertProfileRoleAllowed($resolvedProfile, $resolvedRole);
+        $this->assertPersonaRoleAllowed($resolvedPersona, $resolvedRole);
 
-        if ($resolvedProfile !== null && !$this->storage->isSessionClosed($sessionId)) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($resolvedProfile);
+        if ($resolvedPersona !== null && !$this->storage->isSessionClosed($sessionId)) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForPersona($resolvedPersona);
             $conflicts = array_values(array_filter(
                 $activeSessions,
                 static fn(array $activeSession): bool => (string) ($activeSession['id'] ?? '') !== $sessionId,
             ));
 
-            if ($conflicts !== [] && !$request->confirmCloseActiveProfileSession) {
-                throw $this->personaSessionActiveConflict($resolvedProfile, $conflicts);
+            if ($conflicts !== [] && !$request->confirmCloseActivePersonaSession) {
+                throw $this->personaSessionActiveConflict($resolvedPersona, $conflicts);
             }
 
             if ($conflicts !== []) {
-                $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForProfile(
-                    $resolvedProfile,
+                $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForPersona(
+                    $resolvedPersona,
                     $sessionId,
-                    sprintf('api_profile_reassignment:%s', $resolvedProfile),
+                    sprintf('api_persona_reassignment:%s', $resolvedPersona),
                 );
             }
         }
 
-        if ($request->updatesProfile) {
-            $this->storage->updateSessionPersona($sessionId, $resolvedProfile);
+        if ($request->updatesPersona) {
+            $this->storage->updateSessionPersona($sessionId, $resolvedPersona);
         }
 
-        $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedProfile);
+        $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedPersona);
         $this->storage->updateSessionRole($sessionId, $resolvedRole, $resolvedModel);
 
         return $this->requireSession($sessionId);
     }
 
-    public function enforceProfileRolePolicy(string $sessionId, ?string $profile): string
+    public function enforcePersonaRolePolicy(string $sessionId, ?string $persona): string
     {
         $session = $this->storage->getSession($sessionId);
         if ($session === null) {
@@ -219,46 +219,46 @@ final readonly class InteractiveSessionService
             $currentRole = SystemRole::Orchestrator->value;
         }
 
-        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+        if ($persona === null || !$this->personaDiscovery->personaExists($persona)) {
             return $currentRole;
         }
 
-        $effectiveRole = $this->normalizeRoleForProfile($currentRole, $profile);
+        $effectiveRole = $this->normalizeRoleForPersona($currentRole, $persona);
         if ($effectiveRole === $currentRole) {
             return $currentRole;
         }
 
-        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
+        $modelString = $this->roleResolver->resolve($effectiveRole, $persona);
         $this->storage->updateSessionRole($sessionId, $effectiveRole, $modelString);
 
         return $effectiveRole;
     }
 
-    public function assertProfileRoleAllowed(?string $profile, string $role): void
+    public function assertPersonaRoleAllowed(?string $persona, string $role): void
     {
-        $preferences = $this->loadProfilePreferences($profile);
+        $preferences = $this->loadPersonaPreferences($persona);
         if ($preferences === null || $preferences->isRoleAllowed($role)) {
             return;
         }
 
         throw new SessionTypeException(
             ApiErrorCode::VALIDATION_ERROR,
-            sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
+            sprintf('Persona "%s" does not allow role "%s".', $persona, $role),
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $activeSessions
      */
-    public function personaSessionActiveConflict(string $profile, array $activeSessions): SessionTypeException
+    public function personaSessionActiveConflict(string $persona, array $activeSessions): SessionTypeException
     {
         $primary = $activeSessions[0] ?? [];
 
         return new SessionTypeException(
             ApiErrorCode::PERSONA_SESSION_ACTIVE,
-            sprintf('Profile "%s" already has an active session. Confirm closure before starting or reassigning a fresh session.', $profile),
+            sprintf('Persona "%s" already has an active session. Confirm closure before starting or reassigning a fresh session.', $persona),
             [
-                'profile' => $profile,
+                'persona_id' => $persona,
                 'active_session_id' => $primary['id'] ?? null,
                 'active_session_count' => count($activeSessions),
                 'confirm_field' => 'confirm_close_active_persona_session',
@@ -282,16 +282,16 @@ final readonly class InteractiveSessionService
     /**
      * @return array<string, mixed>|null
      */
-    private function loadExistingSession(string $sessionId, ?string $profile): ?array
+    private function loadExistingSession(string $sessionId, ?string $persona): ?array
     {
         $session = $this->storage->getSession($sessionId);
         if ($session === null) {
             return null;
         }
 
-        $effectiveRole = $this->normalizeRoleForProfile((string) ($session['model_role'] ?? SystemRole::Orchestrator->value), $profile);
+        $effectiveRole = $this->normalizeRoleForPersona((string) ($session['model_role'] ?? SystemRole::Orchestrator->value), $persona);
         if ($effectiveRole !== (string) ($session['model_role'] ?? '')) {
-            $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
+            $effectiveModel = $this->roleResolver->resolve($effectiveRole, $persona);
             $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
             $session = $this->storage->getSession($sessionId) ?? $session;
         }
@@ -299,9 +299,9 @@ final readonly class InteractiveSessionService
         return $session;
     }
 
-    private function normalizeRoleForProfile(string $role, ?string $profile): string
+    private function normalizeRoleForPersona(string $role, ?string $persona): string
     {
-        $preferences = $this->loadProfilePreferences($profile);
+        $preferences = $this->loadPersonaPreferences($persona);
         if ($preferences === null || $preferences->isRoleAllowed($role)) {
             return $role;
         }
@@ -309,23 +309,23 @@ final readonly class InteractiveSessionService
         return SystemRole::Orchestrator->value;
     }
 
-    private function loadProfilePreferences(?string $profile): ?PersonaPreferences
+    private function loadPersonaPreferences(?string $persona): ?PersonaPreferences
     {
-        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+        if ($persona === null || !$this->personaDiscovery->personaExists($persona)) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
+        return PersonaPreferences::fromPersonaPath($this->personaDiscovery->getPersonaPath($persona));
     }
 
-    private function normalizeProfileValue(mixed $value): ?string
+    private function normalizePersonaValue(mixed $value): ?string
     {
         if (!is_string($value)) {
             return null;
         }
 
-        $profile = strtolower(trim($value));
+        $persona = strtolower(trim($value));
 
-        return $profile !== '' ? $profile : null;
+        return $persona !== '' ? $persona : null;
     }
 }

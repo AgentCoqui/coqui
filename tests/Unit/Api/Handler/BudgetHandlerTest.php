@@ -100,25 +100,25 @@ function cleanupBudgetHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-test('budget handler accepts profile query parameter', function () {
+test('budget handler accepts persona query parameter', function () {
     $fixture = createBudgetHandlerFixture();
 
     try {
         $handler = $fixture['handler'];
 
         $defaultResponse = $handler->get(new ServerRequest('GET', '/api/v1/server/budget'));
-        $profiledResponse = $handler->get(
-            (new ServerRequest('GET', '/api/v1/server/budget'))->withQueryParams(['profile' => 'caelum'])
+        $personaScopedResponse = $handler->get(
+            (new ServerRequest('GET', '/api/v1/server/budget'))->withQueryParams(['persona' => 'caelum'])
         );
 
         $defaultBody = json_decode((string) $defaultResponse->getBody(), true);
-        $profiledBody = json_decode((string) $profiledResponse->getBody(), true);
+        $personaScopedBody = json_decode((string) $personaScopedResponse->getBody(), true);
         $defaultIds = array_column($defaultBody['prompt_sections'] ?? [], 'id');
-        $profiledIds = array_column($profiledBody['prompt_sections'] ?? [], 'id');
+        $personaScopedIds = array_column($personaScopedBody['prompt_sections'] ?? [], 'id');
 
-        expect($profiledResponse->getStatusCode())->toBe(200);
+        expect($personaScopedResponse->getStatusCode())->toBe(200);
         expect($defaultIds)->not->toContain('prompt.preferences');
-        expect($profiledIds)->toContain('prompt.preferences');
+        expect($personaScopedIds)->toContain('prompt.preferences');
     } finally {
         cleanupBudgetHandlerFixture($fixture);
     }

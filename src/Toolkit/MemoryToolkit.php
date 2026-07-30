@@ -35,8 +35,8 @@ final class MemoryToolkit implements ToolkitInterface
     public function __construct(
         private readonly MemoryStore $memoryStore,
         private readonly ?string $workspacePath = null,
-        private readonly ?string $activeProfileId = null,
-        private readonly bool $allowCrossProfileMutation = false,
+        private readonly ?string $activePersonaId = null,
+        private readonly bool $allowCrossPersonaMutation = false,
     ) {}
 
     public function tools(): array
@@ -51,8 +51,8 @@ final class MemoryToolkit implements ToolkitInterface
             $this->memoryRestoreTool(),
         ];
 
-        if ($this->allowCrossProfileMutation) {
-            $tools[] = $this->memoryInspectProfileTool();
+        if ($this->allowCrossPersonaMutation) {
+            $tools[] = $this->memoryInspectPersonaTool();
         }
 
         if ($this->workspacePath !== null) {
@@ -64,7 +64,7 @@ final class MemoryToolkit implements ToolkitInterface
 
     public function guidelines(): string
     {
-        $count = $this->memoryStore->count(profileId: $this->activeProfileId);
+        $count = $this->memoryStore->count(personaId: $this->activePersonaId);
         $vectorStatus = $this->memoryStore->hasVectorSearch()
             ? 'Semantic vector search is **active** — search queries are matched by meaning, not just keywords.'
             : 'Vector search is not configured — search uses keyword matching (FTS5). Results are still good but exact phrasing helps.';
@@ -118,7 +118,7 @@ final class MemoryToolkit implements ToolkitInterface
         - Search before saving to avoid duplicates
         - Update existing memories when information changes rather than creating new ones
         - Set high importance for critical identity anchors, enduring preferences, and project constraints
-        - When available, use `memory_inspect_profile` before touching another profile's memories so cross-profile work stays explicit and auditable
+        - When available, use `memory_inspect_persona` before touching another persona's memories so cross-persona work stays explicit and auditable
         </MEMORY-GUIDELINES>
         GUIDELINES;
     }
@@ -175,7 +175,7 @@ final class MemoryToolkit implements ToolkitInterface
                     metadata: $metadata,
                     type: $type,
                     validUntil: $validUntil,
-                    personaId: $this->activeProfileId,
+                    personaId: $this->activePersonaId,
                 );
 
                 $id = $this->memoryStore->save($entry);
@@ -209,7 +209,7 @@ final class MemoryToolkit implements ToolkitInterface
                 $results = $this->memoryStore->search(
                     $query,
                     limit: (int) ($input['limit'] ?? 10),
-                    profileId: $this->activeProfileId,
+                    personaId: $this->activePersonaId,
                 );
 
                 if (empty($results)) {
@@ -262,7 +262,7 @@ final class MemoryToolkit implements ToolkitInterface
 
                 $existing = $this->memoryStore->getById($id);
                 if ($existing !== null && !$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
+                    return ToolResult::error($this->crossPersonaMutationError($id, $existing->personaId));
                 }
 
                 $updated = $this->memoryStore->update(
@@ -304,7 +304,7 @@ final class MemoryToolkit implements ToolkitInterface
                 }
 
                 if (!$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
+                    return ToolResult::error($this->crossPersonaMutationError($id, $existing->personaId));
                 }
 
                 $this->memoryStore->delete($id);
@@ -330,7 +330,7 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Query cannot be empty.');
                 }
 
-                $count = $this->memoryStore->forget($query, profileId: $this->activeProfileId);
+                $count = $this->memoryStore->forget($query, personaId: $this->activePersonaId);
 
                 return ToolResult::success("Forgot {$count} memories matching \"{$query}\".");
             },
@@ -362,11 +362,11 @@ final class MemoryToolkit implements ToolkitInterface
 
                 if ($tags !== null && trim($tags) !== '') {
                     $tagList = array_map('trim', explode(',', $tags));
-                    $entries = $this->memoryStore->listByTags($tagList, $limit, profileId: $this->activeProfileId);
+                    $entries = $this->memoryStore->listByTags($tagList, $limit, personaId: $this->activePersonaId);
                 } elseif ($area !== null) {
-                    $entries = $this->memoryStore->list($area, $limit, profileId: $this->activeProfileId);
+                    $entries = $this->memoryStore->list($area, $limit, personaId: $this->activePersonaId);
                 } else {
-                    $entries = $this->memoryStore->listAll($limit, profileId: $this->activeProfileId);
+                    $entries = $this->memoryStore->listAll($limit, personaId: $this->activePersonaId);
                 }
 
                 // Include archived memories if requested
@@ -390,7 +390,7 @@ final class MemoryToolkit implements ToolkitInterface
                     $entries,
                 );
 
-                $total = $this->memoryStore->count(profileId: $this->activeProfileId);
+                $total = $this->memoryStore->count(personaId: $this->activePersonaId);
                 $header = "Showing " . count($entries) . " of {$total} total memories:";
 
                 return ToolResult::success("{$header}\n\n" . implode("\n\n---\n\n", $formatted));
@@ -416,7 +416,7 @@ final class MemoryToolkit implements ToolkitInterface
 
                 $existing = $this->memoryStore->getById($id);
                 if ($existing !== null && !$this->canMutateMemory($existing)) {
-                    return ToolResult::error($this->crossProfileMutationError($id, $existing->personaId));
+                    return ToolResult::error($this->crossPersonaMutationError($id, $existing->personaId));
                 }
 
                 $restored = $this->memoryStore->restoreMemory($id);
@@ -428,14 +428,14 @@ final class MemoryToolkit implements ToolkitInterface
         );
     }
 
-    private function memoryInspectProfileTool(): ToolInterface
+    private function memoryInspectPersonaTool(): ToolInterface
     {
         return new Tool(
-            name: 'memory_inspect_profile',
-            description: 'Orchestrator-only: inspect memories belonging to a specific profile without switching the active profile. Supports semantic search via query or direct listing by area/tags.',
+            name: 'memory_inspect_persona',
+            description: 'Orchestrator-only: inspect memories belonging to a specific persona without switching the active persona. Supports semantic search via query or direct listing by area/tags.',
             parameters: [
-                new StringParameter('profile', 'The profile whose memories to inspect', required: true),
-                new StringParameter('query', 'Optional search query for semantic/keyword matching within that profile', required: false),
+                new StringParameter('persona', 'The persona whose memories to inspect', required: true),
+                new StringParameter('query', 'Optional search query for semantic/keyword matching within that persona', required: false),
                 new EnumParameter(
                     'area',
                     'Optional area filter when listing memories',
@@ -446,27 +446,27 @@ final class MemoryToolkit implements ToolkitInterface
                 new NumberParameter('limit', 'Max results to return (default: 10)', required: false, integer: true),
             ],
             callback: function (array $input): ToolResult {
-                $profile = trim((string) ($input['profile'] ?? ''));
-                if ($profile === '') {
-                    return ToolResult::error('Profile is required.');
+                $persona = trim((string) ($input['persona'] ?? ''));
+                if ($persona === '') {
+                    return ToolResult::error('Persona is required.');
                 }
 
                 $limit = max(1, (int) ($input['limit'] ?? 10));
                 $query = trim((string) ($input['query'] ?? ''));
-                $profileEntries = $this->filterExactProfileEntries(
-                    $this->memoryStore->listAll(max($limit * 10, 100), profileId: $profile),
-                    $profile,
+                $personaEntries = $this->filterExactPersonaEntries(
+                    $this->memoryStore->listAll(max($limit * 10, 100), personaId: $persona),
+                    $persona,
                 );
 
                 if ($query !== '') {
-                    $entries = $this->filterExactProfileEntries(
-                        $this->memoryStore->search($query, limit: max($limit * 5, $limit), profileId: $profile),
-                        $profile,
+                    $entries = $this->filterExactPersonaEntries(
+                        $this->memoryStore->search($query, limit: max($limit * 5, $limit), personaId: $persona),
+                        $persona,
                     );
 
                     if ($entries === []) {
                         $entries = array_values(array_filter(
-                            $profileEntries,
+                            $personaEntries,
                             static fn(MemoryEntry $entry): bool => self::matchesInspectionQuery($entry, $query),
                         ));
                     }
@@ -479,7 +479,7 @@ final class MemoryToolkit implements ToolkitInterface
                     if ($tags !== '') {
                         $tagList = array_filter(array_map('trim', explode(',', $tags)));
                         $entries = array_values(array_filter(
-                            $profileEntries,
+                            $personaEntries,
                             static function (MemoryEntry $entry) use ($tagList): bool {
                                 $entryTags = strtolower((string) ($entry->metadata['tags'] ?? ''));
                                 foreach ($tagList as $tag) {
@@ -493,17 +493,17 @@ final class MemoryToolkit implements ToolkitInterface
                         ));
                     } elseif ($area !== null) {
                         $entries = array_values(array_filter(
-                            $profileEntries,
+                            $personaEntries,
                             static fn(MemoryEntry $entry): bool => $entry->area === $area,
                         ));
                     } else {
-                        $entries = $profileEntries;
+                        $entries = $personaEntries;
                     }
                 }
 
                 $entries = array_slice($entries, 0, $limit);
                 if ($entries === []) {
-                    return ToolResult::success(sprintf('No memories found for profile "%s".', $profile));
+                    return ToolResult::success(sprintf('No memories found for persona "%s".', $persona));
                 }
 
                 $formatted = array_map(
@@ -517,8 +517,8 @@ final class MemoryToolkit implements ToolkitInterface
 
                 return ToolResult::success(
                     sprintf(
-                        "Profile \"%s\" memories (%d shown):\n\n%s",
-                        $profile,
+                        "Persona \"%s\" memories (%d shown):\n\n%s",
+                        $persona,
                         count($entries),
                         implode("\n\n---\n\n", $formatted),
                     ),
@@ -529,21 +529,21 @@ final class MemoryToolkit implements ToolkitInterface
 
     private function canMutateMemory(MemoryEntry $entry): bool
     {
-        if ($this->activeProfileId === null || $this->allowCrossProfileMutation) {
+        if ($this->activePersonaId === null || $this->allowCrossPersonaMutation) {
             return true;
         }
 
-        return $entry->personaId === null || $entry->personaId === $this->activeProfileId;
+        return $entry->personaId === null || $entry->personaId === $this->activePersonaId;
     }
 
-    private function crossProfileMutationError(string $id, ?string $memoryProfileId): string
+    private function crossPersonaMutationError(string $id, ?string $memoryPersonaId): string
     {
-        $profileLabel = $memoryProfileId ?? 'shared';
+        $personaLabel = $memoryPersonaId ?? 'shared';
 
         return sprintf(
-            'Memory %s belongs to profile "%s" and cannot be changed from the active profile.',
+            'Memory %s belongs to persona "%s" and cannot be changed from the active persona.',
             $id,
-            $profileLabel,
+            $personaLabel,
         );
     }
 
@@ -551,11 +551,11 @@ final class MemoryToolkit implements ToolkitInterface
     * @param array<MemoryEntry> $entries
     * @return list<MemoryEntry>
      */
-    private function filterExactProfileEntries(array $entries, string $profile): array
+    private function filterExactPersonaEntries(array $entries, string $persona): array
     {
         return array_values(array_filter(
             $entries,
-            static fn(MemoryEntry $entry): bool => $entry->personaId === $profile,
+            static fn(MemoryEntry $entry): bool => $entry->personaId === $persona,
         ));
     }
 

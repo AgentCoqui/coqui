@@ -189,7 +189,7 @@ final class ProcessSpawner
         if (PHP_OS_FAMILY === 'Windows') {
             $output = self::runCommand([
                 self::windowsPowerShellBinary(),
-                '-NoProfile',
+                '-NoPersona',
                 '-Command',
                 sprintf('Get-Process -Id %d -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id', $pid),
             ]);

@@ -7,7 +7,7 @@ namespace CoquiBot\Coqui\Config;
 use CoquiBot\Coqui\Contract\SystemRole;
 
 /**
- * Behavioral settings and communication patterns loaded from a profile's preferences.json.
+ * Behavioral settings and communication patterns loaded from a persona's preferences.json.
  *
  * Preferences are split into two sections:
  * - promptDirectives: key-value pairs rendered into the system prompt to guide communication style
@@ -91,17 +91,17 @@ final readonly class PersonaPreferences
     }
 
     /**
-     * Load preferences from a profile directory.
+     * Load preferences from a persona directory.
      */
-    public static function fromProfilePath(string $profilePath): self
+    public static function fromPersonaPath(string $personaPath): self
     {
-        return self::fromFile(rtrim($profilePath, '/') . '/preferences.json');
+        return self::fromFile(rtrim($personaPath, '/') . '/preferences.json');
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public static function fromArray(array $data, ?string $profilePath = null): self
+    public static function fromArray(array $data, ?string $personaPath = null): self
     {
         $errors = [];
 
@@ -134,8 +134,8 @@ final readonly class PersonaPreferences
             $errors[] = 'prompts must be an object.';
         }
 
-        if ($profilePath !== null) {
-            self::validateSecurityOverride($profilePath, $errors);
+        if ($personaPath !== null) {
+            self::validateSecurityOverride($personaPath, $errors);
         }
 
         return new self(
@@ -152,7 +152,7 @@ final readonly class PersonaPreferences
     }
 
     /**
-     * Curated app-facing schema for the profile preferences workspace.
+     * Curated app-facing schema for the persona preferences workspace.
      *
      * @param list<string> $availableRoles
      * @return array<string, mixed>
@@ -173,27 +173,27 @@ final readonly class PersonaPreferences
                 [
                     'id' => 'communication_style',
                     'label' => 'Communication Style',
-                    'description' => 'How the profile speaks, collaborates, and frames feedback.',
+                    'description' => 'How the persona speaks, collaborates, and frames feedback.',
                     'fields' => [
                         self::suggestedTextField(
                             'response_style',
                             'Response Style',
                             'prompt_directives.response_style',
-                            'Choose how the profile should sound in normal replies.',
+                            'Choose how the persona should sound in normal replies.',
                             ['structured and measured', 'brief and exact', 'commercial and outcome-first'],
                         ),
                         self::suggestedTextField(
                             'collaboration',
                             'Collaboration Style',
                             'prompt_directives.collaboration',
-                            'Guide how the profile should work with the user while solving problems.',
+                            'Guide how the persona should work with the user while solving problems.',
                             ['call out risks and assumptions early'],
                         ),
                         self::suggestedTextField(
                             'feedback',
                             'Feedback Style',
                             'prompt_directives.feedback',
-                            'Shape how direct or soft the profile should be when critiquing work.',
+                            'Shape how direct or soft the persona should be when critiquing work.',
                             ['favor direct critique over soft framing'],
                         ),
                     ],
@@ -201,13 +201,13 @@ final readonly class PersonaPreferences
                 [
                     'id' => 'planning_reasoning',
                     'label' => 'Planning and Reasoning',
-                    'description' => 'How the profile evaluates tradeoffs, plans work, and applies critique.',
+                    'description' => 'How the persona evaluates tradeoffs, plans work, and applies critique.',
                     'fields' => [
                         self::suggestedTextField(
                             'decision_making',
                             'Decision Making',
                             'prompt_directives.decision_making',
-                            'Guide how the profile should choose between competing options.',
+                            'Guide how the persona should choose between competing options.',
                             [
                                 'state tradeoffs before recommending a path',
                                 'prefer the option with the clearest measurable upside',
@@ -217,21 +217,21 @@ final readonly class PersonaPreferences
                             'planning_mode',
                             'Planning Mode',
                             'behavior.planning_mode',
-                            'Choose how structured the profile should be before acting.',
+                            'Choose how structured the persona should be before acting.',
                             ['deliberate', 'structured'],
                         ),
                         self::toggleField(
                             'critique_mode',
                             'Critique Mode',
                             'behavior.critique_mode',
-                            'When enabled, the profile leans harder into critical review and challenge.',
+                            'When enabled, the persona leans harder into critical review and challenge.',
                         ),
                     ],
                 ],
                 [
                     'id' => 'capabilities_tools',
                     'label' => 'Capabilities and Tools',
-                    'description' => 'Control which major workflow features this profile can actively use.',
+                    'description' => 'Control which major workflow features this persona can actively use.',
                     'fields' => [
                         self::toggleField('artifacts', 'Artifacts', 'prompts.features.artifacts', 'Allow artifact creation and artifact-aware workflows.'),
                         self::toggleField('projects', 'Projects', 'prompts.features.projects', 'Allow project context and project-aware workflows.'),
@@ -242,20 +242,20 @@ final readonly class PersonaPreferences
                 [
                     'id' => 'roles_autonomy',
                     'label' => 'Roles and Autonomy',
-                    'description' => 'Constrain which roles the profile can use or explicitly block.',
+                    'description' => 'Constrain which roles the persona can use or explicitly block.',
                     'fields' => [
                         self::multiSelectField(
                             'allow_roles',
                             'Allowed Roles',
                             'prompts.roles.allow',
-                            'If set, the profile is restricted to this role allow-list. Orchestrator must remain available.',
+                            'If set, the persona is restricted to this role allow-list. Orchestrator must remain available.',
                             $roleOptions,
                         ),
                         self::multiSelectField(
                             'deny_roles',
                             'Denied Roles',
                             'prompts.roles.deny',
-                            'Use deny-list rules to block roles that should never be used by this profile.',
+                            'Use deny-list rules to block roles that should never be used by this persona.',
                             $roleOptions,
                         ),
                     ],
@@ -578,7 +578,7 @@ final readonly class PersonaPreferences
             }
 
             if ($section === 'security' && $value !== true) {
-                $errors[] = 'prompts.prompt_sections.security cannot be changed. Use a profile-specific security.md override instead.';
+                $errors[] = 'prompts.prompt_sections.security cannot be changed. Use a persona-specific security.md override instead.';
                 $prompts['prompt_sections'][$section] = true;
                 continue;
             }
@@ -807,16 +807,16 @@ final readonly class PersonaPreferences
     /**
      * @param list<string> $errors
      */
-    private static function validateSecurityOverride(string $profilePath, array &$errors): void
+    private static function validateSecurityOverride(string $personaPath, array &$errors): void
     {
-        $securityPath = rtrim($profilePath, '/') . '/security.md';
+        $securityPath = rtrim($personaPath, '/') . '/security.md';
         if (!is_file($securityPath)) {
             return;
         }
 
         $content = file_get_contents($securityPath);
         if ($content === false || trim($content) === '') {
-            $errors[] = 'Profile security.md override must not be empty. Remove the file to fall back to workspace or default security.';
+            $errors[] = 'Persona security.md override must not be empty. Remove the file to fall back to workspace or default security.';
         }
     }
 }

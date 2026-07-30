@@ -79,9 +79,9 @@ final class SpawnAgentTool implements ToolInterface
         private readonly bool $unsafeMode = false,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?ProviderFactory $providerFactory = null,
-        private readonly ?string $profileIdentityPreamble = null,
-        private readonly ?string $activeProfile = null,
-        private readonly ?string $activeProfilePath = null,
+        private readonly ?string $personaIdentityPreamble = null,
+        private readonly ?string $activePersona = null,
+        private readonly ?string $activePersonaPath = null,
     ) {}
 
     public function name(): string
@@ -114,7 +114,7 @@ final class SpawnAgentTool implements ToolInterface
      */
     private function describeSelectableRoles(): string
     {
-        $names = $this->selectableRolesForProfile();
+        $names = $this->selectableRolesForPersona();
 
         if ($this->roleDiscovery === null) {
             return implode(', ', $names);
@@ -124,7 +124,7 @@ final class SpawnAgentTool implements ToolInterface
         $byCategory = [];
         foreach ($names as $name) {
             try {
-                $props = $this->roleDiscovery->getRole($name, $this->activeProfilePath);
+                $props = $this->roleDiscovery->getRole($name, $this->activePersonaPath);
             } catch (\Throwable) {
                 $byCategory['general'][] = "- {$name}";
                 continue;
@@ -155,7 +155,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function parameters(): array
     {
-        $roles = $this->selectableRolesForProfile();
+        $roles = $this->selectableRolesForPersona();
 
         return [
             new EnumParameter(
@@ -187,9 +187,9 @@ final class SpawnAgentTool implements ToolInterface
             return ToolResult::error('Both role and task are required');
         }
 
-        $preferences = $this->profilePreferences();
+        $preferences = $this->personaPreferences();
         if ($preferences !== null && !$preferences->isRoleAllowed($role)) {
-            return ToolResult::error(sprintf('Profile "%s" does not allow role "%s".', $this->activeProfile, $role));
+            return ToolResult::error(sprintf('Persona "%s" does not allow role "%s".', $this->activePersona, $role));
         }
 
         $handoff = ChildAgentHandoff::fromInput(
@@ -205,7 +205,7 @@ final class SpawnAgentTool implements ToolInterface
         );
 
         // Resolve role to model
-        $modelString = $this->roleResolver->resolve($role, $this->activeProfile);
+        $modelString = $this->roleResolver->resolve($role, $this->activePersona);
 
         // Notify observer about child spawn
         $this->notifyObserver('child.start', ['role' => $role, 'model' => $modelString]);
@@ -224,11 +224,11 @@ final class SpawnAgentTool implements ToolInterface
                 role: $role,
                 taskInstructions: $handoff,
                 toolkits: $toolkits,
-                maxIterations: $this->roleResolver->resolveMaxIterations($role, $this->activeProfile),
+                maxIterations: $this->roleResolver->resolveMaxIterations($role, $this->activePersona),
                 roleDiscovery: $this->roleDiscovery,
                 toolExecutor: $this->toolExecutor,
-                profileIdentityPreamble: $this->profileIdentityPreamble,
-                activeProfilePath: $this->activeProfilePath,
+                personaIdentityPreamble: $this->personaIdentityPreamble,
+                activePersonaPath: $this->activePersonaPath,
             );
 
             // Attach observer if available
@@ -344,7 +344,7 @@ final class SpawnAgentTool implements ToolInterface
 
         // Memory toolkit — gives child agents access to persistent cross-session memory.
         if ($this->memoryStore !== null && $accessLevel === 'full') {
-            $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activeProfile);
+            $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activePersona);
         }
 
         // Skill toolkit — gives child agents access to discovered Agent Skills.
@@ -379,7 +379,7 @@ final class SpawnAgentTool implements ToolInterface
             // toolkit (readOnly only withholds delete), but did not receive the
             // MemoryToolkit above (that is full-access only), so wire it in here.
             if ($this->memoryStore !== null && $accessLevel !== 'full') {
-                $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activeProfile);
+                $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activePersona);
             }
         }
 
@@ -422,7 +422,7 @@ final class SpawnAgentTool implements ToolInterface
                 childMode: true,
                 context: [
                     'config' => $this->config,
-                    'activeProfile' => $this->activeProfile,
+                    'activePersona' => $this->activePersona,
                     'sessionId' => $this->sessionId,
                 ],
             ) as $entry) {
@@ -463,7 +463,7 @@ final class SpawnAgentTool implements ToolInterface
     {
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
+                $properties = $this->roleDiscovery->getRole($role, $this->activePersonaPath);
                 return $properties->accessLevel;
             } catch (\Throwable) {
                 // Fall through to hardcoded defaults
@@ -487,7 +487,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         try {
-            $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
+            $properties = $this->roleDiscovery->getRole($role, $this->activePersonaPath);
 
             return new RoleToolkitResolver($properties->toolkits);
         } catch (\Throwable) {
@@ -517,26 +517,26 @@ final class SpawnAgentTool implements ToolInterface
     /**
      * @return list<string>
      */
-    private function selectableRolesForProfile(): array
+    private function selectableRolesForPersona(): array
     {
         $roles = array_values($this->roleResolver->selectableRoles());
-        $preferences = $this->profilePreferences();
+        $preferences = $this->personaPreferences();
 
         return $preferences?->filterAllowedRoles($roles) ?? $roles;
     }
 
     private function isFeatureEnabled(string $feature, bool $default = true): bool
     {
-        return $this->profilePreferences()?->isFeatureEnabled($feature, $default) ?? $default;
+        return $this->personaPreferences()?->isFeatureEnabled($feature, $default) ?? $default;
     }
 
-    private function profilePreferences(): ?PersonaPreferences
+    private function personaPreferences(): ?PersonaPreferences
     {
-        if ($this->activeProfilePath === null) {
+        if ($this->activePersonaPath === null) {
             return null;
         }
 
-        return PersonaPreferences::fromProfilePath($this->activeProfilePath);
+        return PersonaPreferences::fromPersonaPath($this->activePersonaPath);
     }
 
     /**
@@ -555,7 +555,7 @@ final class SpawnAgentTool implements ToolInterface
         // Check role-level auto_review flag
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
+                $properties = $this->roleDiscovery->getRole($role, $this->activePersonaPath);
                 return $properties->autoReview;
             } catch (\Throwable) {
                 // Fall through
@@ -586,9 +586,9 @@ final class SpawnAgentTool implements ToolInterface
                 observer: $this->observer,
                 toolExecutor: $this->toolExecutor,
                 providerFactory: $this->providerFactory,
-                activeProfile: $this->activeProfile,
-                activeProfilePath: $this->activeProfilePath,
-                profileIdentityPreamble: $this->profileIdentityPreamble,
+                activePersona: $this->activePersona,
+                activePersonaPath: $this->activePersonaPath,
+                personaIdentityPreamble: $this->personaIdentityPreamble,
             );
 
             $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);
@@ -601,7 +601,7 @@ final class SpawnAgentTool implements ToolInterface
                 maxRounds: $reviewConfig['maxRounds'],
                 coderToolkits: $coderToolkits,
                 autoIterate: $reviewConfig['autoIterate'],
-                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole, $this->activeProfile),
+                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole, $this->activePersona),
             );
         } catch (\Throwable) {
             // Review cycle failure should not prevent returning the coder's output
@@ -611,7 +611,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function toFunctionSchema(): array
     {
-        $roles = $this->selectableRolesForProfile();
+        $roles = $this->selectableRolesForPersona();
 
         return [
             'type' => 'function',

@@ -25,7 +25,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  *
  * Builds a real OrchestratorAgent on an offline provider (ollama/qwen3:latest
  * with a localhost base URL — never called in prompt-only assertions) so that
- * profile-aware toolkit deferral can be observed through the agent's public
+ * persona-aware toolkit deferral can be observed through the agent's public
  * accessors. Deliberately does NOT register any MCP discovery entry so the
  * harness stays usable while coqui-toolkit-mcp-client is unavailable.
  *
@@ -71,7 +71,7 @@ function makeOrchestrator(
         workspacePath: $workspacePath,
     );
 
-    // Construct the registry with the profile-resolved core set as its second
+    // Construct the registry with the persona-resolved core set as its second
     // argument. Otherwise every SYSTEM_TOOLKITS entry stays "system" and
     // setMode(..., Eager) would throw for the non-core toolkits we pin.
     $loadingRegistry = new ToolkitLoadingRegistry(
@@ -85,7 +85,7 @@ function makeOrchestrator(
 
     // Storage-backed stores so the store-gated built-ins (Memory, Schedule,
     // Loop, Project, Artifact) are actually constructed — and therefore
-    // observable as deferred — under the lean profile.
+    // observable as deferred — under the lean persona.
     $storage = new SessionStorage($workspacePath . '/data/sessions.db');
     $sessionId = $storage->createSession('orchestrator', $chatModel);
     $projectStore = new ProjectStore($storage->getPdo());
@@ -104,8 +104,8 @@ function makeOrchestrator(
     $provider = (new ProviderFactory($config))->create($chatModel);
 
     // ConfigManager backs the agent-facing `config` tool — one of the always-core
-    // standalone tools under the lean profile. Without it, ConfigTool is never
-    // constructed and 'config' can never appear in tools(), independent of profile.
+    // standalone tools under the lean persona. Without it, ConfigTool is never
+    // constructed and 'config' can never appear in tools(), independent of persona.
     $configManager = new ConfigManager($workspacePath, $projectRoot, new DefaultsLoader());
 
     return new OrchestratorAgent(

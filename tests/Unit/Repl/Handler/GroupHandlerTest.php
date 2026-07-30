@@ -18,14 +18,14 @@ function createGroupHandlerFixture(): array
     mkdir($workspacePath, 0755, true);
     mkdir($workspacePath . '/personas', 0755, true);
 
-    foreach (['caelum', 'nova', 'iris'] as $profile) {
-        mkdir($workspacePath . '/personas/' . $profile, 0755, true);
-        file_put_contents($workspacePath . '/personas/' . $profile . '/soul.md', '# ' . ucfirst($profile));
+    foreach (['caelum', 'nova', 'iris'] as $persona) {
+        mkdir($workspacePath . '/personas/' . $persona, 0755, true);
+        file_put_contents($workspacePath . '/personas/' . $persona . '/soul.md', '# ' . ucfirst($persona));
     }
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $profileDiscovery = new PersonaDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
@@ -44,7 +44,7 @@ function createGroupHandlerFixture(): array
         'dbPath' => $dbPath,
         'storage' => $storage,
         'handler' => new GroupHandler(
-            new GroupSessionService($storage, $roleResolver, $profileDiscovery),
+            new GroupSessionService($storage, $roleResolver, $personaDiscovery),
             $storage,
         ),
         'io' => new SymfonyStyle(new ArrayInput([]), $output),
@@ -73,7 +73,7 @@ test('group handler starts a group session and returns a session state change', 
         expect($session)->not->toBeNull();
         expect($session['group_enabled'])->toBe(1);
         expect($session['group_max_rounds'])->toBe(4);
-        expect(array_column($session['group_members'], 'profile'))->toBe(['caelum', 'nova']);
+        expect(array_column($session['group_members'], 'persona_id'))->toBe(['caelum', 'nova']);
         expect($fixture['output']->fetch())->toContain('Started group session');
     } finally {
         cleanupGroupHandlerFixture($fixture);
@@ -104,7 +104,7 @@ test('group handler updates membership and rounds for the current group session'
 
         $fixture['handler']->handle($fixture['io'], 'add iris', $groupSessionId);
         $afterAdd = $fixture['storage']->getSession($groupSessionId);
-        expect(array_column($afterAdd['group_members'], 'profile'))->toBe(['caelum', 'iris', 'nova']);
+        expect(array_column($afterAdd['group_members'], 'persona_id'))->toBe(['caelum', 'iris', 'nova']);
 
         $fixture['handler']->handle($fixture['io'], 'rounds 5', $groupSessionId);
         $afterRounds = $fixture['storage']->getSession($groupSessionId);
@@ -112,7 +112,7 @@ test('group handler updates membership and rounds for the current group session'
 
         $fixture['handler']->handle($fixture['io'], 'remove nova', $groupSessionId);
         $afterRemove = $fixture['storage']->getSession($groupSessionId);
-        expect(array_column($afterRemove['group_members'], 'profile'))->toBe(['caelum', 'iris']);
+        expect(array_column($afterRemove['group_members'], 'persona_id'))->toBe(['caelum', 'iris']);
     } finally {
         cleanupGroupHandlerFixture($fixture);
     }

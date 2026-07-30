@@ -109,12 +109,12 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
 
     try {
         $response = $fixture['handler']->get(
-            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['persona' => 'caelum'])
         );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
         expect($body['role'])->toBe('orchestrator');
         expect($body['resolved_model'])->toBe('ollama/qwen3:latest');
         expect($body['prompt'])->toContain('Caelum');
@@ -149,7 +149,7 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
     }
 });
 
-test('prompt handler exposes effective profile policy summary', function () {
+test('prompt handler exposes effective persona policy summary', function () {
     $fixture = createPromptHandlerFixture();
 
     try {
@@ -168,15 +168,15 @@ test('prompt handler exposes effective profile policy summary', function () {
         ], JSON_THROW_ON_ERROR));
 
         $response = $fixture['handler']->get(
-            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['persona' => 'caelum'])
         );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile_policy']['tools_stubbed'])->toBeTrue();
-        expect($body['profile_policy']['features']['loops'])->toBeFalse();
-        expect($body['profile_policy']['roles']['allow'])->toBe(['orchestrator']);
-        expect($body['profile_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
+        expect($body['persona_policy']['tools_stubbed'])->toBeTrue();
+        expect($body['persona_policy']['features']['loops'])->toBeFalse();
+        expect($body['persona_policy']['roles']['allow'])->toBe(['orchestrator']);
+        expect($body['persona_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
     } finally {
         cleanupPromptHandlerFixture($fixture);
     }
