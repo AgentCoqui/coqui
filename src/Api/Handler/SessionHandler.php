@@ -405,29 +405,118 @@ final readonly class SessionHandler
     }
 
     /**
+     * Layer CAP 0.5.0 session fields onto the rich app-facing row.
+     *
+     * The former role-resolver back-fill is gone: model passes through nullable,
+     * so a stored null (⇒ inherit per Personas §5) survives to the wire — CORE-15.
+     * The opaque workspace, pinned, version, kind and derived members[] surface
+     * here — CORE-19. Rich fields (session_type, group_members, active_project_id,
+     * …) are retained additively for the application layer.
+     *
      * @param array<string, mixed> $session
      * @return array<string, mixed>
      */
     private function normalizeSessionForResponse(array $session): array
     {
-        $model = is_string($session['model'] ?? null) ? trim((string) $session['model']) : '';
-        $role = is_string($session['model_role'] ?? null) ? trim((string) $session['model_role']) : '';
-
-        if ($model !== '') {
-            return $session;
-        }
-
-        if ($role === '') {
-            return $session;
-        }
-
-        $persona = is_string($session['persona_id'] ?? null) ? trim((string) $session['persona_id']) : null;
-        if ($persona === '') {
-            $persona = null;
-        }
-
-        $session['model'] = $this->roleResolver->resolve($role, $persona);
+        $session['members'] = self::deriveMembers($session);
+        $session['kind'] = is_string($session['kind'] ?? null) && $session['kind'] !== ''
+            ? (string) $session['kind']
+            : 'chat';
+        $session['pinned'] = (bool) ($session['pinned'] ?? false);
+        $session['version'] = is_scalar($session['version'] ?? null) ? max(1, (int) $session['version']) : 1;
+        $session['workspace'] = is_string($session['workspace'] ?? null) && $session['workspace'] !== ''
+            ? (string) $session['workspace']
+            : null;
+        $session['model'] = is_string($session['model'] ?? null) && $session['model'] !== ''
+            ? (string) $session['model']
+            : null;
 
         return $session;
+    }
+
+    /**
+     * Produce a strict CAP 0.5.0 `session.json` wire object from a normalized
+     * session row (as returned by {@see SessionStorage::getSession()}).
+     *
+     * This is the conformance producer: it emits exactly the schema's property
+     * set (no rich extras), derives `status`/`members`, passes `model`/`workspace`
+     * through nullable, and Z-normalizes the timestamps.
+     *
+     * @param array<string, mixed> $session
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $session): array
+    {
+        $isArchived = (int) ($session['is_archived'] ?? 0) === 1;
+        $isClosed = (int) ($session['is_closed'] ?? 0) === 1;
+        $title = $session['title'] ?? null;
+
+        return [
+            'id' => (string) ($session['id'] ?? ''),
+            'persona_id' => (string) ($session['persona_id'] ?? ''),
+            'members' => self::deriveMembers($session),
+            'kind' => is_string($session['kind'] ?? null) && $session['kind'] !== ''
+                ? (string) $session['kind']
+                : 'chat',
+            'status' => $isArchived ? 'archived' : ($isClosed ? 'closed' : 'active'),
+            'pinned' => (bool) ($session['pinned'] ?? false),
+            'version' => is_scalar($session['version'] ?? null) ? max(1, (int) $session['version']) : 1,
+            'model' => is_string($session['model'] ?? null) && $session['model'] !== ''
+                ? (string) $session['model']
+                : null,
+            'workspace' => is_string($session['workspace'] ?? null) && $session['workspace'] !== ''
+                ? (string) $session['workspace']
+                : null,
+            'title' => is_string($title) ? $title : null,
+            'token_count' => (int) ($session['token_count'] ?? 0),
+            'created_at' => self::toUtcZ($session['created_at'] ?? null),
+            'updated_at' => self::toUtcZ($session['updated_at'] ?? null),
+        ];
+    }
+
+    /**
+     * Owner persona unioned with any group members, as a unique id list.
+     *
+     * @param array<string, mixed> $session
+     * @return list<string>
+     */
+    private static function deriveMembers(array $session): array
+    {
+        $members = [];
+
+        $owner = $session['persona_id'] ?? null;
+        if (is_string($owner) && $owner !== '') {
+            $members[] = $owner;
+        }
+
+        $groupMembers = $session['group_members'] ?? [];
+        if (is_array($groupMembers)) {
+            foreach ($groupMembers as $member) {
+                $pid = is_array($member) ? ($member['persona_id'] ?? null) : $member;
+                if (is_string($pid) && $pid !== '') {
+                    $members[] = $pid;
+                }
+            }
+        }
+
+        return array_values(array_unique($members));
+    }
+
+    /**
+     * Normalize an RFC-3339 timestamp to UTC with a Z suffix (CAP Timestamp).
+     */
+    private static function toUtcZ(mixed $value): string
+    {
+        if (!is_string($value) || $value === '') {
+            return gmdate('Y-m-d\TH:i:s\Z');
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format('Y-m-d\TH:i:s\Z');
+        } catch (\Throwable) {
+            return $value;
+        }
     }
 }

@@ -101,14 +101,38 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 sessions shape. Recreate-from-empty: every column an earlier
+        // release accreted via migrateAddColumn is folded into this base DDL, plus
+        // the CAP additions (nullable model ⇒ inherit, kind, pinned, workspace,
+        // version). persona_id is a plain nullable column with NO FK to personas —
+        // real session creation binds persona ids that are not guaranteed to exist
+        // as personas rows, and PRAGMA foreign_keys is ON, so a FK here would break
+        // session creation. Persona FK strictness is a deliberate Phase 4 carry-forward.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                model_role TEXT NOT NULL,
-                model TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                token_count INTEGER DEFAULT 0
+                id                    TEXT PRIMARY KEY,
+                persona_id            TEXT,
+                model_role            TEXT NOT NULL,
+                model                 TEXT,
+                kind                  TEXT NOT NULL DEFAULT 'chat',
+                pinned                INTEGER NOT NULL DEFAULT 0,
+                workspace             TEXT,
+                version               INTEGER NOT NULL DEFAULT 1,
+                title                 TEXT DEFAULT NULL,
+                active_project_id     TEXT DEFAULT NULL,
+                group_enabled         INTEGER NOT NULL DEFAULT 0,
+                group_composition_key TEXT DEFAULT NULL,
+                group_max_rounds      INTEGER DEFAULT NULL,
+                session_type          TEXT NOT NULL DEFAULT 'interactive',
+                visibility            TEXT NOT NULL DEFAULT 'visible',
+                is_closed             INTEGER NOT NULL DEFAULT 0,
+                is_archived           INTEGER NOT NULL DEFAULT 0,
+                closed_at             TEXT DEFAULT NULL,
+                archived_at           TEXT DEFAULT NULL,
+                closure_reason        TEXT DEFAULT NULL,
+                created_at            TEXT NOT NULL,
+                updated_at            TEXT NOT NULL,
+                token_count           INTEGER DEFAULT 0
             )
         SQL);
 
@@ -196,9 +220,6 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_turn_process ON turns(turn_process_id)');
 
-        // Migration: add title column to sessions
-        $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
-
         // Background tasks tables
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS background_tasks (
@@ -266,26 +287,10 @@ final class SessionStorage
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
-        // Migration: active project tracking per session
-        $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
-
-        // Migration: personality persona per session
-        $this->migrateAddColumn('sessions', 'persona_id', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'group_enabled', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'session_type', "TEXT NOT NULL DEFAULT 'interactive'");
-        $this->migrateAddColumn('sessions', 'visibility', "TEXT NOT NULL DEFAULT 'visible'");
-        $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
-
-        $this->db->exec("UPDATE sessions SET session_type = 'group' WHERE COALESCE(group_enabled, 0) = 1 AND COALESCE(session_type, '') != 'group'");
-
-        $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
-        $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
+        // All session lifecycle/persona/group columns are folded into the base
+        // sessions DDL above (CAP 0.5.0 recreate-from-empty). The former
+        // migrateAddColumn calls and the session_type/visibility data-repair
+        // UPDATEs are dead on a fresh store and have been removed.
         $this->repairLegacyBackgroundSessionVisibility();
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_persona_updated ON sessions(persona_id, updated_at DESC)');
@@ -428,7 +433,7 @@ final class SessionStorage
 
     public function createSession(
         string $modelRole,
-        string $model,
+        ?string $model,
         ?string $persona = null,
         bool $groupEnabled = false,
         ?string $groupCompositionKey = null,
@@ -618,7 +623,7 @@ final class SessionStorage
     public function listActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey): array
     {
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                    s.group_enabled, s.group_composition_key, s.group_max_rounds,
                    s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -706,7 +711,7 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -1683,6 +1688,16 @@ final class SessionStorage
             ? 'archived'
             : ($isClosed === 1 ? 'closed' : 'active');
 
+        // CAP 0.5.0 fields. Default-tolerant so rows from SELECTs that omit the new
+        // columns still normalize. model passes through nullable (null ⇒ inherit).
+        $row['kind'] = is_string($row['kind'] ?? null) && $row['kind'] !== '' ? $row['kind'] : 'chat';
+        $row['pinned'] = (int) ($row['pinned'] ?? 0);
+        $row['version'] = is_scalar($row['version'] ?? null) ? max(1, (int) $row['version']) : 1;
+        $row['workspace'] = is_string($row['workspace'] ?? null) && $row['workspace'] !== ''
+            ? $row['workspace']
+            : null;
+        $row['model'] = is_string($row['model'] ?? null) && $row['model'] !== '' ? $row['model'] : null;
+
         return $row;
     }
 
@@ -1725,7 +1740,7 @@ final class SessionStorage
     public function listActiveInteractiveSessionsForPersona(string $persona): array
     {
         $stmt = $this->db->prepare(<<<SQL
-                                                SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                                                                          s.session_type, s.visibility,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -2418,7 +2433,7 @@ final class SessionStorage
         $visibilityFilter = $visibleOnly ? "AND s.visibility = 'visible'" : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,

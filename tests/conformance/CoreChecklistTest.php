@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tests\Conformance;
 
+use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
 
 // CAP 0.5.0 Core conformance scoreboard (conformance/checklist.md, CORE-1..CORE-59).
@@ -31,6 +33,47 @@ it('CORE-1: persona allowed_roles includes orchestrator', function () {
     expect($wire['allowed_roles'])->toContain('orchestrator');
 })->group('conformance');
 
+it('CORE-15: session.model is nullable; a stored null passes through as null (inherit)', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core15-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $id = $storage->createSession('orchestrator', null, 'caelum');
+        $wire = SessionHandler::toWire($storage->getSession($id));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('session.json', $wire))->toBeTrue($v->errorText('session.json', $wire));
+        expect(array_key_exists('model', $wire))->toBeTrue();
+        expect($wire['model'])->toBeNull();
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-19: session carries an opaque workspace echoed verbatim; null = no rooted workspace', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core19-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $rooted = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $storage->pdo()
+            ->prepare('UPDATE sessions SET workspace = :ws WHERE id = :id')
+            ->execute(['ws' => '/srv/agents/ws-42', 'id' => $rooted]);
+        $rootedWire = SessionHandler::toWire($storage->getSession($rooted));
+
+        $unrooted = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $unrootedWire = SessionHandler::toWire($storage->getSession($unrooted));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('session.json', $rootedWire))->toBeTrue($v->errorText('session.json', $rootedWire));
+        expect($rootedWire['workspace'])->toBe('/srv/agents/ws-42');
+        expect($v->isValid('session.json', $unrootedWire))->toBeTrue($v->errorText('session.json', $unrootedWire));
+        expect($unrootedWire['workspace'])->toBeNull();
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -46,11 +89,9 @@ $rows = [
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-13: internal collections (jobs/job_events/audit_records) are typed for export validation',
     'CORE-14: export envelope types every Core+internal collection; import is fail-closed + FK-consistent',
-    'CORE-15: session.model nullable; null = inherit makes precedence computable',
     'CORE-16: circuit-breaker + dispatch state are persisted fields',
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
-    'CORE-19: session carries an opaque workspace; agents/loop-stages/child-runs are rooted there and inherit it',
     'CORE-20: loop definitions carry no on_question; loops never block on a question',
     'CORE-21: loop stages thread prior-stage output + inherit the session workspace',
     'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
