@@ -21,13 +21,13 @@ function createApiConfigHandlerFixture(): array
     $projectRoot = sys_get_temp_dir() . '/coqui-config-handler-project-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
     mkdir($projectRoot, 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    mkdir($workspacePath . '/profiles/trinity', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/trinity', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n\n# Caelum\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/backstory.md', "## Past\n\nKeeps continuity across sessions.\n");
-    file_put_contents($workspacePath . '/profiles/trinity/soul.md', "# Trinity\n\nA precise hacker and guide.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n\n# Caelum\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/backstory.md', "## Past\n\nKeeps continuity across sessions.\n");
+    file_put_contents($workspacePath . '/personas/trinity/soul.md', "# Trinity\n\nA precise hacker and guide.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompts' => [
             'roles' => [
                 'allow' => ['orchestrator', 'analyst'],
@@ -61,7 +61,7 @@ MD);
     $configData = [
         'agents' => [
             'defaults' => [
-                'profile' => 'caelum',
+                'persona' => 'caelum',
                 'model' => ['primary' => 'ollama/qwen3:latest'],
                 'roles' => [
                     'orchestrator' => 'ollama/qwen3:latest',
@@ -230,9 +230,9 @@ test('config handler creates a profile and makes it immediately discoverable', f
         expect($body['preferences']['features']['loops'])->toBeTrue();
         expect($profilesBody['count'])->toBe(3);
         expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/soul.md'))->toContain('A bold collaborative strategist.');
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/backstory.md'))->toContain('## Origins');
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/preferences.json'))->toContain('planning_mode');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('A bold collaborative strategist.');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/backstory.md'))->toContain('## Origins');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/preferences.json'))->toContain('planning_mode');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -295,7 +295,7 @@ test('config handler updates a profile and preserves existing frontmatter', func
             ], JSON_THROW_ON_ERROR),
         ), 'caelum');
         $body = json_decode((string) $response->getBody(), true);
-        $soulFile = file_get_contents($fixture['workspacePath'] . '/profiles/caelum/soul.md');
+        $soulFile = file_get_contents($fixture['workspacePath'] . '/personas/caelum/soul.md');
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['description'])->toBe('A calmer guide for long-running conversations.');
@@ -304,8 +304,8 @@ test('config handler updates a profile and preserves existing frontmatter', func
         expect($body['preferences']['features']['loops'])->toBeTrue();
         expect($soulFile)->toContain('model: anthropic/claude-sonnet-4-20250514');
         expect($soulFile)->toContain('A calmer guide for long-running conversations.');
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/backstory.md'))->toContain('## Revisions');
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json'))->toContain('"projects": false');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/backstory.md'))->toContain('## Revisions');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json'))->toContain('"projects": false');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -330,9 +330,9 @@ test('config handler can remove optional profile files during update', function 
         expect($response->getStatusCode())->toBe(200);
         expect($body['description'])->toBe('A direct soul rewrite.');
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-        expect(is_file($fixture['workspacePath'] . '/profiles/caelum/backstory.md'))->toBeFalse();
-        expect(is_file($fixture['workspacePath'] . '/profiles/caelum/preferences.json'))->toBeFalse();
-        expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/soul.md'))->toContain('model: anthropic/claude-sonnet-4-20250514');
+        expect(is_file($fixture['workspacePath'] . '/personas/caelum/backstory.md'))->toBeFalse();
+        expect(is_file($fixture['workspacePath'] . '/personas/caelum/preferences.json'))->toBeFalse();
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/soul.md'))->toContain('model: anthropic/claude-sonnet-4-20250514');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -379,7 +379,7 @@ test('config handler deletes a non-default profile and invalidates discovery', f
         ]);
         expect($profilesBody['count'])->toBe(1);
         expect(array_column($profilesBody['personas'], 'name'))->toBe(['caelum']);
-        expect(is_dir($fixture['workspacePath'] . '/profiles/trinity'))->toBeFalse();
+        expect(is_dir($fixture['workspacePath'] . '/personas/trinity'))->toBeFalse();
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -397,7 +397,7 @@ test('config handler refuses to delete the configured default profile', function
 
         expect($response->getStatusCode())->toBe(409);
         expect($body['code'])->toBe('conflict');
-        expect(is_dir($fixture['workspacePath'] . '/profiles/caelum'))->toBeTrue();
+        expect(is_dir($fixture['workspacePath'] . '/personas/caelum'))->toBeTrue();
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }

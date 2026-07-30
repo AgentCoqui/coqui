@@ -29,14 +29,14 @@ function createTabCompletionFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-tab-completion-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    mkdir($workspacePath . '/profiles/nova', 0755, true);
-    mkdir($workspacePath . '/profiles/iris', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/nova', 0755, true);
+    mkdir($workspacePath . '/personas/iris', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
     mkdir($workspacePath . '/skills/review-skill', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.\n");
-    file_put_contents($workspacePath . '/profiles/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
-    file_put_contents($workspacePath . '/profiles/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', "# Caelum\n\nA calm companion.\n");
+    file_put_contents($workspacePath . '/personas/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
+    file_put_contents($workspacePath . '/personas/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
     copy(dirname(__DIR__, 3) . '/config/roles/coder.md', $workspacePath . '/roles/coder.md');
     file_put_contents($workspacePath . '/skills/review-skill/' . ModRegistry::ORIGIN_FILE, json_encode([
         'source' => 'coqui.mods',

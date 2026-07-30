@@ -262,9 +262,9 @@ test('resolves aliases through config', function () {
 test('uses profile soul frontmatter model when no role-specific override exists', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
-    mkdir($workspacePath . '/profiles/artist', 0755, true);
+    mkdir($workspacePath . '/personas/artist', 0755, true);
     mkdir($projectRoot . '/config/roles', 0755, true);
-    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: openai/gpt-4.1-mini\n---\n# Artist\n");
+    file_put_contents($workspacePath . '/personas/artist/soul.md', "---\nmodel: openai/gpt-4.1-mini\n---\n# Artist\n");
 
     try {
         $config = OpenClawConfig::fromArray([
@@ -292,12 +292,12 @@ test('profile role override beats global role config and profile default model',
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
     mkdir($workspacePath . '/roles', 0755, true);
-    mkdir($workspacePath . '/profiles/artist/roles', 0755, true);
+    mkdir($workspacePath . '/personas/artist/roles', 0755, true);
     mkdir($projectRoot . '/config/roles', 0755, true);
 
-    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: ollama/mistral:latest\n---\n# Artist\n");
+    file_put_contents($workspacePath . '/personas/artist/soul.md', "---\nmodel: ollama/mistral:latest\n---\n# Artist\n");
     createRoleResolverTestRole($workspacePath . '/roles/coder.md', 'coder', 'openai/gpt-4o');
-    createRoleResolverTestRole($workspacePath . '/profiles/artist/roles/coder.md', 'coder', 'anthropic/claude-sonnet-4-20250514', 11);
+    createRoleResolverTestRole($workspacePath . '/personas/artist/roles/coder.md', 'coder', 'anthropic/claude-sonnet-4-20250514', 11);
 
     try {
         $config = OpenClawConfig::fromArray([

@@ -259,13 +259,13 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 **Single location for all runtime state**: every piece of runtime state lives inside the resolved workspace — sessions and databases (`data/`), skills (`skills/`), roles, loops, schedules, and the launcher's service PID files (`pids/`). The bash launcher (`bin/coqui`) resolves the PID directory using the same precedence as the rest of Coqui: `--workspace` / `COQUI_WORKSPACE` → `agents.defaults.workspace` in `openclaw.json` → `~/.coqui/.workspace`. Nothing is written to a `.workspace/` folder in the project root. (If the resolved `pids/` directory is not writable — for example a root-owned Docker mount — the launcher falls back to `/tmp/coqui-pids-<uid>`.)
 
-### `profile`
+### `persona`
 
-Optional default startup profile name. The value must match a directory under `workspace/profiles/{name}/` that contains a `soul.md` file.
+Optional default startup persona name. The value must match a directory under `workspace/personas/{name}/` that contains a `soul.md` file.
 
 ```json
 {
-    "profile": "caelum"
+    "persona": "caelum"
 }
 ```
 

@@ -86,18 +86,18 @@ final class ConfigValidator
      */
     private function validateDefaultProfile(array $data): array
     {
-        $profile = $data['agents']['defaults']['profile'] ?? null;
+        $profile = $data['agents']['defaults']['persona'] ?? null;
 
         if ($profile === null) {
             return [];
         }
 
         if (!is_string($profile)) {
-            return ['agents.defaults.profile must be a string'];
+            return ['agents.defaults.persona must be a string'];
         }
 
         if (trim($profile) === '') {
-            return ['agents.defaults.profile must be a non-empty string'];
+            return ['agents.defaults.persona must be a non-empty string'];
         }
 
         return [];

@@ -86,7 +86,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts plus file and folder breakdowns |
 | `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
-> **`/backstory` moved out of core.** Source-file backstory generation and the `/backstory` command are provided by the optional `coqui-toolkit-backstory` package (`/mods install coquibot/coqui-toolkit-backstory`). Core treats `backstory.md` as a plain optional markdown file — see [docs/PROFILES.md](PROFILES.md#breaking-changes).
+> **`/backstory` moved out of core.** Source-file backstory generation and the `/backstory` command are provided by the optional `coqui-toolkit-backstory` package (`/mods install coquibot/coqui-toolkit-backstory`). Core treats `backstory.md` as a plain optional markdown file — see [docs/PERSONAS.md](PERSONAS.md#breaking-changes).
 
 ### Images
 

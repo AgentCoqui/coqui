@@ -288,7 +288,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         $resolvedProfilePath = null;
         $resolvedPreferences = null;
         if ($profile !== null) {
-            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+            $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $profile;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
                 $resolvedProfilePath = $candidatePath;
 
@@ -612,7 +612,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             return ['profilePath' => null, 'preferences' => null];
         }
 
-        $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+        $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $profile;
         if (!is_dir($candidatePath) || !is_file($candidatePath . '/soul.md')) {
             return ['profilePath' => null, 'preferences' => null];
         }
@@ -1391,7 +1391,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         $resolvedProfilePath = null;
         $resolvedPreferences = null;
         if ($profile !== null) {
-            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+            $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $profile;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
                 $resolvedProfilePath = $candidatePath;
 

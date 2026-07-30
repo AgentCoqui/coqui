@@ -1,9 +1,9 @@
 ---
-title: Personality Profiles
-description: "Distinct agent identities sharing one runtime: soul.md and backstory files, preferences and prompt overrides, profile-scoped memory, REPL commands, CLI flag, and API"
+title: Personas
+description: "Distinct agent identities sharing one runtime: soul.md and backstory files, preferences and prompt overrides, persona-scoped memory, REPL commands, CLI flag, and API"
 ---
 
-# Personality Profiles
+# Personas
 
 Coqui supports multiple personality profiles — distinct identities the agent can adopt while sharing the same underlying memories and toolkits.
 
@@ -131,7 +131,7 @@ profiles/caelum/
 
 Optional behavioral settings file with three sections:
 
-Additional ready-to-copy examples live in `examples/preferences/`, including a short README and optional `security.md` overrides. A fully worked example profile also lives in `examples/profiles/deliberate-operator/`.
+Additional ready-to-copy examples live in `examples/preferences/`, including a short README and optional `security.md` overrides. A fully worked example persona also lives in `examples/personas/deliberate-operator/`.
 
 ```json
 {

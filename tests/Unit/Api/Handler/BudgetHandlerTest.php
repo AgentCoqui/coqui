@@ -49,10 +49,10 @@ function createBudgetHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-budget-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath . '/data', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
     file_put_contents($workspacePath . '/.env', '');
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
         ],

@@ -93,7 +93,7 @@ beforeEach(function () {
         ],
     ];
 
-    $profilesDir = $this->workspace . '/profiles';
+    $profilesDir = $this->workspace . '/personas';
     foreach ($profiles as $slug => $profile) {
         mkdir($profilesDir . '/' . $slug, 0755, true);
         file_put_contents(
@@ -111,7 +111,7 @@ afterEach(function () {
 
 test('switching between profiles loads correct soul.md into system prompt', function () {
     foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/profiles/' . $slug;
+        $profilePath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,
@@ -143,7 +143,7 @@ test('switching between profiles loads correct soul.md into system prompt', func
 
 test('profile switching does not leak soul content between profiles', function () {
     foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/profiles/' . $slug;
+        $profilePath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,
@@ -199,7 +199,7 @@ test('profile with role prepends identity preamble to role instructions', functi
 
     // Test each profile with the coder role
     foreach ($this->profiles as $slug => $profile) {
-        $profilePath = $this->workspace . '/profiles/' . $slug;
+        $profilePath = $this->workspace . '/personas/' . $slug;
 
         $agent = new OrchestratorAgent(
             provider: $this->provider,

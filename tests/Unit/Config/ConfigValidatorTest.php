@@ -158,7 +158,7 @@ test('default profile must be a non-empty string when configured', function () {
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'openai/gpt-4o'],
-                'profile' => '',
+                'persona' => '',
             ],
         ],
     ];
@@ -166,7 +166,7 @@ test('default profile must be a non-empty string when configured', function () {
     $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
-    expect($errors[0])->toContain('agents.defaults.profile');
+    expect($errors[0])->toContain('agents.defaults.persona');
 });
 
 test('default profile accepts a valid string', function () {
@@ -174,7 +174,7 @@ test('default profile accepts a valid string', function () {
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'openai/gpt-4o'],
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ],
         ],
     ];

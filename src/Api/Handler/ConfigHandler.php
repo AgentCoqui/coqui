@@ -386,7 +386,7 @@ final readonly class ConfigHandler
         return Router::jsonResponse([
             'personas' => $personas,
             'count' => count($personas),
-            'default_persona' => $this->currentConfig()->getDefaultProfile(),
+            'default_persona' => $this->currentConfig()->getDefaultPersona(),
         ]);
     }
 
@@ -453,7 +453,7 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'preferences must be an object.');
         }
 
-        $profileDir = 'profiles/' . $name;
+        $profileDir = 'personas/' . $name;
         $preferences = $preferencesPayload !== null
             ? PersonaPreferences::fromArray($preferencesPayload, $this->workspacePath() . '/' . $profileDir)
             : PersonaPreferences::empty();
@@ -582,7 +582,7 @@ final readonly class ConfigHandler
 
         try {
             $operations = $this->workspaceOperations();
-            $profileDir = 'profiles/' . $normalizedName;
+            $profileDir = 'personas/' . $normalizedName;
 
             if ($updatesSoul) {
                 $operations->write(
@@ -636,7 +636,7 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
         }
 
-        if ($this->currentConfig()->getDefaultProfile() === $normalizedName) {
+        if ($this->currentConfig()->getDefaultPersona() === $normalizedName) {
             return Router::errorResponse(
                 ApiErrorCode::CONFLICT,
                 sprintf('Profile "%s" is the configured default profile and cannot be deleted yet.', $normalizedName),
@@ -699,7 +699,7 @@ final readonly class ConfigHandler
             'display_name' => $profile['display_name'],
             'description' => $profile['description'],
             'model' => $this->profileDiscovery->readProfileModel($profile['name']),
-            'is_default' => $this->currentConfig()->getDefaultProfile() === $profile['name'],
+            'is_default' => $this->currentConfig()->getDefaultPersona() === $profile['name'],
             'allowed_roles' => $allowedRoles,
             'role_restrictions' => [
                 'allow' => $preferences->allowedRoles(),

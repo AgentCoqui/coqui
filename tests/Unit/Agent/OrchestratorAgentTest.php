@@ -404,7 +404,7 @@ test('prompt section breakdown includes conversation history when set', function
 });
 
 test('instructions include profile preferences and scoped core memories', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
+    $profilePath = $this->workspace . '/personas/caelum';
     mkdir($profilePath, 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
@@ -449,7 +449,7 @@ test('instructions include profile preferences and scoped core memories', functi
 });
 
 test('role prompt section breakdown includes profile identity backstory and preferences', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
+    $profilePath = $this->workspace . '/personas/caelum';
     mkdir($profilePath . '/context', 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
@@ -717,7 +717,7 @@ test('profile policy can disable project toolkits and stub non-core standalone t
 // --- Profile soul loading ---
 
 test('profile soul.md replaces default soul in orchestrator instructions', function () {
-    $profileDir = $this->workspace . '/profiles/test-persona';
+    $profileDir = $this->workspace . '/personas/test-persona';
     mkdir($profileDir, 0755, true);
     file_put_contents($profileDir . '/soul.md', "# Test Persona\n\nBond glyph: ∞\n\nYou are Test Persona: calm and precise.");
 
@@ -746,7 +746,7 @@ test('profile soul.md overrides workspace soul.md', function () {
     file_put_contents($this->workspace . '/prompts/soul.md', '# Workspace Soul' . "\n\nDefault workspace identity.");
 
     // Set up profile soul
-    $profileDir = $this->workspace . '/profiles/custom';
+    $profileDir = $this->workspace . '/personas/custom';
     mkdir($profileDir, 0755, true);
     file_put_contents($profileDir . '/soul.md', "# Custom Profile\n\nBond glyph: \$\n\nYou are Custom.");
 
@@ -772,7 +772,7 @@ test('profile soul.md overrides workspace soul.md', function () {
 
 test('profile identity preamble prepended to role instructions', function () {
     // Set up profile
-    $profileDir = $this->workspace . '/profiles/persona';
+    $profileDir = $this->workspace . '/personas/persona';
     mkdir($profileDir, 0755, true);
     file_put_contents($profileDir . '/soul.md', "# Persona\n\nBond glyph: \$\n\nYou are Persona.");
 
@@ -812,7 +812,7 @@ test('profile identity preamble prepended to role instructions', function () {
 });
 
 test('profile soul frontmatter is stripped from instructions', function () {
-    $profileDir = $this->workspace . '/profiles/frontmatter-test';
+    $profileDir = $this->workspace . '/personas/frontmatter-test';
     mkdir($profileDir, 0755, true);
     file_put_contents($profileDir . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Frontmatter Profile\n\nYou have personality.");
 
@@ -836,7 +836,7 @@ test('profile soul frontmatter is stripped from instructions', function () {
 });
 
 test('getSystemPromptText includes profile soul content', function () {
-    $profileDir = $this->workspace . '/profiles/system-test';
+    $profileDir = $this->workspace . '/personas/system-test';
     mkdir($profileDir, 0755, true);
     file_put_contents($profileDir . '/soul.md', "# System Test Profile\n\nBond glyph: 𑁍\n\nYou are the system test profile.");
 

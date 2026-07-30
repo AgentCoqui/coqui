@@ -21,9 +21,9 @@ test('preferences example fixtures remain valid', function () {
 
 test('worked profile example is discoverable and valid', function () {
     $projectRoot = dirname(__DIR__, 3);
-    $sourceDir = $projectRoot . '/examples/profiles/deliberate-operator';
+    $sourceDir = $projectRoot . '/examples/personas/deliberate-operator';
     $workspacePath = sys_get_temp_dir() . '/coqui-profile-examples-' . bin2hex(random_bytes(4));
-    $profileDir = $workspacePath . '/profiles/deliberate-operator';
+    $profileDir = $workspacePath . '/personas/deliberate-operator';
     $samplesDir = $profileDir . '/samples/responses';
     $cleanupTree = static function (string $dir): void {
         if (!is_dir($dir)) {

@@ -33,7 +33,7 @@ final class PersonaDiscovery
      */
     public function profilesDir(): string
     {
-        return rtrim($this->workspacePath, '/') . '/profiles';
+        return rtrim($this->workspacePath, '/') . '/personas';
     }
 
     /**

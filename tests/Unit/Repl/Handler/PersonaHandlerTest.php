@@ -23,9 +23,9 @@ function createProfileHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-profile-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.");
+    mkdir($workspacePath . '/personas', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', "# Caelum\n\nA calm companion.");
 
     file_put_contents($workspacePath . '/openclaw.json', json_encode([
         'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
@@ -127,7 +127,7 @@ test('profile handler can set the configured default profile', function () {
         $result = $fixture['handler']->handlePersona($fixture['io'], 'default caelum', 'orchestrator', null);
 
         expect($result->shouldContinue)->toBeTrue();
-        expect($fixture['configManager']->config()->getDefaultProfile())->toBe('caelum');
+        expect($fixture['configManager']->config()->getDefaultPersona())->toBe('caelum');
         expect($fixture['output']->fetch())->toContain('Default profile set to "caelum"');
     } finally {
         cleanupProfileHandlerFixture($fixture);
@@ -138,12 +138,12 @@ test('profile handler can clear the configured default profile', function () {
     $fixture = createProfileHandlerFixture();
 
     try {
-        $fixture['configManager']->set('agents.defaults.profile', 'caelum');
+        $fixture['configManager']->set('agents.defaults.persona', 'caelum');
 
         $result = $fixture['handler']->handlePersona($fixture['io'], 'default none', 'orchestrator', null);
 
         expect($result->shouldContinue)->toBeTrue();
-        expect($fixture['configManager']->config()->getDefaultProfile())->toBeNull();
+        expect($fixture['configManager']->config()->getDefaultPersona())->toBeNull();
         expect($fixture['output']->fetch())->toContain('Default profile cleared');
     } finally {
         cleanupProfileHandlerFixture($fixture);

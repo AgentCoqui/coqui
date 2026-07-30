@@ -13,11 +13,11 @@ function createApiRoleHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles/caelum/roles', 0755, true);
+    mkdir($workspacePath . '/personas/caelum/roles', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
 
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', "# Caelum\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompts' => [
             'roles' => [
                 'allow' => ['orchestrator', 'analyst'],
@@ -37,7 +37,7 @@ model: openai/gpt-4.1-mini
 You are an analyst.
 MD);
 
-    file_put_contents($workspacePath . '/profiles/caelum/roles/analyst.md', <<<MD
+    file_put_contents($workspacePath . '/personas/caelum/roles/analyst.md', <<<MD
 ---
 name: analyst
 display_name: Analyst

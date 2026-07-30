@@ -158,18 +158,18 @@ test('remove deletes a single dot-notation key', function () {
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'openai/gpt-4o'],
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ],
         ],
     ];
     $this->manager->save($data);
 
-    $errors = $this->manager->remove('agents.defaults.profile');
+    $errors = $this->manager->remove('agents.defaults.persona');
 
     expect($errors)->toBeEmpty();
 
     $written = json_decode(file_get_contents($this->manager->path()), true);
-    expect(isset($written['agents']['defaults']['profile']))->toBeFalse();
+    expect(isset($written['agents']['defaults']['persona']))->toBeFalse();
 });
 
 test('toArray returns raw config data', function () {

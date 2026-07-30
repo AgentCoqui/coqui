@@ -16,11 +16,11 @@ function createGroupHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-group-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles', 0755, true);
+    mkdir($workspacePath . '/personas', 0755, true);
 
     foreach (['caelum', 'nova', 'iris'] as $profile) {
-        mkdir($workspacePath . '/profiles/' . $profile, 0755, true);
-        file_put_contents($workspacePath . '/profiles/' . $profile . '/soul.md', '# ' . ucfirst($profile));
+        mkdir($workspacePath . '/personas/' . $profile, 0755, true);
+        file_put_contents($workspacePath . '/personas/' . $profile . '/soul.md', '# ' . ucfirst($profile));
     }
 
     $dbPath = $workspacePath . '/coqui.db';

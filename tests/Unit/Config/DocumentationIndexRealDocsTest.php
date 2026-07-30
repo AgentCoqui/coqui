@@ -20,7 +20,7 @@ it('indexes every docs/*.md that exists on disk', function () use ($projectRoot)
     sort($indexed);
 
     // A doc that exists but is not indexed is invisible to the agent — the exact
-    // regression that hid LOOPS.md and PROFILES.md behind a hardcoded allowlist.
+    // regression that hid LOOPS.md and PERSONAS.md behind a hardcoded allowlist.
     expect($indexed)->toBe($onDisk)
         ->and($indexed)->toHaveCount(18);
 });
@@ -30,7 +30,7 @@ it('indexes the docs that the old hardcoded allowlist omitted', function () use 
 
     expect($indexed)
         ->toContain('docs/LOOPS.md')
-        ->toContain('docs/PROFILES.md')
+        ->toContain('docs/PERSONAS.md')
         ->toContain('docs/QUESTIONS.md')
         ->toContain('docs/ARTIFACTS.md')
         ->toContain('docs/PROJECTS.md')

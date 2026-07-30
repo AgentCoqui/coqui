@@ -152,7 +152,7 @@ final class PersonaHandler
     {
         $profileDiscovery = $this->boot->profileDiscovery();
         $configManager = $this->boot->configManager();
-        $configuredDefault = $configManager->config()->getDefaultProfile();
+        $configuredDefault = $configManager->config()->getDefaultPersona();
 
         if ($arg === '') {
             if ($configuredDefault === null) {
@@ -177,7 +177,7 @@ final class PersonaHandler
                 return RouteResult::continue();
             }
 
-            $errors = $configManager->remove('agents.defaults.profile');
+            $errors = $configManager->remove('agents.defaults.persona');
             if ($errors !== []) {
                 $io->error('Failed to clear default profile: ' . implode('; ', $errors));
                 return RouteResult::continue();
@@ -202,7 +202,7 @@ final class PersonaHandler
             return RouteResult::continue();
         }
 
-        $errors = $configManager->set('agents.defaults.profile', $target);
+        $errors = $configManager->set('agents.defaults.persona', $target);
         if ($errors !== []) {
             $io->error('Failed to save default profile: ' . implode('; ', $errors));
             return RouteResult::continue();

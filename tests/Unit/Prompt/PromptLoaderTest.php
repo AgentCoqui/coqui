@@ -130,7 +130,7 @@ test('buildSystemPrompt uses workspace soul.md override', function () {
 
 test('buildSystemPrompt strips profile soul frontmatter from rendered output', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/artist';
+    $profilePath = $this->workspacePath . '/personas/artist';
     mkdir($profilePath, 0755, true);
     file_put_contents($profilePath . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Artist Soul\n\nCreate with style.");
 
@@ -260,7 +260,7 @@ test('profile soul.md wins over workspace and default in 3-tier resolution', fun
     file_put_contents($this->workspacePath . '/prompts/soul.md', '# Workspace Soul' . "\n\nWorkspace identity.");
 
     // Tier 1: profile soul (should win)
-    $profilePath = $this->workspacePath . '/profiles/winner';
+    $profilePath = $this->workspacePath . '/personas/winner';
     mkdir($profilePath, 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Profile Soul' . "\n\nProfile identity wins.");
 
@@ -286,7 +286,7 @@ test('profile overrides specific prompt files independently', function () {
     // Profile overrides base.md but NOT security.md — security falls back
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath, 0755, true);
-    $profilePath = $this->workspacePath . '/profiles/partial';
+    $profilePath = $this->workspacePath . '/personas/partial';
     mkdir($profilePath, 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Partial Profile');
     file_put_contents($profilePath . '/base.md', '## Custom Base' . "\n\nProfile-specific base rules.");
@@ -371,7 +371,7 @@ test('buildSystemPrompt includes backstory between soul and body', function () {
 
 test('buildSystemPrompt omits disabled prompt sections from profile preferences', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/minimal';
+    $profilePath = $this->workspacePath . '/personas/minimal';
     mkdir($profilePath, 0755, true);
 
     file_put_contents($profilePath . '/preferences.json', json_encode([
@@ -401,7 +401,7 @@ test('buildSystemPrompt omits disabled prompt sections from profile preferences'
 
 test('buildSystemPrompt renders stubbed tool prompts from profile preferences', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/stubbed';
+    $profilePath = $this->workspacePath . '/personas/stubbed';
     mkdir($profilePath, 0755, true);
 
     file_put_contents($profilePath . '/preferences.json', json_encode([
@@ -428,7 +428,7 @@ test('buildSystemPrompt renders stubbed tool prompts from profile preferences', 
 
 test('empty profile security override falls back to default security prompt', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/secure';
+    $profilePath = $this->workspacePath . '/personas/secure';
     mkdir($profilePath, 0755, true);
     file_put_contents($profilePath . '/security.md', '');
 

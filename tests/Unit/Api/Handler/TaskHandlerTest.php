@@ -16,8 +16,8 @@ function createTaskHandlerFixture(): array
 {
     $dbPath = sys_get_temp_dir() . '/coqui-task-handler-' . bin2hex(random_bytes(8)) . '.db';
     $workspacePath = sys_get_temp_dir() . '/coqui-task-handler-ws-' . bin2hex(random_bytes(8));
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     $config = OpenClawConfig::fromArray([
@@ -181,7 +181,7 @@ test('task handler create rejects roles disallowed by the resolved profile', fun
     $fixture = createTaskHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'roles' => [
                     'allow' => ['orchestrator'],

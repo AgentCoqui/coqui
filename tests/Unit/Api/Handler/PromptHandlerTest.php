@@ -50,10 +50,10 @@ function createPromptHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-prompt-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath . '/data', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
     file_put_contents($workspacePath . '/.env', '');
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
         ],
@@ -140,10 +140,10 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
             }
         }
 
-        expect($workspaceFilePaths)->toContain('workspace:profiles/caelum/soul.md');
-        expect($workspaceFilePaths)->toContain('workspace:profiles/caelum/preferences.json');
+        expect($workspaceFilePaths)->toContain('workspace:personas/caelum/soul.md');
+        expect($workspaceFilePaths)->toContain('workspace:personas/caelum/preferences.json');
         expect($hasProjectPromptFile)->toBeTrue();
-        expect($workspaceFolderPaths)->toContain('workspace:profiles/caelum');
+        expect($workspaceFolderPaths)->toContain('workspace:personas/caelum');
     } finally {
         cleanupPromptHandlerFixture($fixture);
     }
@@ -153,7 +153,7 @@ test('prompt handler exposes effective profile policy summary', function () {
     $fixture = createPromptHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'features' => [
                     'loops' => false,

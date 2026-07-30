@@ -19,11 +19,11 @@ function createApiSessionHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-session-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles', 0755, true);
+    mkdir($workspacePath . '/personas', 0755, true);
     foreach (['caelum', 'nova', 'iris'] as $profile) {
-        mkdir($workspacePath . '/profiles/' . $profile, 0755, true);
-        mkdir($workspacePath . '/profiles/' . $profile . '/roles', 0755, true);
-        file_put_contents($workspacePath . '/profiles/' . $profile . '/soul.md', sprintf(
+        mkdir($workspacePath . '/personas/' . $profile, 0755, true);
+        mkdir($workspacePath . '/personas/' . $profile . '/roles', 0755, true);
+        file_put_contents($workspacePath . '/personas/' . $profile . '/soul.md', sprintf(
             "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n\n# %s\n\nA collaborative profile.",
             ucfirst($profile),
         ));
@@ -40,7 +40,7 @@ model: openai/gpt-4.1-mini
 
 You are an analyst.
 MD);
-    file_put_contents($workspacePath . '/profiles/caelum/roles/analyst.md', <<<MD
+    file_put_contents($workspacePath . '/personas/caelum/roles/analyst.md', <<<MD
 ---
 name: analyst
 display_name: Analyst
@@ -153,7 +153,7 @@ test('session handler create rejects roles disallowed by the active profile', fu
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'roles' => [
                     'allow' => ['orchestrator'],
@@ -255,7 +255,7 @@ test('session handler update rejects profile changes that would disallow the cur
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'roles' => [
                     'allow' => ['orchestrator'],

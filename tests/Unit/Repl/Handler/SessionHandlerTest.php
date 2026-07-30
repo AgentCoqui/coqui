@@ -19,7 +19,7 @@ function createReplSessionHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-repl-session-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles', 0755, true);
+    mkdir($workspacePath . '/personas', 0755, true);
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);

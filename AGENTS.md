@@ -26,7 +26,7 @@ Use these documents as the canonical references:
 - [docs/TOOLKITS.md](docs/TOOLKITS.md): toolkit authoring and discovery
 - [docs/TOOLKIT-EXTENSIBILITY.md](docs/TOOLKIT-EXTENSIBILITY.md): self-registering REPL commands from toolkits
 - [docs/ROLES.md](docs/ROLES.md): role system and role files
-- [docs/PROFILES.md](docs/PROFILES.md): personality profiles
+- [docs/PERSONAS.md](docs/PERSONAS.md): personas
 - [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md): background task model
 - [docs/LOOPS.md](docs/LOOPS.md): loop system
 - [docs/QUESTIONS.md](docs/QUESTIONS.md): structured questions (`ask_user`, responders, `on_question` loop policy)

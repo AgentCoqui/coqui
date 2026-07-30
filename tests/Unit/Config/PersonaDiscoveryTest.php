@@ -21,7 +21,7 @@ test('discoverAll returns empty when no profiles directory exists', function () 
 });
 
 test('discoverAll finds profiles with soul.md', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/alpha', 0755, true);
     mkdir($profilesDir . '/beta', 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha' . "\n\nAlpha identity.");
@@ -37,7 +37,7 @@ test('discoverAll finds profiles with soul.md', function () {
 });
 
 test('discoverAll skips directories without soul.md', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/valid', 0755, true);
     mkdir($profilesDir . '/invalid', 0755, true);
     file_put_contents($profilesDir . '/valid/soul.md', '# Valid');
@@ -51,7 +51,7 @@ test('discoverAll skips directories without soul.md', function () {
 });
 
 test('profileExists is case-insensitive', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/caelum', 0755, true);
     file_put_contents($profilesDir . '/caelum/soul.md', '# Caelum');
 
@@ -64,7 +64,7 @@ test('profileExists is case-insensitive', function () {
 });
 
 test('readSoul returns body without frontmatter', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/test', 0755, true);
     file_put_contents($profilesDir . '/test/soul.md', "---\nmodel: test/model\n---\n# Test Profile\n\nYou are Test.");
 
@@ -77,7 +77,7 @@ test('readSoul returns body without frontmatter', function () {
 });
 
 test('readProfileModel extracts model from frontmatter', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/modeled', 0755, true);
     file_put_contents($profilesDir . '/modeled/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Modeled");
 
@@ -87,7 +87,7 @@ test('readProfileModel extracts model from frontmatter', function () {
 });
 
 test('readProfileModel returns null when no model in frontmatter', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/nomodel', 0755, true);
     file_put_contents($profilesDir . '/nomodel/soul.md', '# No Model');
 
@@ -97,7 +97,7 @@ test('readProfileModel returns null when no model in frontmatter', function () {
 });
 
 test('extractDescription returns first paragraph from soul.md', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/described', 0755, true);
     file_put_contents($profilesDir . '/described/soul.md', "# Described Profile\n\nA warm, curious AI companion with a philosophical bent.\n\n## Details\n\nMore content.");
 
@@ -108,7 +108,7 @@ test('extractDescription returns first paragraph from soul.md', function () {
 });
 
 test('getProfilePath returns absolute path to profile directory', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/myprofile', 0755, true);
     file_put_contents($profilesDir . '/myprofile/soul.md', '# My Profile');
 
@@ -124,7 +124,7 @@ test('getProfilePath throws for nonexistent profile', function () {
 })->throws(\InvalidArgumentException::class);
 
 test('invalidateCache re-discovers profiles after changes', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/first', 0755, true);
     file_put_contents($profilesDir . '/first/soul.md', '# First');
 
@@ -144,7 +144,7 @@ test('invalidateCache re-discovers profiles after changes', function () {
 });
 
 test('getSamplesDir returns correct path', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/alpha', 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
 
@@ -154,7 +154,7 @@ test('getSamplesDir returns correct path', function () {
 });
 
 test('listResponseSamples returns empty when no samples directory', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     mkdir($profilesDir . '/alpha', 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
 
@@ -164,7 +164,7 @@ test('listResponseSamples returns empty when no samples directory', function () 
 });
 
 test('listResponseSamples finds markdown files in samples/responses', function () {
-    $profilesDir = $this->workspacePath . '/profiles';
+    $profilesDir = $this->workspacePath . '/personas';
     $samplesDir = $profilesDir . '/alpha/samples/responses';
     mkdir($samplesDir, 0755, true);
     file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');

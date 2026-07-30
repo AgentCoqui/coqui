@@ -104,7 +104,7 @@ it('places context immediately after backstory in classified sections (loader or
 });
 
 test('orchestrator (no-role) path pins prompt.context right after prompt.backstory', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
+    $profilePath = $this->workspace . '/personas/caelum';
     mkdir($profilePath . '/context', 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
@@ -139,7 +139,7 @@ test('orchestrator (no-role) path pins prompt.context right after prompt.backsto
 });
 
 test('orchestrator (no-role) path splices prompt.preferences right after prompt.context', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
+    $profilePath = $this->workspace . '/personas/caelum';
     mkdir($profilePath . '/context', 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
@@ -186,7 +186,7 @@ test('orchestrator (no-role) path splices prompt.preferences right after prompt.
 });
 
 test('role path pins prompt.context right after prompt.backstory', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
+    $profilePath = $this->workspace . '/personas/caelum';
     mkdir($profilePath . '/context', 0755, true);
     file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
     file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");

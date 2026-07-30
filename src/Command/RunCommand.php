@@ -178,7 +178,7 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
         } else {
-            $configuredDefault = $this->boot->config()->getDefaultProfile();
+            $configuredDefault = $this->boot->config()->getDefaultPersona();
             if ($configuredDefault !== null) {
                 $profileDiscovery = $this->boot->profileDiscovery();
                 if ($profileDiscovery->profileExists($configuredDefault)) {

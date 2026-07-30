@@ -251,10 +251,10 @@ final class SetupWizard
         }
 
         if (in_array('profile', $selectedKeys, true) || in_array('workspace', $selectedKeys, true)) {
-            $currentDefaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
+            $currentDefaultProfile = is_string($defaults['persona'] ?? null) ? $defaults['persona'] : null;
             $defaultProfile = $this->configureDefaultProfile($workspace, $currentDefaultProfile);
         } else {
-            $defaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
+            $defaultProfile = is_string($defaults['persona'] ?? null) ? $defaults['persona'] : null;
         }
 
         // --- Updates (ENV-based, no config output) ---
@@ -332,9 +332,9 @@ final class SetupWizard
         $config['agents']['defaults']['roles'] = $roles;
 
         if ($defaultProfile !== null && trim($defaultProfile) !== '') {
-            $config['agents']['defaults']['profile'] = strtolower(trim($defaultProfile));
+            $config['agents']['defaults']['persona'] = strtolower(trim($defaultProfile));
         } else {
-            unset($config['agents']['defaults']['profile']);
+            unset($config['agents']['defaults']['persona']);
         }
 
         if ($summarizationConfig !== []) {
@@ -1387,7 +1387,7 @@ final class SetupWizard
         ];
 
         if ($defaultProfile !== null && trim($defaultProfile) !== '') {
-            $defaults['profile'] = strtolower(trim($defaultProfile));
+            $defaults['persona'] = strtolower(trim($defaultProfile));
         }
 
         if ($memoryAutoExtract) {
