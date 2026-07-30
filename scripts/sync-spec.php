@@ -72,9 +72,7 @@ foreach (['conformance/checklist.md', 'conformance/error-coverage.json'] as $rel
 }
 
 $commit = trim((string) @shell_exec('git -C ' . escapeshellarg($specRepo) . ' rev-parse HEAD 2>/dev/null'));
-$stamp = "source_repo: {$specRepo}\n"
-    . 'source_commit: ' . ($commit !== '' ? $commit : 'unknown') . "\n"
-    . 'synced_at: ' . date('c') . "\n"
+$stamp = 'source_commit: ' . ($commit !== '' ? $commit : 'unknown') . "\n"
     . "files_copied: {$n}\n";
 file_put_contents($dest . '/SNAPSHOT.txt', $stamp);
 
