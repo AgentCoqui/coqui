@@ -31,6 +31,13 @@ use PDOException;
  */
 final class SessionStorage
 {
+    /**
+     * CAP 0.5.0 storage schema stamp. Written to meta.schema_version on a fresh
+     * store; a store carrying any other stamp is refused (fail-closed-open, no
+     * in-place migration).
+     */
+    public const SCHEMA_VERSION = '0.5.0';
+
     private PDO $db;
     private CoquiProcessChecker $processChecker;
     private BackgroundTaskRecordStore $taskStore;
@@ -60,6 +67,20 @@ final class SessionStorage
 
     private function createTables(): void
     {
+        // CAP 0.5.0 storage marker. Create + seed the stamp first, then refuse
+        // to open any store whose stamp differs from this build's SCHEMA_VERSION.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        SQL);
+        $seed = $this->db->prepare(
+            "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', :version)"
+        );
+        $seed->execute([':version' => self::SCHEMA_VERSION]);
+        $this->assertSchemaVersion($this->db);
+
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -353,6 +374,36 @@ final class SessionStorage
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
         SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
+    }
+
+    /**
+     * Fail-closed-open: refuse to open a store whose recorded schema stamp is
+     * present but differs from this build's SCHEMA_VERSION. CAP 0.5.0 does not
+     * perform in-place migration — a mismatched store is recreated from empty.
+     */
+    private function assertSchemaVersion(PDO $db): void
+    {
+        $stmt = $db->query("SELECT value FROM meta WHERE key = 'schema_version'");
+        if ($stmt === false) {
+            return;
+        }
+        $stored = $stmt->fetchColumn();
+        if ($stored !== false && $stored !== self::SCHEMA_VERSION) {
+            throw new \RuntimeException(
+                "Unsupported schema_version '{$stored}'; this build supports "
+                . self::SCHEMA_VERSION
+                . '. No in-place migration (CAP 0.5.0 fail-closed).'
+            );
+        }
+    }
+
+    /**
+     * The underlying PDO connection. Exposed for conformance assertions
+     * (e.g. verifying foreign_keys enforcement is active on the connection).
+     */
+    public function pdo(): PDO
+    {
+        return $this->db;
     }
 
     public function createSession(
