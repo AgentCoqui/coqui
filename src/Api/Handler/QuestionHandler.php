@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
-use CoquiBot\Coqui\Api\QuestionAnswerReopener;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Contract\QuestionResponse;
@@ -30,7 +29,6 @@ final class QuestionHandler
     public function __construct(
         private readonly QuestionPersistence $persistence,
         private readonly SessionStorage $storage,
-        private readonly ?QuestionAnswerReopener $reopener = null,
     ) {}
 
     /**
@@ -78,10 +76,6 @@ final class QuestionHandler
 
         if (!$this->persistence->persistAnswered($questionId, $id, $record->request, $answer)) {
             return Router::errorResponse(ApiErrorCode::CONFLICT, 'Question could not be answered');
-        }
-
-        if ($record->loopId !== null && $this->reopener !== null) {
-            $this->reopener->reopen($record->loopId, $record->stageId, $record->request, $answer);
         }
 
         return Router::jsonResponse(['answered' => true]);

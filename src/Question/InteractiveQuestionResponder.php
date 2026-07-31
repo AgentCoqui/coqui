@@ -32,9 +32,7 @@ final class InteractiveQuestionResponder implements QuestionResponderInterface
     ) {}
 
     /**
-     * Always returns a validated answer: the REPL prompt resolves synchronously,
-     * so this responder never escalates to the null (deferred) branch of the
-     * interface contract. The return type is narrowed accordingly.
+     * Always returns a validated answer: the REPL prompt resolves synchronously.
      */
     public function ask(QuestionRequest $question): QuestionResponse
     {

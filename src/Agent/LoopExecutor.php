@@ -267,18 +267,11 @@ final class LoopExecutor
 
         // Operator guidance from a retry (Tasks 12/13) is injected once into the
         // reopened stage, then cleared below so it does not leak into later stages.
-        // A one-shot operator answer to a blocked ask_user question (Task 9) is
-        // staged in metadata.pending_answer by LoopQuestionAnswerReopener and
-        // injected once into the reopened stage, then cleared below like guidance.
         $pendingGuidance = null;
-        $pendingAnswer = null;
         if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
             $meta = json_decode($loop['metadata'], true);
             if (is_array($meta) && is_string($meta['pending_guidance'] ?? null) && $meta['pending_guidance'] !== '') {
                 $pendingGuidance = (string) $meta['pending_guidance'];
-            }
-            if (is_array($meta) && is_array($meta['pending_answer'] ?? null)) {
-                $pendingAnswer = $meta['pending_answer'];
             }
         }
 
@@ -296,17 +289,11 @@ final class LoopExecutor
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
             projectId: $this->loopProjectId($loop),
             pendingGuidance: $pendingGuidance,
-            pendingAnswer: $pendingAnswer,
         );
 
         // Clear the guidance so it injects exactly once, into this reopened stage.
         if ($pendingGuidance !== null) {
             $this->loopStore->updateLoopMetadata($loopId, ['pending_guidance' => null]);
-        }
-
-        // Clear the answer so it injects exactly once, into this reopened stage.
-        if ($pendingAnswer !== null) {
-            $this->loopStore->updateLoopMetadata($loopId, ['pending_answer' => null]);
         }
 
         $handoffMetadata = new LoopStageHandoffMetadata(
@@ -870,7 +857,6 @@ final class LoopExecutor
      * @param list<array<string, mixed>> $completedStages
      * @param list<array{iteration_number: int, outcome_summary: string|null, status: string}> $previousOutcomes
      * @param array<string, string> $resolvedParameters
-     * @param array<string, mixed>|null $pendingAnswer One-shot operator answer to a blocked ask_user question
      */
     private function buildStagePrompt(
         LoopDefinition $definition,
@@ -886,7 +872,6 @@ final class LoopExecutor
         array $resolvedParameters = [],
         ?string $projectId = null,
         ?string $pendingGuidance = null,
-        ?array $pendingAnswer = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -981,25 +966,6 @@ final class LoopExecutor
 
         if ($pendingGuidance !== null && $pendingGuidance !== '') {
             $sections[] = "## Operator Guidance\nThe operator retried this loop with the following direction. Follow it:\n{$pendingGuidance}";
-        }
-
-        if ($pendingAnswer !== null) {
-            $question = is_array($pendingAnswer['question'] ?? null) ? $pendingAnswer['question'] : [];
-            $answer = is_array($pendingAnswer['answer'] ?? null) ? $pendingAnswer['answer'] : [];
-            $selected = is_array($answer['selected'] ?? null) ? $answer['selected'] : [];
-            // Include BOTH the selected labels and any free-text "Other" value so a
-            // multi-select answer carrying both keeps its labels (text-preferred
-            // rendering used to drop them). Free-text-only → just text; pure
-            // selects → just labels.
-            $parts = array_map(static fn($label): string => (string) $label, $selected);
-            if (is_string($answer['text'] ?? null) && $answer['text'] !== '') {
-                $parts[] = (string) $answer['text'];
-            }
-            $chosen = implode(', ', $parts);
-            $askedPrompt = (string) ($question['prompt'] ?? '');
-            $sections[] = "## Answer to Your Earlier Question\n"
-                . "You asked: {$askedPrompt}\n"
-                . "The operator answered: {$chosen}";
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";

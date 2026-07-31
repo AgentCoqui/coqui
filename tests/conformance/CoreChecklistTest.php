@@ -203,6 +203,32 @@ it('CORE-21: loop stages thread prior-stage output and inherit the session works
     }
 })->group('conformance');
 
+it('CORE-20: loop definitions carry no on_question; the invalid vector is rejected', function () {
+    // (a) The schema rejects a loop definition that carries an on_question field
+    // (additionalProperties:false) — the legacy blocking policy is gone.
+    $vector = json_decode(
+        (string) file_get_contents(__DIR__ . '/spec/conformance/vectors/invalid/loopdef.on-question.json'),
+        false,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+    $v = new ConformanceValidator();
+    expect($v->isValid('loop-definition.json', $vector))->toBeFalse();
+
+    // (b) The runtime never emits on_question: a built + serialized LoopDefinition
+    // has no such key, even if stored input still carried one.
+    $definition = new LoopDefinition(
+        name: 'two-stage',
+        description: 'Two stage loop',
+        roles: [
+            new LoopRoleDefinition('coder', 'Implement the requested change.'),
+            new LoopRoleDefinition('reviewer', 'Review the implementation.'),
+        ],
+        terminationCondition: TerminationCondition::fromArray(['type' => 'iteration_bound', 'value' => 1]),
+    );
+    expect($definition->toArray())->not->toHaveKey('on_question');
+})->group('conformance');
+
 it('CORE-34: turn carries actor_persona_id and a closed-set status', function () {
     $dbPath = sys_get_temp_dir() . '/coqui-core34-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
@@ -583,7 +609,6 @@ $rows = [
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
-    'CORE-20: loop definitions carry no on_question; loops never block on a question',
     'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
     'CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',

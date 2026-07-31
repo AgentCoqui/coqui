@@ -166,37 +166,19 @@ final class TaskRunCommand extends Command
             sessionId: $sessionId,
         );
 
-        // Resolve the structured-question policy for this task. Loop stages carry
-        // loop/stage identifiers in the task's handoff metadata; the loop's
-        // `on_question` mode lives in its stored configuration snapshot. Plain
-        // background tasks (no loop context) default to `block`.
-        $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::Block;
+        // Loops and background tasks never block on a question (D4): auto-answer
+        // with the agent's suggested answer. Loop/stage ids are threaded for audit
+        // when present in the task handoff metadata.
         $loopId = null;
         $stageId = null;
-        $loopBlock = null;
         $meta = is_string($task['metadata'] ?? null) ? json_decode($task['metadata'], true) : null;
         if (is_array($meta) && isset($meta['loop_id'])) {
             $loopId = (string) $meta['loop_id'];
             $stageId = isset($meta['stage_id']) ? (string) $meta['stage_id'] : null;
-            $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo());
-            $loopRow = $loopStore->getLoop($loopId);
-            $config = is_array($loopRow) && is_string($loopRow['configuration'] ?? null)
-                ? json_decode($loopRow['configuration'], true)
-                : null;
-            $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::fromString(
-                is_array($config) && isset($config['on_question']) && is_string($config['on_question'])
-                    ? $config['on_question']
-                    : null,
-            );
-            // Block-mode ask_user escalates the loop to `blocked`; the operator
-            // answers over REST, which reopens the iteration (Task 9).
-            $loopBlock = new \CoquiBot\Coqui\Question\LoopQuestionBlockNotifier($loopStore);
         }
-        $questionResponder = new \CoquiBot\Coqui\Question\PolicyQuestionResponder(
-            $onQuestion,
+        $questionResponder = new \CoquiBot\Coqui\Question\DefaultingQuestionResponder(
             new \CoquiBot\Coqui\Question\QuestionPersistence($storage),
             $sessionId,
-            loopBlock: $loopBlock,
             turnId: null,
             loopId: $loopId,
             stageId: $stageId,

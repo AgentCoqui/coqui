@@ -3,9 +3,6 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\Handler\QuestionHandler;
-use CoquiBot\Coqui\Api\QuestionAnswerReopener;
-use CoquiBot\Coqui\Contract\QuestionRequest;
-use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -138,23 +135,13 @@ test('POST answer for a question belonging to another session returns 404', func
     expect($storage->getQuestion('q1')['status'])->toBe('pending');
 });
 
-test('POST answer invokes the reopener for loop-bound questions', function () {
+test('POST answer records a loop-bound question answer without reopening anything', function () {
     $storage = new SessionStorage(':memory:');
     $sessionId = $storage->createSession(modelRole: 'orchestrator', model: '');
     $persistence = new QuestionPersistence($storage);
     $persistence->persistAsked($sessionId, sampleRequest(), 'suspending', null, 'loop-1', 'stage-1');
 
-    $calls = [];
-    $reopener = new class ($calls) implements QuestionAnswerReopener {
-        /** @param array<int, array{loopId: string, stageId: ?string}> $calls */
-        public function __construct(public array &$calls) {}
-
-        public function reopen(string $loopId, ?string $stageId, QuestionRequest $question, QuestionResponse $answer): void
-        {
-            $this->calls[] = ['loopId' => $loopId, 'stageId' => $stageId];
-        }
-    };
-    $handler = new QuestionHandler($persistence, $storage, $reopener);
+    $handler = new QuestionHandler($persistence, $storage);
 
     $response = $handler->answer(
         questionJsonRequest('POST', '/', ['selected' => ['pear']]),
@@ -163,5 +150,5 @@ test('POST answer invokes the reopener for loop-bound questions', function () {
     );
 
     expect($response->getStatusCode())->toBe(200);
-    expect($calls)->toBe([['loopId' => 'loop-1', 'stageId' => 'stage-1']]);
+    expect($storage->getQuestion('q1')['status'])->toBe('answered');
 });

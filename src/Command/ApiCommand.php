@@ -353,9 +353,6 @@ final class ApiCommand extends Command
         $questionHandler = new QuestionHandler(
             new QuestionPersistence($storage),
             $storage,
-            new \CoquiBot\Coqui\Api\LoopQuestionAnswerReopener(
-                $loopStore ?? new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo()),
-            ),
         );
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;

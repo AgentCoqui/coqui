@@ -10,7 +10,8 @@ use CoquiBot\Coqui\Toolkit\QuestionToolkit;
 
 /**
  * A fake responder that records the request it received and returns whatever
- * the supplied closure yields (a QuestionResponse, or null for block mode).
+ * QuestionResponse the supplied closure yields (or throws to simulate a
+ * genuine error).
  */
 function fakeResponder(callable $onAsk): QuestionResponderInterface
 {
@@ -25,7 +26,7 @@ function fakeResponder(callable $onAsk): QuestionResponderInterface
             $this->onAsk = $onAsk;
         }
 
-        public function ask(QuestionRequest $question): ?QuestionResponse
+        public function ask(QuestionRequest $question): QuestionResponse
         {
             $this->received = $question;
 
@@ -97,24 +98,8 @@ test('ask_user rejects a missing suggested answer', function () {
     expect($result->content)->toContain('suggested');
 });
 
-test('ask_user surfaces a null (blocked) return as a hard-STOP terminal result', function () {
-    $responder = fakeResponder(fn(QuestionRequest $q): ?QuestionResponse => null);
-    $tool = toolFromToolkit(new QuestionToolkit($responder), 'ask_user');
-
-    $result = $tool->execute([
-        'prompt' => 'Proceed?',
-        'format' => 'single_select',
-        'options' => [['label' => 'yes'], ['label' => 'no']],
-        'suggested' => ['selected' => ['yes']],
-    ]);
-
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->content)->toContain('QUESTION_BLOCKED');
-    expect($result->content)->toContain('STOP');
-});
-
 test('ask_user surfaces QuestionUnansweredException as an error result', function () {
-    $responder = fakeResponder(function (QuestionRequest $q): ?QuestionResponse {
+    $responder = fakeResponder(function (QuestionRequest $q): QuestionResponse {
         throw new \CoquiBot\Coqui\Question\QuestionUnansweredException('timeout');
     });
     $tool = toolFromToolkit(new QuestionToolkit($responder), 'ask_user');
