@@ -259,6 +259,20 @@ final class LoopExecutor
         $stageIndex = (int) $nextStage['stage_index'];
         $roleDefinition = $definition->roles[$stageIndex] ?? null;
         if ($roleDefinition === null) {
+            // CORE-23: a stage whose role/definition is undefined at dispatch is a hard
+            // failure, not a silent stall. Escalate to `blocked` with a Critical finding
+            // so the operator is notified instead of the loop re-ticking forever.
+            $this->escalateBlocked(
+                $loop,
+                (string) $iteration['id'],
+                sprintf('Loop definition "%s" has no role at stage index %d.', $definition->name, $stageIndex),
+                [new StageFinding(
+                    StageSeverity::Critical,
+                    sprintf('Stage %d has no role/definition to dispatch.', $stageIndex),
+                )],
+                0,
+            );
+
             return null;
         }
 

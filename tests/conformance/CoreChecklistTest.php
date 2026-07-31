@@ -203,6 +203,59 @@ it('CORE-21: loop stages thread prior-stage output and inherit the session works
     }
 })->group('conformance');
 
+it('CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core23-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $pdo = $storage->getPdo();
+        $loopStore = new LoopStore($pdo);
+        $projectStore = new ProjectStore($pdo);
+        $executor = new LoopExecutor(
+            loopStore: $loopStore,
+            projectStore: $projectStore,
+        );
+
+        $definition = [
+            'name' => 'two-stage',
+            'description' => 'Two stage loop',
+            'roles' => [
+                ['role' => 'coder', 'prompt' => 'Implement the requested change.'],
+                ['role' => 'reviewer', 'prompt' => 'Review the implementation.'],
+            ],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 3],
+        ];
+
+        $loopId = $executor->startLoop($definition, 'Ship the feature', maxIterationsOverride: 3);
+        $stages = $loopStore->getCurrentState($loopId)['stages'];
+
+        // Stage 0 completes; the next pending stage is index 1.
+        $loopStore->updateStage(id: $stages[0]['id'], status: 'completed', resultSummary: 'stage 0 done');
+
+        // The stored configuration loses the role at index 1, so pending stage 1 has
+        // no role/definition to dispatch — a hard configuration failure at dispatch.
+        $oneRoleConfig = $definition;
+        $oneRoleConfig['roles'] = [$oneRoleConfig['roles'][0]];
+        $stmt = $pdo->prepare('UPDATE loops SET configuration = :config WHERE id = :id');
+        $stmt->execute([':config' => json_encode($oneRoleConfig), ':id' => $loopId]);
+
+        // Dispatch resolves `blocked` with a Critical finding instead of a silent null stall.
+        $result = $executor->prepareNextStage($loopId);
+        expect($result)->toBeNull();
+
+        $loop = $loopStore->getLoop($loopId);
+        expect($loop['status'])->toBe('blocked');
+
+        $meta = json_decode($loop['metadata'], true);
+        expect(array_column($meta['escalation']['findings'], 'severity'))->toContain('critical');
+
+        // The current iteration is left retryable for the operator.
+        expect($loopStore->getCurrentState($loopId)['iteration']['status'])->toBe('needs_rework');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 it('CORE-20: loop definitions carry no on_question; the invalid vector is rejected', function () {
     // (a) The schema rejects a loop definition that carries an on_question field
     // (additionalProperties:false) — the legacy blocking policy is gone.
@@ -630,7 +683,6 @@ $rows = [
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
     'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
-    'CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
