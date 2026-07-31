@@ -819,7 +819,7 @@ final class SessionStorage
             ['session_id' => $id],
         );
         $artifactPersistent = $this->safeQueryScalarPreparedInt(
-            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND persistent = 1',
+            "SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND project_id IS NOT NULL AND project_id != ''",
             ['session_id' => $id],
         );
         $artifactTypes = [];

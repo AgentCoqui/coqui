@@ -8,6 +8,8 @@ use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -262,6 +264,34 @@ it('CORE-16: circuit-breaker + dispatch state are persisted columns, not blob ke
     }
 })->group('conformance');
 
+it('CORE-25: the Artifact object is typed; session_id is required', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core25-' . bin2hex(random_bytes(8)) . '.db';
+    $workspace = sys_get_temp_dir() . '/core25-' . bin2hex(random_bytes(6));
+    mkdir($workspace, 0775, true);
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $store = new ArtifactStore($storage->getPdo(), new ArtifactFileService($workspace));
+        $id = $store->create($sessionId, 'Design Doc', "# Title\nbody\n", 'document', createdBy: 'coder');
+
+        $wire = ArtifactStore::toWire($store->get($id, $sessionId));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('artifact.json', $wire))->toBeTrue($v->errorText('artifact.json', $wire));
+
+        // session_id is a required, non-empty owning-session reference.
+        expect($wire['session_id'])->toBe($sessionId);
+        expect($wire['session_id'])->not->toBe('');
+        // Files-only content addressing surfaces as the opaque content_ref.
+        expect($wire['content_ref'])->toStartWith('artifacts/document/');
+        expect($wire['created_at'])->toMatch('/Z$/');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        exec('rm -rf ' . escapeshellarg($workspace));
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -284,7 +314,6 @@ $rows = [
     'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
     'CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical',
     'CORE-24: the Question object is typed; status is a closed set',
-    'CORE-25: the Artifact object is typed; session_id is required',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
