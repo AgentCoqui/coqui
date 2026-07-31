@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
@@ -228,6 +229,39 @@ it('CORE-33: the ScheduledTask object is typed; status/action.kind are closed se
     }
 })->group('conformance');
 
+it('CORE-16: circuit-breaker + dispatch state are persisted columns, not blob keys', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core16-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $store = new LoopStore($storage->getPdo());
+        $id = $store->createLoop(
+            definitionName: 'code-review-loop',
+            goal: 'Converge on a clean review.',
+            configuration: ['name' => 'code-review-loop', 'max_rework_attempts' => 3],
+            sessionId: $sessionId,
+            personaId: '01J000000000000000000PERSONA',
+            maxIterations: 5,
+        );
+
+        // The breaker + dispatch diagnostics round-trip through real columns.
+        $store->setReworkAttempts($id, 1);
+        $store->setDispatchState($id, 'dispatched');
+
+        $wire = LoopStore::toWire($store->getLoop($id));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('loop.json', $wire))->toBeTrue($v->errorText('loop.json', $wire));
+        expect($wire['rework_attempts'])->toBe(1);
+        expect($wire['dispatch_state'])->toBe('dispatched');
+        expect($wire['dispatch_state'])->toBeIn(['pending', 'dispatched']);
+        expect($wire['origin'])->toBeIn(['conversation', 'headless']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -243,7 +277,6 @@ $rows = [
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-13: internal collections (jobs/job_events/audit_records) are typed for export validation',
     'CORE-14: export envelope types every Core+internal collection; import is fail-closed + FK-consistent',
-    'CORE-16: circuit-breaker + dispatch state are persisted fields',
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
     'CORE-20: loop definitions carry no on_question; loops never block on a question',

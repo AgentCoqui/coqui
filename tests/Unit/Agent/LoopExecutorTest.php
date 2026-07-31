@@ -82,7 +82,8 @@ test('startLoop creates loop with project and first iteration', function () {
     expect($loop['goal'])->toBe('Build feature X');
     expect($loop['session_id'])->toBe($this->sessionId);
     expect($loop['status'])->toBe('running');
-    expect($loop['project_id'])->not->toBeNull();
+    // Project (D3) no longer a column: the resolved project rides in configuration.
+    expect(json_decode($loop['configuration'], true)['resolved_project_id'])->not->toBeNull();
     expect($loop['termination_criteria'])->toBe('Explicit approval required');
     expect((int) $loop['max_iterations'])->toBe(5); // max_review_rounds
     expect(json_decode($loop['metadata'], true)['dispatch']['status'] ?? null)->toBe('pending');
@@ -134,7 +135,8 @@ test('startLoop creates project in project store', function () {
     $loopId = $this->executor->startLoop($this->harnessDefinition, 'Build feature');
 
     $loop = $this->loopStore->getLoop($loopId);
-    $project = $this->projectStore->getProject($loop['project_id']);
+    $resolvedProjectId = json_decode($loop['configuration'], true)['resolved_project_id'];
+    $project = $this->projectStore->getProject($resolvedProjectId);
 
     expect($project)->not->toBeNull();
     expect($project['title'])->toContain('Loop: harness');
@@ -1128,10 +1130,11 @@ test('headless startLoop provisions a hidden loop-owned work-scope session', fun
     $session = $storage->getSession((string) $loop['session_id']);
     expect($session)->not->toBeNull();
     expect($session['visibility'])->toBe('hidden');
-    expect($storage->getActiveProjectId((string) $loop['session_id']))->toBe((string) $loop['project_id']);
+    $resolvedProjectId = json_decode((string) $loop['configuration'], true)['resolved_project_id'];
+    expect($storage->getActiveProjectId((string) $loop['session_id']))->toBe((string) $resolvedProjectId);
 
-    $metadata = json_decode((string) $loop['metadata'], true);
-    expect($metadata['origin'])->toBe('headless');
+    // origin is a first-class column now, not a metadata blob key.
+    expect($loop['origin'])->toBe('headless');
 });
 
 test('conversation startLoop records origin and does not provision a session', function (): void {
@@ -1153,6 +1156,5 @@ test('conversation startLoop records origin and does not provision a session', f
 
     $loop = $loopStore->getLoop($loopId);
     expect($loop['session_id'])->toBe($sessionId);
-    $metadata = json_decode((string) $loop['metadata'], true);
-    expect($metadata['origin'])->toBe('conversation');
+    expect($loop['origin'])->toBe('conversation');
 });

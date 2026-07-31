@@ -443,8 +443,8 @@ final readonly class LoopToolkit implements ToolkitInterface
 
         $this->loopStore->resetStagesForIteration($iterationId);
         $this->loopStore->resetIterationForRetry($iterationId);
+        $this->loopStore->setReworkAttempts($id, 0);
         $this->loopStore->updateLoopMetadata($id, [
-            'rework_attempts' => 0,
             'pending_guidance' => ($note !== null && $note !== '') ? $note : null,
         ]);
         $this->loopStore->updateLoopProgress($id, (int) ($latest['iteration_number'] ?? 0), 0);

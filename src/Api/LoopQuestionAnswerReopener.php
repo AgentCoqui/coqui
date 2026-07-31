@@ -39,9 +39,10 @@ final class LoopQuestionAnswerReopener implements QuestionAnswerReopener
 
         // Clear the escalation, reset the rework breaker, and stage the answer
         // for one-shot injection into the reopened stage prompt.
+        $this->loopStore->setReworkAttempts($loopId, 0);
+        $this->loopStore->setDispatchState($loopId, 'pending');
         $this->loopStore->updateLoopMetadata($loopId, [
             'escalation' => null,
-            'rework_attempts' => 0,
             'pending_answer' => [
                 'question' => $question->toArray(),
                 'answer' => $answer->toArray(),

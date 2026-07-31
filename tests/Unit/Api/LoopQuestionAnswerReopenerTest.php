@@ -40,7 +40,7 @@ test('reopen runs the reset sequence and writes the E3 dispatch block', function
     // --- reset sequence ---
     expect($loop['status'])->toBe('running');
     expect($meta['escalation'])->toBeNull();
-    expect($meta['rework_attempts'])->toBe(0);
+    expect((int) $loop['rework_attempts'])->toBe(0);
     expect($meta['pending_answer']['answer']['selected'])->toBe(['pear']);
 
     // --- E3 dispatch block (the branch this test exists to guard) ---

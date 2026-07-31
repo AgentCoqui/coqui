@@ -210,7 +210,7 @@ final readonly class LoopLiveViewBuilder
             'definition_name' => (string) ($loop['definition_name'] ?? ''),
             'goal' => (string) ($loop['goal'] ?? ''),
             'status' => (string) ($loop['status'] ?? ''),
-            'project_id' => isset($loop['project_id']) ? (string) $loop['project_id'] : null,
+            'project_id' => $this->loopProjectId($loop),
             'work_scope_session_id' => isset($loop['session_id']) ? (string) $loop['session_id'] : null,
             'started_at' => isset($loop['started_at']) ? (string) $loop['started_at'] : null,
             'last_activity_at' => isset($loop['last_activity_at']) ? (string) $loop['last_activity_at'] : null,
@@ -236,6 +236,21 @@ final readonly class LoopLiveViewBuilder
         $meta = json_decode($loop['metadata'], true);
 
         return is_array($meta) && is_array($meta['escalation'] ?? null) ? $meta['escalation'] : null;
+    }
+
+    /**
+     * The loop's resolved project id, recovered from the configuration snapshot.
+     * The loops.project_id column was dropped with the protocol's Project removal
+     * (D3); the resolved project rides in the configuration blob instead.
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function loopProjectId(array $loop): ?string
+    {
+        $config = json_decode((string) ($loop['configuration'] ?? ''), true);
+        $projectId = is_array($config) ? ($config['resolved_project_id'] ?? null) : null;
+
+        return is_string($projectId) && $projectId !== '' ? $projectId : null;
     }
 
     /**

@@ -120,7 +120,8 @@ test('loop handler creates loop scoped to project and applies parameters', funct
         $configuration = json_decode((string) $storedLoop['configuration'], true);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['loop']['project_id'])->toBe($projectId);
+        // Project (D3) is no longer a loop column; the resolved project rides in configuration.
+        expect($configuration['resolved_project_id'])->toBe($projectId);
         expect($body['iteration']['status'])->toBe('running');
         expect($body['stages'])->toHaveCount(2);
         expect((int) $storedLoop['max_iterations'])->toBe(2);

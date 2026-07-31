@@ -39,11 +39,12 @@ test('createLoop stores loop with correct fields', function () {
         goal: 'Build a widget',
         configuration: ['name' => 'harness', 'description' => 'test'],
         sessionId: $this->sessionId,
-        projectId: 'proj-123',
+        personaId: 'caelum',
         maxIterations: 5,
         deadline: '2025-12-31T23:59:59Z',
         terminationCriteria: 'Must pass all tests',
         metadata: ['source' => 'repl'],
+        origin: 'headless',
     );
 
     $loop = $this->store->getLoop($id);
@@ -52,18 +53,26 @@ test('createLoop stores loop with correct fields', function () {
     expect($loop['definition_name'])->toBe('harness');
     expect($loop['goal'])->toBe('Build a widget');
     expect($loop['session_id'])->toBe($this->sessionId);
-    expect($loop['project_id'])->toBe('proj-123');
+    expect($loop['persona_id'])->toBe('caelum');
     expect($loop['status'])->toBe('running');
     expect((int) $loop['current_iteration'])->toBe(0);
     expect((int) $loop['current_stage'])->toBe(0);
     expect((int) $loop['max_iterations'])->toBe(5);
     expect($loop['deadline'])->toBe('2025-12-31T23:59:59Z');
     expect($loop['termination_criteria'])->toBe('Must pass all tests');
+    expect($loop['origin'])->toBe('headless');
+    // Circuit-breaker + dispatch diagnostics are real columns (CORE-16), defaulted.
+    expect((int) $loop['rework_attempts'])->toBe(0);
+    expect($loop['dispatch_state'])->toBe('pending');
+    expect($loop['last_dispatch_error'])->toBeNull();
     expect($loop['started_at'])->not->toBeNull();
     expect($loop['last_activity_at'])->not->toBeNull();
     expect($loop['completed_at'])->toBeNull();
     expect(json_decode($loop['configuration'], true)['name'])->toBe('harness');
     expect(json_decode($loop['metadata'], true)['source'])->toBe('repl');
+
+    // Project column removed (D3): loops no longer carry a project_id column.
+    expect(array_key_exists('project_id', $loop))->toBeFalse();
 });
 
 test('getLoop returns null for nonexistent id', function () {

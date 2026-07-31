@@ -27,12 +27,18 @@ final class LoopStore
 
     private function createTables(): void
     {
+        // CAP 0.5.0 loops shape: circuit-breaker + dispatch diagnostics are
+        // first-class columns (rework_attempts/dispatch_state/last_dispatch_error,
+        // CORE-16), origin/persona_id are typed columns, and the protocol's Project
+        // removal (D3) drops project_id. persona_id is intentionally NOT a foreign
+        // key: the personas table is not runtime-populated, so under
+        // PRAGMA foreign_keys=ON a RESTRICT reference would reject every insert.
         $this->db->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS loops (
                 id TEXT PRIMARY KEY,
                 definition_name TEXT NOT NULL,
+                persona_id TEXT,
                 session_id TEXT,
-                project_id TEXT,
                 goal TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'running',
                 current_iteration INTEGER NOT NULL DEFAULT 0,
@@ -40,11 +46,16 @@ final class LoopStore
                 max_iterations INTEGER,
                 deadline TEXT,
                 termination_criteria TEXT,
-                configuration TEXT NOT NULL,
+                configuration TEXT,
+                origin TEXT NOT NULL DEFAULT 'conversation',
                 started_at TEXT NOT NULL,
                 completed_at TEXT,
                 last_activity_at TEXT,
-                metadata TEXT
+                rework_attempts INTEGER NOT NULL DEFAULT 0,
+                dispatch_state TEXT NOT NULL DEFAULT 'pending',
+                last_dispatch_error TEXT,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
             )
         SQL);
 
@@ -106,35 +117,60 @@ final class LoopStore
         string $goal,
         array $configuration,
         ?string $sessionId = null,
-        ?string $projectId = null,
+        ?string $personaId = null,
         ?int $maxIterations = null,
         ?string $deadline = null,
         ?string $terminationCriteria = null,
         ?array $metadata = null,
+        string $origin = 'conversation',
     ): string {
         $id = IdGenerator::hex();
         $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO loops (id, definition_name, session_id, project_id, goal, status, current_iteration, current_stage, max_iterations, deadline, termination_criteria, configuration, started_at, last_activity_at, metadata)
-            VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO loops (id, definition_name, persona_id, session_id, goal, status, current_iteration, current_stage, max_iterations, deadline, termination_criteria, configuration, origin, started_at, last_activity_at, metadata)
+            VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
             $definitionName,
+            $personaId,
             $sessionId,
-            $projectId,
             $goal,
             $maxIterations,
             $deadline,
             $terminationCriteria,
             json_encode($configuration, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            $origin,
             $now,
             $now,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
         ]);
 
         return $id;
+    }
+
+    /**
+     * Set the circuit-breaker rework counter (CORE-16). Authoritative column;
+     * no longer stored in the metadata blob.
+     */
+    public function setReworkAttempts(string $id, int $attempts): void
+    {
+        $stmt = $this->db->prepare('UPDATE loops SET rework_attempts = ?, last_activity_at = ? WHERE id = ?');
+        $stmt->execute([max(0, $attempts), Clock::nowUtc(), $id]);
+    }
+
+    /**
+     * Set the dispatch diagnostic columns (CORE-16). `state` is the closed set
+     * pending|dispatched; `error` is the last dispatch failure (null when healthy).
+     * A failed dispatch is recorded as state='pending' with the error captured, so
+     * a stuck loop is diagnosable while the enum stays closed.
+     */
+    public function setDispatchState(string $id, string $state, ?string $error = null): void
+    {
+        $normalized = $state === 'dispatched' ? 'dispatched' : 'pending';
+        $stmt = $this->db->prepare('UPDATE loops SET dispatch_state = ?, last_dispatch_error = ?, last_activity_at = ? WHERE id = ?');
+        $stmt->execute([$normalized, $error, Clock::nowUtc(), $id]);
     }
 
     /**
@@ -642,5 +678,110 @@ final class LoopStore
         $stmt->execute([$id]);
 
         return $stmt->rowCount() > 0;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Conformance producer
+    // ──────────────────────────────────────────────
+
+    /**
+     * Produce a strict CAP 0.5.0 `loop.json` wire object from a loop row (as
+     * returned by {@see getLoop()}). Emits exactly the schema's property set so it
+     * is `additionalProperties:false`-clean.
+     *
+     * The coqui column `started_at` maps to the wire field `created_at`. The
+     * circuit-breaker + dispatch diagnostics come from their real columns
+     * (rework_attempts/dispatch_state/last_dispatch_error), not the metadata blob.
+     * Object fields (termination_criteria/configuration/metadata) emit as JSON
+     * objects or null — never as a bare `[]`, which JSON would encode as an array.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $row): array
+    {
+        $personaId = $row['persona_id'] ?? null;
+        $sessionId = $row['session_id'] ?? null;
+        $lastError = $row['last_dispatch_error'] ?? null;
+
+        return [
+            'id' => (string) ($row['id'] ?? ''),
+            'definition_name' => (string) ($row['definition_name'] ?? ''),
+            'persona_id' => is_string($personaId) && $personaId !== '' ? $personaId : null,
+            'session_id' => is_string($sessionId) && $sessionId !== '' ? $sessionId : null,
+            'goal' => (string) ($row['goal'] ?? ''),
+            'status' => (string) ($row['status'] ?? 'running'),
+            'current_iteration' => (int) ($row['current_iteration'] ?? 0),
+            'current_stage' => (int) ($row['current_stage'] ?? 0),
+            'max_iterations' => isset($row['max_iterations'])
+                ? (int) $row['max_iterations']
+                : null,
+            'deadline' => self::wireTimestamp($row['deadline'] ?? null),
+            'termination_criteria' => self::wireObject($row['termination_criteria'] ?? null, 'criteria'),
+            'configuration' => self::wireObject($row['configuration'] ?? null),
+            'origin' => (string) ($row['origin'] ?? 'conversation'),
+            'created_at' => self::wireTimestamp($row['started_at'] ?? null) ?? Clock::nowUtc(),
+            'completed_at' => self::wireTimestamp($row['completed_at'] ?? null),
+            'last_activity_at' => self::wireTimestamp($row['last_activity_at'] ?? null),
+            'rework_attempts' => max(0, (int) ($row['rework_attempts'] ?? 0)),
+            'dispatch_state' => ((string) ($row['dispatch_state'] ?? 'pending')) === 'dispatched' ? 'dispatched' : 'pending',
+            'last_dispatch_error' => is_string($lastError) && $lastError !== '' ? $lastError : null,
+            'metadata' => self::wireObject($row['metadata'] ?? null),
+        ];
+    }
+
+    /**
+     * Normalize a stored timestamp to RFC-3339 UTC (Z), or null when absent.
+     */
+    private static function wireTimestamp(mixed $value): ?string
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format('Y-m-d\TH:i:s\Z');
+        } catch (\Throwable) {
+            return $value;
+        }
+    }
+
+    /**
+     * Coerce a stored value into a JSON object (stdClass) or null for a wire
+     * field typed `object|null`. A JSON string decoding to an object is emitted
+     * verbatim; a bare non-JSON string is wrapped under $wrapKey when given (so a
+     * plain termination-criteria string still satisfies the object shape).
+     */
+    private static function wireObject(mixed $value, ?string $wrapKey = null): ?\stdClass
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_array($value)) {
+            return (object) $value;
+        }
+
+        if ($value instanceof \stdClass) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, false);
+            if ($decoded instanceof \stdClass) {
+                return $decoded;
+            }
+
+            if ($wrapKey !== null) {
+                $wrapped = new \stdClass();
+                $wrapped->{$wrapKey} = $value;
+
+                return $wrapped;
+            }
+        }
+
+        return null;
     }
 }

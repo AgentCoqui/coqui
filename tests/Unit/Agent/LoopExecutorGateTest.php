@@ -111,8 +111,8 @@ test('a rejected gate verdict marks the iteration needs_rework and continues', f
 
     expect($outcome)->toBe(IterationOutcome::Continue);
     expect($loopStore->getIteration($firstIterId)['status'])->toBe('needs_rework');
-    $meta = json_decode($loopStore->getLoop($loopId)['metadata'], true);
-    expect($meta['rework_attempts'])->toBe(1);
+    // rework_attempts is a real column now (CORE-16), not a metadata blob key.
+    expect((int) $loopStore->getLoop($loopId)['rework_attempts'])->toBe(1);
 });
 
 test('the circuit-breaker trips to blocked after max_rework_attempts rejections', function () {

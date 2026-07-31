@@ -905,8 +905,9 @@ final readonly class LoopHandler
         $this->store->resetIterationForRetry($iterationId);
         $this->store->updateLoopStatus($id, 'running');
         $this->store->updateLoopProgress($id, (int) ($iteration['iteration_number'] ?? 0), 0);
+        $this->store->setReworkAttempts($id, 0);
+        $this->store->setDispatchState($id, 'pending');
         $this->store->updateLoopMetadata($id, [
-            'rework_attempts' => 0,
             'pending_guidance' => $note,
             'dispatch' => [
                 'status' => 'pending',
@@ -1023,19 +1024,13 @@ final readonly class LoopHandler
     }
 
     /**
-     * Resolve a loop's origin ('headless' or 'conversation') from its metadata.
+     * Resolve a loop's origin ('headless' or 'conversation') from its column.
      *
      * @param array<string, mixed> $loop
      */
     private function loopOrigin(array $loop): string
     {
-        $metadata = isset($loop['metadata']) && is_string($loop['metadata'])
-            ? json_decode($loop['metadata'], true)
-            : (is_array($loop['metadata'] ?? null) ? $loop['metadata'] : null);
-
-        $origin = is_array($metadata) && isset($metadata['origin']) ? (string) $metadata['origin'] : 'conversation';
-
-        return $origin === 'headless' ? 'headless' : 'conversation';
+        return ($loop['origin'] ?? null) === 'headless' ? 'headless' : 'conversation';
     }
 
     /**

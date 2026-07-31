@@ -136,6 +136,12 @@ final class LoopExecutor
             $configuration['resolved_parameters'] = $resolvedParameters;
         }
 
+        // The protocol's Project removal (D3) drops the loops.project_id column.
+        // The resolved project is still needed to scope stage sessions + artifacts
+        // across async dispatches, so it rides along in the configuration snapshot
+        // (an internal, opaque blob) rather than a first-class loop column.
+        $configuration['resolved_project_id'] = $resolvedProjectId;
+
         // Preserve a per-definition circuit-breaker override so it survives the
         // snapshot that maxReworkAttempts() later reads from stored config.
         if (isset($substitutedData['max_rework_attempts'])) {
@@ -162,23 +168,32 @@ final class LoopExecutor
             TerminationType::IterationBound => null,
         };
 
+        // Bind the loop to its work-scope session's persona (nullable when the
+        // session carries none, e.g. an auto-provisioned headless session).
+        $personaId = null;
+        if ($sessionId !== null && $this->sessionStorage !== null) {
+            $session = $this->sessionStorage->getSession($sessionId);
+            $sessionPersona = $session['persona_id'] ?? null;
+            $personaId = is_string($sessionPersona) && $sessionPersona !== '' ? $sessionPersona : null;
+        }
+
         $loopId = $this->loopStore->createLoop(
             definitionName: $definition->name,
             goal: $goal,
             configuration: $configuration,
             sessionId: $sessionId,
-            projectId: $resolvedProjectId,
+            personaId: $personaId,
             maxIterations: $maxIterations,
             deadline: $deadline,
             terminationCriteria: $terminationCriteria,
             metadata: [
-                'origin' => $headless ? 'headless' : 'conversation',
                 'dispatch' => [
                     'status' => 'pending',
                     'message' => 'Waiting for the API loop manager to create the first stage background task.',
                     'updated_at' => Clock::nowUtc(),
                 ],
             ],
+            origin: $headless ? 'headless' : 'conversation',
         );
 
         // Create the first iteration
@@ -266,7 +281,7 @@ final class LoopExecutor
             previousOutcomes: $this->loopStore->getPreviousOutcomes($loopId, (int) $iteration['iteration_number']),
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
             pendingGuidance: $pendingGuidance,
             pendingAnswer: $pendingAnswer,
         );
@@ -297,7 +312,7 @@ final class LoopExecutor
                 $completedStages,
             ),
             sessionId: $loop['session_id'] ?? null,
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
         );
 
         return new LoopStageResult(
@@ -309,7 +324,7 @@ final class LoopExecutor
             prompt: $prompt,
             maxIterations: $roleDefinition->maxIterations,
             sessionId: $loop['session_id'],
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
             handoffMetadata: $handoffMetadata,
         );
     }
@@ -445,7 +460,7 @@ final class LoopExecutor
         }
 
         if ($outcome === IterationOutcome::Continue) {
-            $this->advanceIteration($loopId, $definition, $loop['project_id'], $loop['goal']);
+            $this->advanceIteration($loopId, $definition, $this->loopProjectId($loop), $loop['goal']);
         }
 
         if ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
@@ -637,7 +652,7 @@ final class LoopExecutor
 
         // Rework: increment the breaker counter, mark the iteration needs_rework.
         $attempts = $this->reworkAttempts($loop) + 1;
-        $this->loopStore->updateLoopMetadata((string) $loop['id'], ['rework_attempts' => $attempts]);
+        $this->loopStore->setReworkAttempts((string) $loop['id'], $attempts);
         $this->loopStore->updateIterationStatus($iterationId, 'needs_rework', $this->buildIterationSummary($stages));
 
         $maxAttempts = $this->maxReworkAttempts($loop);
@@ -654,14 +669,21 @@ final class LoopExecutor
      */
     private function reworkAttempts(array $loop): int
     {
-        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
-            $meta = json_decode($loop['metadata'], true);
-            if (is_array($meta)) {
-                return (int) ($meta['rework_attempts'] ?? 0);
-            }
-        }
+        return max(0, (int) ($loop['rework_attempts'] ?? 0));
+    }
 
-        return 0;
+    /**
+     * The loop's resolved project id, recovered from the configuration snapshot
+     * (the loops.project_id column was dropped with the protocol's Project removal).
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function loopProjectId(array $loop): ?string
+    {
+        $config = json_decode((string) ($loop['configuration'] ?? ''), true);
+        $projectId = is_array($config) ? ($config['resolved_project_id'] ?? null) : null;
+
+        return is_string($projectId) && $projectId !== '' ? $projectId : null;
     }
 
     /**

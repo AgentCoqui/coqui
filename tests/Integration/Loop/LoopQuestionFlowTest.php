@@ -45,7 +45,7 @@ test('answer reopener unblocks the loop and stages the answer for injection', fu
     expect($meta['pending_answer']['question']['prompt'])->toBe('Which fruit?');
     // Escalation is cleared and the rework breaker reset, mirroring a #3 retry.
     expect($meta['escalation'])->toBeNull();
-    expect($meta['rework_attempts'])->toBe(0);
+    expect((int) $loop['rework_attempts'])->toBe(0);
 
     // The iteration is reopened (running) and its stage reset to pending.
     $state = $loopStore->getCurrentState($loopId);
