@@ -472,6 +472,7 @@ final class SessionStorage
         ?int $groupMaxRounds = null,
         SessionType|string|null $sessionType = null,
         string $visibility = 'visible',
+        ?string $workspace = null,
     ): string
     {
         $id = IdGenerator::hex();
@@ -483,8 +484,8 @@ final class SessionStorage
         $resolvedVisibility = $this->normalizeVisibility($visibility);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, persona_id, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :persona_id, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, persona_id, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, workspace, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :persona_id, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :workspace, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -497,6 +498,7 @@ final class SessionStorage
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
             'session_type' => $resolvedSessionType->value,
             'visibility' => $resolvedVisibility,
+            'workspace' => ($workspace !== null && $workspace !== '') ? $workspace : null,
             'created_at' => $now,
             'updated_at' => $now,
         ]);

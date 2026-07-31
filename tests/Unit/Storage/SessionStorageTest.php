@@ -36,6 +36,14 @@ test('getSession returns session data', function () {
     expect($session['session_origin'] ?? null)->not->toBe('channel');
 });
 
+test('createSession persists workspace and getSession returns it', function () {
+    $rooted = $this->storage->createSession('orchestrator', 'model', workspace: '/srv/agents/ws-9');
+    expect($this->storage->getSession($rooted)['workspace'])->toBe('/srv/agents/ws-9');
+
+    $unrooted = $this->storage->createSession('orchestrator', 'model');
+    expect($this->storage->getSession($unrooted)['workspace'])->toBeNull();
+});
+
 test('group sessions expose explicit session type alongside compatibility fields', function () {
     $sessionId = $this->storage->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['nova', 'caelum'], 3);
 

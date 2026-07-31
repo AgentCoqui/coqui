@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tests\Conformance;
 
+use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -111,6 +112,15 @@ it('CORE-19: session carries an opaque workspace echoed verbatim; null = no root
         expect($rootedWire['workspace'])->toBe('/srv/agents/ws-42');
         expect($v->isValid('session.json', $unrootedWire))->toBeTrue($v->errorText('session.json', $unrootedWire));
         expect($unrootedWire['workspace'])->toBeNull();
+
+        // Inheritance (D3): the runtime seam re-roots per session. A rooted session
+        // resolves to its workspace; an unrooted session and a null/unknown session
+        // id all fall back to the supplied global default.
+        $resolver = new SessionWorkspaceResolver($storage, '/global/default/ws');
+        expect($resolver->resolve($rooted))->toBe('/srv/agents/ws-42');
+        expect($resolver->resolve($unrooted))->toBe('/global/default/ws');
+        expect($resolver->resolve(null))->toBe('/global/default/ws');
+        expect($resolver->resolve('does-not-exist'))->toBe('/global/default/ws');
     } finally {
         cleanupSqliteTestDb($dbPath);
     }

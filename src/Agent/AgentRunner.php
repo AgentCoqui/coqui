@@ -92,6 +92,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
     /** @var \Closure(string):mixed|null */
     private readonly ?\Closure $providerResolver;
 
+    /** D3: memoized per-session workspace resolver (built lazily from $this->storage + $this->workspacePath). */
+    private ?SessionWorkspaceResolver $workspaceResolver = null;
+
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
@@ -125,6 +128,18 @@ final class AgentRunner implements AgentTurnRunnerInterface
         $this->usageTracker = $deps->usageTracker;
         $this->notificationStore = $deps->notificationStore;
         $this->providerResolver = $deps->providerResolver;
+    }
+
+    /**
+     * D3: the effective filesystem/shell root for a session — its stored
+     * `workspace` when set, else the instance-global workspace. Child runs
+     * inherit this via SpawnAgentTool copying the orchestrator's workspacePath.
+     */
+    private function effectiveWorkspace(?string $sessionId): string
+    {
+        $this->workspaceResolver ??= new SessionWorkspaceResolver($this->storage, $this->workspacePath);
+
+        return $this->workspaceResolver->resolve($sessionId);
     }
 
     /**
@@ -977,7 +992,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             roleResolver: $this->roleResolver,
             config: $this->config,
             projectRoot: $this->projectRoot,
-            workspacePath: $this->workspacePath,
+            workspacePath: $this->effectiveWorkspace($sessionId),
             deps: new OrchestratorDependencies(
                 discovery: $this->discovery,
                 maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activePersona),
@@ -1419,7 +1434,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             roleResolver: $this->roleResolver,
             config: $this->config,
             projectRoot: $this->projectRoot,
-            workspacePath: $this->workspacePath,
+            workspacePath: $this->effectiveWorkspace($sessionId),
             deps: new OrchestratorDependencies(
                 discovery: $this->discovery,
                 credentialResolver: $this->credentialResolver,
