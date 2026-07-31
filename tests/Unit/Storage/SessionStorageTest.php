@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
@@ -266,6 +267,20 @@ test('deleteSession removes session and messages', function () {
 
     expect($this->storage->getSession($sessionId))->toBeNull();
     expect($this->storage->getMessages($sessionId))->toBeEmpty();
+});
+
+test('deleteSession cancels non-terminal loops but leaves terminal ones untouched', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $loopStore = new LoopStore($this->storage->getPdo());
+
+    $runningId = $loopStore->createLoop('harness', 'Keep ticking', [], sessionId: $sessionId);
+    $completedId = $loopStore->createLoop('harness', 'Already done', [], sessionId: $sessionId);
+    $loopStore->updateLoopStatus($completedId, 'completed');
+
+    $this->storage->deleteSession($sessionId);
+
+    expect($loopStore->getLoop($runningId)['status'])->toBe('cancelled');
+    expect($loopStore->getLoop($completedId)['status'])->toBe('completed');
 });
 
 test('getLatestSessionId returns most recent', function () {

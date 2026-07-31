@@ -133,6 +133,31 @@ it('CORE-19: session carries an opaque workspace echoed verbatim; null = no root
     }
 })->group('conformance');
 
+it('CORE-17: deleting a session cascade-stops any non-terminal loop using it', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core17-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $loopStore = new LoopStore($storage->getPdo());
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+
+        // A non-terminal (running) loop and a terminal (completed) loop, both bound
+        // to the same session.
+        $runningId = $loopStore->createLoop('harness', 'Keep ticking', [], sessionId: $sessionId);
+        $completedId = $loopStore->createLoop('harness', 'Already done', [], sessionId: $sessionId);
+        $loopStore->updateLoopStatus($completedId, 'completed');
+
+        $storage->deleteSession($sessionId);
+
+        // The non-terminal loop is cancelled — no orphan keeps ticking. The terminal
+        // loop's end-state is preserved.
+        expect($loopStore->getLoop($runningId)['status'])->toBe('cancelled');
+        expect($loopStore->getLoop($completedId)['status'])->toBe('completed');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 it('CORE-21: loop stages thread prior-stage output and inherit the session workspace', function () {
     $dbPath = sys_get_temp_dir() . '/coqui-core21-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
@@ -755,7 +780,6 @@ $rows = [
     'CORE-10: mutable Core objects carry version; stale writes 409',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
-    'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',

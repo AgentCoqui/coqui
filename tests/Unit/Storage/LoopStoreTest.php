@@ -500,3 +500,29 @@ test('countActive returns zero when all loops are terminal', function () {
 
     expect($this->store->countActive())->toBe(0);
 });
+
+// ──────────────────────────────────────────────
+//  getLoopsBySession (CORE-17)
+// ──────────────────────────────────────────────
+
+test('getLoopsBySession returns exactly the loops bound to each session', function () {
+    $sessionB = $this->storage->createSession('orchestrator', 'test/model');
+
+    $a1 = $this->store->createLoop('harness', 'Goal A1', [], sessionId: $this->sessionId);
+    $a2 = $this->store->createLoop('research', 'Goal A2', [], sessionId: $this->sessionId);
+    $b1 = $this->store->createLoop('harness', 'Goal B1', [], sessionId: $sessionB);
+
+    $forA = $this->store->getLoopsBySession($this->sessionId);
+    $forB = $this->store->getLoopsBySession($sessionB);
+
+    expect($forA)->toHaveCount(2);
+    expect(array_column($forA, 'id'))->toContain($a1)->toContain($a2);
+    expect($forB)->toHaveCount(1);
+    expect($forB[0]['id'])->toBe($b1);
+});
+
+test('getLoopsBySession returns an empty array for an unknown session', function () {
+    $this->store->createLoop('harness', 'Goal', [], sessionId: $this->sessionId);
+
+    expect($this->store->getLoopsBySession('no-such-session'))->toBe([]);
+});

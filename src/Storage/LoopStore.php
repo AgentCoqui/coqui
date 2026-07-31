@@ -186,6 +186,22 @@ final class LoopStore
     }
 
     /**
+     * List every loop bound to a session, in the same raw-row shape as getLoop.
+     *
+     * Used by SessionStorage::deleteSession to cascade-stop non-terminal loops
+     * before their session row is removed (CORE-17).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getLoopsBySession(string $sessionId): array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM loops WHERE session_id = ?');
+        $stmt->execute([$sessionId]);
+
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
      * List loops, optionally filtered by status.
      *
      * @return list<array<string, mixed>>

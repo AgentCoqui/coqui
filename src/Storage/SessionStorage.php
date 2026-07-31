@@ -2014,6 +2014,16 @@ final class SessionStorage
             }
         }
 
+        // CORE-17: deleting a session cascade-stops any non-terminal loop bound to
+        // it, so no orphaned loop keeps ticking after its session is gone.
+        $loopStore = new LoopStore($this->db);
+        foreach ($loopStore->getLoopsBySession($id) as $loop) {
+            $status = (string) ($loop['status'] ?? '');
+            if (!in_array($status, ['completed', 'failed', 'cancelled'], true)) {
+                $loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
+            }
+        }
+
         $this->db->prepare('DELETE FROM sessions WHERE id = :id')
             ->execute(['id' => $id]);
     }
