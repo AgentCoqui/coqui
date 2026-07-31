@@ -7,10 +7,19 @@ namespace CoquiBot\Coqui\Tests\Conformance;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Content\ContentStore;
+use CoquiBot\Coqui\Contract\LoopDefinition;
+use CoquiBot\Coqui\Contract\LoopRoleDefinition;
 use CoquiBot\Coqui\Contract\QuestionFormat;
 use CoquiBot\Coqui\Contract\QuestionOption;
 use CoquiBot\Coqui\Contract\QuestionRequest;
 use CoquiBot\Coqui\Contract\QuestionResponse;
+use CoquiBot\Coqui\Contract\TerminationCondition;
+use CoquiBot\Coqui\Contract\TerminationType;
+use CoquiBot\Coqui\Export\AuditRecordProducer;
+use CoquiBot\Coqui\Export\ExportCollectionMap;
+use CoquiBot\Coqui\Export\JobEventProducer;
+use CoquiBot\Coqui\Export\JobProducer;
+use CoquiBot\Coqui\Export\LoopDefinitionProducer;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
@@ -331,21 +340,139 @@ it('CORE-24: the Question object is typed; status is a closed set', function () 
     }
 })->group('conformance');
 
+it('CORE-8: a LoopDefinition produces a termination_condition.value shaped by its type', function () {
+    $def = new LoopDefinition(
+        name: 'code-review-loop',
+        description: 'Draft, review, rework.',
+        roles: [new LoopRoleDefinition(role: 'coder', prompt: 'Implement.')],
+        terminationCondition: new TerminationCondition(TerminationType::IterationBound, maxIterations: 5),
+    );
+    $wire = LoopDefinitionProducer::toWire($def);
+
+    $v = new ConformanceValidator();
+    expect($v->isValid('loop-definition.json', $wire))->toBeTrue($v->errorText('loop-definition.json', $wire));
+
+    // The value shape is discriminated by the type; file defs get version 1.
+    expect($wire['termination_condition']['type'])->toBe('iteration_bound');
+    expect($wire['termination_condition']['value'])->toBeInt();
+    expect($wire['version'])->toBe(1);
+
+    // A value mismatched to its type is rejected — the discriminated oneOf has teeth.
+    $mismatched = $wire;
+    $mismatched['termination_condition']['value'] = ['criteria' => 'x', 'max_review_rounds' => 2];
+    expect($v->isValid('loop-definition.json', $mismatched))->toBeFalse();
+})->group('conformance');
+
+it('CORE-13: internal collections (jobs/job_events/audit_records) are typed for export', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core13-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $v = new ConformanceValidator();
+
+        // jobs ← background_tasks
+        $jobId = $storage->createTask($sessionId, 'Run the export.', 'orchestrator', title: 'Export');
+        $storage->updateTaskStatus($jobId, 'running');
+        $job = JobProducer::toWire($storage->getTask($jobId));
+        expect($v->isValid('job.json', $job))->toBeTrue($v->errorText('job.json', $job));
+        expect($job['created_at'])->toMatch('/Z$/');
+
+        // job_events ← task_events (id is an INTEGER, not an opaque Id)
+        $storage->appendTaskEvent($jobId, 'iteration_started', ['iteration' => 1]);
+        $event = JobEventProducer::toWire($storage->getTaskEvents($jobId)[0] + ['job_id' => $jobId]);
+        expect($v->isValid('job-event.json', $event))->toBeTrue($v->errorText('job-event.json', $event));
+        expect($event['id'])->toBeInt();
+
+        // audit_records ← audit_log (arguments is an object; turn_id is dropped)
+        $auditId = $storage->logAudit($sessionId, 'shell_exec', ['command' => 'ls'], 'approved');
+        $auditRow = array_values(array_filter($storage->getAuditLog($sessionId), static fn(array $r): bool => $r['id'] === $auditId))[0];
+        $audit = AuditRecordProducer::toWire($auditRow);
+        expect($v->isValid('audit-record.json', $audit))->toBeTrue($v->errorText('audit-record.json', $audit));
+        expect($audit['arguments'])->toBeObject();
+        expect($audit)->not->toHaveKey('turn_id');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-14: the export envelope types every Core + internal collection', function () {
+    $schema = json_decode((string) file_get_contents(__DIR__ . '/spec/schema/export.json'), true, 512, JSON_THROW_ON_ERROR);
+    $envelopeCollections = array_values(array_diff(array_keys($schema['properties']), ['protocol_version', 'exported_at']));
+
+    $mapped = ExportCollectionMap::names();
+    sort($envelopeCollections);
+    sort($mapped);
+
+    // The typing map is exactly the envelope's collection set (no drift).
+    expect($mapped)->toBe($envelopeCollections);
+    expect($mapped)->toContain('jobs', 'job_events', 'audit_records');
+
+    // A minimal envelope validates; per-collection producibility is covered by
+    // tests/conformance/Export/ExportEnvelopeTest.php. The preserve+remap roundtrip
+    // import is a Phase 6 gate; memories' DB-backed producer is a Memory-reshape deferral.
+    $v = new ConformanceValidator();
+    $envelope = ['protocol_version' => '0.5.0', 'exported_at' => '2026-07-28T00:00:03Z'];
+    expect($v->isValid('export.json', $envelope))->toBeTrue($v->errorText('export.json', $envelope));
+})->group('conformance');
+
+it('CORE-3: every non-null producer timestamp is RFC-3339 UTC (Z)', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core3-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $jobId = $storage->createTask($sessionId, 'Work.', title: 'T');
+        $storage->updateTaskStatus($jobId, 'running');
+
+        // The raw column is a +00:00 offset; the producer must rewrite it to Z.
+        $raw = (string) $storage->pdo()->query('SELECT created_at FROM background_tasks WHERE id = ' . $storage->pdo()->quote($jobId))->fetchColumn();
+        expect($raw)->toContain('+00:00');
+
+        $job = JobProducer::toWire($storage->getTask($jobId));
+        $pattern = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/';
+        expect($job['created_at'])->toMatch($pattern);
+        expect($job['started_at'])->toMatch($pattern);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-59: nullable producer timestamps are null or Z, never a non-Z offset', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core59-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        // A pending job: created_at set; started_at/completed_at/cancelled_at null.
+        $jobId = $storage->createTask($sessionId, 'Work.', title: 'T');
+        $job = JobProducer::toWire($storage->getTask($jobId));
+
+        $pattern = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/';
+        expect($job['created_at'])->toMatch($pattern);
+        foreach (['started_at', 'completed_at', 'cancelled_at'] as $field) {
+            expect($job[$field] === null || preg_match($pattern, (string) $job[$field]) === 1)->toBeTrue("{$field} must be null or Z");
+            if ($job[$field] !== null) {
+                expect($job[$field])->not->toMatch('/[+-]\d{2}:?\d{2}$/');
+            }
+        }
+        expect($job['started_at'])->toBeNull();
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
-    'CORE-3: timestamps are RFC-3339 UTC (Z)',
     'CORE-4: error payloads carry a code from the closed catalog',
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
     'CORE-6: the loop live snapshot is fully typed',
     'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
-    'CORE-8: termination_condition.value shape matches its type',
     'CORE-9: PATCH bodies are typed + reject unknown fields',
     'CORE-10: mutable Core objects carry version; stale writes 409',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
-    'CORE-13: internal collections (jobs/job_events/audit_records) are typed for export validation',
-    'CORE-14: export envelope types every Core+internal collection; import is fail-closed + FK-consistent',
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
     'CORE-20: loop definitions carry no on_question; loops never block on a question',
@@ -381,7 +508,6 @@ $rows = [
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
-    'CORE-59: nullable timestamps are RFC-3339 UTC (Z); a non-Z offset is rejected per object family',
 ];
 
 foreach ($rows as $row) {
