@@ -263,9 +263,12 @@ final class AgentRunner implements AgentTurnRunnerInterface
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
 
-        // Resolve the model string for turn tracking (use task role if provided)
+        // Resolve the model string for turn tracking (use task role if provided).
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $persona);
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
 
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString, $turnProcessId);
@@ -653,7 +656,10 @@ final class AgentRunner implements AgentTurnRunnerInterface
     ): AgentTurnResult {
         $history ??= $this->storage->loadConversation($sessionId);
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $persona);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
         $turnStartedAt = (new \DateTimeImmutable())->format('c');
         $startTime = hrtime(true);
 
@@ -931,7 +937,10 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?\CoquiBot\Coqui\Config\PersonaPreferences $personaPreferences = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): OrchestratorAgent {
-        $modelString = $this->roleResolver->resolve($role, $activePersona);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $role, $activePersona);
         $httpClient = $this->httpClient;
         if ($httpClient instanceof ReactHttpClientAdapter && $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken) {
             $httpClient = $httpClient->withCancellationToken($cancellationToken);
@@ -1379,7 +1388,10 @@ final class AgentRunner implements AgentTurnRunnerInterface
     private function buildPreviewContext(?string $role = null, ?string $persona = null, ?string $sessionId = null): array
     {
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $persona);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $sessionId !== null ? $this->storage->getSession($sessionId) : null;
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
         $factory = $this->providerFactory;
         $provider = $this->providerResolver !== null
             ? ($this->providerResolver)($modelString)

@@ -67,6 +67,21 @@ final class RoleResolver
     }
 
     /**
+     * CAP 0.5.0 model precedence (D2): a non-null session model overrides
+     * everything; a null/empty session model means "inherit", falling through
+     * to the existing role -> persona -> instance-default chain. This is the
+     * single authority for effective-model selection wherever a session exists.
+     */
+    public function resolveForSession(?string $sessionModel, string $role, ?string $persona = null): string
+    {
+        if ($sessionModel !== null && $sessionModel !== '') {
+            return $this->config->resolveModel($sessionModel);
+        }
+
+        return $this->resolve($role, $persona);
+    }
+
+    /**
      * Resolve the utility model for cheap single-shot tasks
      * (titles, summarization, memory compression).
      *

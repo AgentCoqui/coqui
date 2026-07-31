@@ -6,6 +6,8 @@ namespace CoquiBot\Coqui\Tests\Conformance;
 
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
+use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
@@ -66,6 +68,25 @@ it('CORE-15: session.model is nullable; a stored null passes through as null (in
         expect($v->isValid('session.json', $wire))->toBeTrue($v->errorText('session.json', $wire));
         expect(array_key_exists('model', $wire))->toBeTrue();
         expect($wire['model'])->toBeNull();
+
+        // Precedence (D2): the effective-model rule honours session.model. A stored
+        // null inherits the role chain; a non-null session model wins outright.
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                ],
+            ],
+        ]);
+        $resolver = new RoleResolver($config);
+
+        // Null session model (as stored above) inherits the role chain.
+        expect($resolver->resolveForSession($wire['model'], 'orchestrator', null))
+            ->toBe($resolver->resolve('orchestrator', null));
+        // A non-null session model overrides the role/persona chain.
+        expect($resolver->resolveForSession('anthropic/claude-opus-4', 'orchestrator', null))
+            ->toBe('anthropic/claude-opus-4');
     } finally {
         cleanupSqliteTestDb($dbPath);
     }

@@ -176,9 +176,11 @@ final class TurnRunCommand extends Command
                 $groupMaxRounds = is_int($session['group_max_rounds'] ?? null)
                     ? $session['group_max_rounds']
                     : 3;
-                $groupModel = is_string($session['model'] ?? null) && $session['model'] !== ''
-                    ? $session['model']
-                    : $boot->roleResolver()->resolve($sessionRole, null);
+                $groupModel = $boot->roleResolver()->resolveForSession(
+                    is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null,
+                    $sessionRole,
+                    null,
+                );
 
                 $coordinator = new GroupTurnCoordinator($storage);
                 $turnResult = $coordinator->run(

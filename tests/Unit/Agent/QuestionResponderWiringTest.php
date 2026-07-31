@@ -7,6 +7,8 @@ use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
+use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\AgentTurnRunnerInterface;
@@ -122,13 +124,19 @@ function wiringEscObserver(): EscCancellationObserver
 }
 
 /**
- * Build an AgentTurnExecutor around the spy runner. `boot` and `policyFactory`
- * are only exercised by the single-session path; the group-path reflection test
- * never touches them, so uninitialized instances are safe there.
+ * Build an AgentTurnExecutor around the spy runner. `policyFactory` is only
+ * exercised by the single-session path. `boot` needs a real RoleResolver: since
+ * CAP 0.5.0 the group path routes model selection through
+ * RoleResolver::resolveForSession (see AgentTurnExecutor::executeGroupTurn), so
+ * even a non-empty session model still calls boot->roleResolver().
  */
 function wiringExecutor(CapturingAgentRunner $runner, SessionStorage $storage, ?ExecutionPolicyFactory $policyFactory = null): AgentTurnExecutor
 {
     $boot = (new ReflectionClass(BootManager::class))->newInstanceWithoutConstructor();
+    $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
+        'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+    ]));
+    (new ReflectionProperty(BootManager::class, 'roleResolver'))->setValue($boot, $roleResolver);
     $policyFactory ??= (new ReflectionClass(ExecutionPolicyFactory::class))->newInstanceWithoutConstructor();
 
     return new AgentTurnExecutor(
@@ -176,7 +184,8 @@ test('single-session path attaches an InteractiveQuestionResponder to run()', fu
 
 test('group path attaches an InteractiveQuestionResponder to runSegment() per actor (guards E1)', function () {
     $storage = new SessionStorage(':memory:');
-    // Non-empty model avoids BootManager (roleResolver) in executeGroupTurn.
+    // A non-empty session model wins outright via resolveForSession (D2 precedence),
+    // but the group path still consults boot->roleResolver() — wiringExecutor seeds one.
     $sessionId = $storage->createGroupSession(
         modelRole: 'orchestrator',
         model: 'ollama/qwen3:latest',
