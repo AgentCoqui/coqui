@@ -750,6 +750,7 @@ final class MemoryStore
                 area TEXT NOT NULL DEFAULT 'main',
                 tags TEXT NOT NULL DEFAULT '',
                 metadata TEXT NOT NULL DEFAULT '{}',
+                version INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
