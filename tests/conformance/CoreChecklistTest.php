@@ -215,6 +215,26 @@ it('CORE-20: loop definitions carry no on_question; the invalid vector is reject
     $v = new ConformanceValidator();
     expect($v->isValid('loop-definition.json', $vector))->toBeFalse();
 
+    // (a')  Isolate on_question as the SOLE rejection reason. The vendored invalid
+    // vector fails for two independent reasons: it omits the schema-required
+    // `version` and it carries the forbidden `on_question` (additionalProperties:false).
+    // Patch the missing required field into an in-memory copy so `on_question` is the
+    // only remaining violation — the vector must still be rejected. This gives part (a)
+    // teeth on the exact behaviour this task proves: re-allowing on_question would fail.
+    $patched = json_decode(
+        (string) file_get_contents(__DIR__ . '/spec/conformance/vectors/invalid/loopdef.on-question.json'),
+        false,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+    $patched->version = 1; // the only required field the invalid vector omits
+    expect($v->isValid('loop-definition.json', $patched))->toBeFalse();
+
+    // Sanity: with on_question removed the patched copy is VALID, proving on_question
+    // was the sole remaining violation above.
+    unset($patched->on_question);
+    expect($v->isValid('loop-definition.json', $patched))->toBeTrue($v->errorText('loop-definition.json', $patched));
+
     // (b) The runtime never emits on_question: a built + serialized LoopDefinition
     // has no such key, even if stored input still carried one.
     $definition = new LoopDefinition(
