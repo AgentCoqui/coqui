@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use React\Http\Message\Response;
 use React\Http\Message\ServerRequest;
@@ -64,4 +65,18 @@ test('publicRoutes lists registered public routes for the audit log', function (
         ['method' => 'GET', 'path' => '/api/v1/health'],
         ['method' => 'POST', 'path' => '/api/v1/webhooks/incoming/{name}'],
     ]);
+});
+
+test('errorResponse defaults to the code catalog HTTP status', function () {
+    $response = Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'x');
+
+    expect($response->getStatusCode())->toBe(400);
+});
+
+test('errorResponse honours an explicit status override without touching the code payload', function () {
+    $response = Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'x', null, 422);
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(422);
+    expect($body['code'])->toBe('validation_error');
 });

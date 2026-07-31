@@ -150,10 +150,15 @@ final class Router
 
     /**
      * Create a standard error response using ApiErrorCode.
+     *
+     * The optional $status overrides the code's catalog HTTP status for the rare
+     * call site whose semantics diverge from the default mapping (e.g. a 422
+     * validation rejection at loop creation). It is additive: the payload code is
+     * unchanged, and every caller that omits $status keeps the catalog status.
      */
-    public static function errorResponse(ApiErrorCode $code, string $message, mixed $details = null): Response
+    public static function errorResponse(ApiErrorCode $code, string $message, mixed $details = null, ?int $status = null): Response
     {
-        return self::jsonResponse($code->toPayload($message, $details), $code->httpStatus());
+        return self::jsonResponse($code->toPayload($message, $details), $status ?? $code->httpStatus());
     }
 
     /**

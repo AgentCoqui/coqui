@@ -13,6 +13,9 @@ use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Contract\LoopStreamState;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Config\PersonaPreferences;
+use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -54,6 +57,7 @@ final readonly class LoopHandler
         private ?LoopExecutor $executor = null,
         private ?SessionStorage $storage = null,
         private ?ProjectStore $projectStore = null,
+        private ?PersonaDiscovery $personaDiscovery = null,
     ) {}
 
     /**
@@ -90,6 +94,7 @@ final readonly class LoopHandler
             $sessionId = null;
         }
 
+        $sessionPersona = null;
         if ($sessionId !== null) {
             if ($this->storage === null) {
                 return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
@@ -99,6 +104,9 @@ final readonly class LoopHandler
             if ($session instanceof Response) {
                 return $session;
             }
+
+            $rawPersona = $session['persona_id'] ?? null;
+            $sessionPersona = is_string($rawPersona) && $rawPersona !== '' ? $rawPersona : null;
         }
 
         $projectId = isset($body['project_id']) ? trim((string) $body['project_id']) : null;
@@ -149,6 +157,20 @@ final readonly class LoopHandler
             if ($maxIterations < 1) {
                 return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be greater than 0');
             }
+        }
+
+        // CORE-22: a loop stage that hard-requires a durable artifact cannot run
+        // under a persona that has the artifacts capability disabled. Reject at
+        // creation (422) rather than discovering the conflict mid-run. Headless
+        // loops (no session persona) are ungated here; persona threading for that
+        // path is a separate concern.
+        if ($this->definitionRequiresArtifact($definition) && !$this->personaArtifactsEnabled($sessionPersona)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                'This loop definition requires durable artifacts, but the session persona has the artifacts capability disabled.',
+                ['capability' => 'artifacts'],
+                422,
+            );
         }
 
         try {
@@ -1061,6 +1083,45 @@ final readonly class LoopHandler
         $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
 
         return $state;
+    }
+
+    /**
+     * Whether any role stage in the named definition hard-requires an artifact.
+     *
+     * getRawDefinition() already returns the decoded definition array, so it is
+     * parsed directly (no json_decode). A malformed definition surfaces later as
+     * a startLoop validation error rather than being gated here.
+     */
+    private function definitionRequiresArtifact(string $definition): bool
+    {
+        $parsed = LoopDefinition::fromArray($this->discovery->getRawDefinition($definition));
+        foreach ($parsed->roles as $roleDef) {
+            if ($roleDef->artifactRequired) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the given session persona has the artifacts capability enabled.
+     *
+     * No persona bound (headless), or no PersonaDiscovery wired, means ungated
+     * (return true). Feature flags default to enabled when unset.
+     */
+    private function personaArtifactsEnabled(?string $persona): bool
+    {
+        if ($persona === null || $persona === '' || $this->personaDiscovery === null) {
+            return true;
+        }
+
+        if (!$this->personaDiscovery->personaExists($persona)) {
+            return true;
+        }
+
+        return PersonaPreferences::fromPersonaPath($this->personaDiscovery->getPersonaPath($persona))
+            ->isFeatureEnabled('artifacts', true);
     }
 
     private function durationSeconds(mixed $startedAt, mixed $completedAt): ?float

@@ -6,8 +6,12 @@ namespace CoquiBot\Coqui\Tests\Conformance;
 
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\LoopManager;
+use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -200,6 +204,77 @@ it('CORE-21: loop stages thread prior-stage output and inherit the session works
         expect($stageTwoSession['workspace'])->toBe('/srv/agents/ws-loop-21');
     } finally {
         cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts persona is rejected 422 at loop creation', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core22-' . bin2hex(random_bytes(8)) . '.db';
+    $workspacePath = sys_get_temp_dir() . '/coqui-core22-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspacePath . '/loops', 0755, true);
+
+    // A persona with the artifacts capability explicitly disabled.
+    $personaDir = $workspacePath . '/personas/capped';
+    mkdir($personaDir, 0755, true);
+    file_put_contents($personaDir . '/soul.md', "# capped\n\nArtifacts disabled.\n");
+    file_put_contents(
+        $personaDir . '/preferences.json',
+        json_encode(['prompts' => ['features' => ['artifacts' => false]]]) ?: '',
+    );
+
+    // A loop definition whose role hard-requires a durable artifact.
+    file_put_contents(
+        $workspacePath . '/loops/needs-artifact.json',
+        json_encode([
+            'name' => 'needs-artifact',
+            'description' => 'A stage that must produce a durable artifact',
+            'roles' => [
+                ['role' => 'coder', 'prompt' => 'Produce a durable artifact.', 'artifact_required' => true],
+            ],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 1],
+        ]) ?: '',
+    );
+
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $pdo = $storage->getPdo();
+        $loopStore = new LoopStore($pdo);
+        $projectStore = new ProjectStore($pdo);
+        $executor = new LoopExecutor(loopStore: $loopStore, projectStore: $projectStore);
+        $handler = new LoopHandler(
+            $loopStore,
+            new LoopDiscovery($workspacePath),
+            $executor,
+            $storage,
+            $projectStore,
+            new PersonaDiscovery($workspacePath),
+        );
+
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'capped');
+
+        $response = $handler->create(new \React\Http\Message\ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'needs-artifact',
+                'goal' => 'Produce a durable artifact',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        // Rejected at creation, not discovered mid-run.
+        expect($response->getStatusCode())->toBe(422);
+        expect($body['code'])->toBe('validation_error');
+        // The code is drawn from the closed CAP error catalog.
+        expect(ApiErrorCode::tryFrom($body['code']))->not->toBeNull();
+
+        // The gate blocks before any loop row is persisted.
+        expect($loopStore->listLoops())->toHaveCount(0);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($workspacePath);
     }
 })->group('conformance');
 
@@ -682,7 +757,6 @@ $rows = [
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
-    'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',

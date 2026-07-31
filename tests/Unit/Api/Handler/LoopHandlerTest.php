@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -47,11 +48,26 @@ function createLoopHandlerFixture(): array
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '',
     );
 
+    // A loop definition whose sole role hard-requires a durable artifact. Used to
+    // exercise the persona artifacts-capability gate at loop creation (CORE-22).
+    file_put_contents(
+        $workspacePath . '/loops/artifact-gated.json',
+        json_encode([
+            'name' => 'artifact-gated',
+            'description' => 'A loop stage that must produce a durable artifact',
+            'roles' => [
+                ['role' => 'plan', 'prompt' => 'Produce a durable artifact.', 'artifact_required' => true],
+            ],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '',
+    );
+
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     $loopStore = new LoopStore($storage->getPdo());
     $discovery = new LoopDiscovery($workspacePath);
     $executor = new LoopExecutor($loopStore, $projectStore, $storage);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
 
     return [
         'dbPath' => $dbPath,
@@ -59,8 +75,26 @@ function createLoopHandlerFixture(): array
         'storage' => $storage,
         'projectStore' => $projectStore,
         'loopStore' => $loopStore,
-        'handler' => new LoopHandler($loopStore, $discovery, $executor, $storage, $projectStore),
+        'personaDiscovery' => $personaDiscovery,
+        'handler' => new LoopHandler($loopStore, $discovery, $executor, $storage, $projectStore, $personaDiscovery),
     ];
+}
+
+/**
+ * Materialize a persona under the fixture workspace with an explicit artifacts
+ * feature flag, returning the persona name (used as a session persona_id).
+ */
+function writeLoopPersona(string $workspacePath, string $name, bool $artifactsEnabled): string
+{
+    $dir = $workspacePath . '/personas/' . $name;
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/soul.md', "# {$name}\n\nA test persona.\n");
+    file_put_contents(
+        $dir . '/preferences.json',
+        json_encode(['prompts' => ['features' => ['artifacts' => $artifactsEnabled]]]) ?: '',
+    );
+
+    return $name;
 }
 
 function cleanupLoopHandlerFixture(array $fixture): void
@@ -81,11 +115,15 @@ test('loop handler definitions include parameter metadata', function () {
         $response = $fixture['handler']->definitions(new ServerRequest('GET', '/api/v1/loops/definitions'));
         $body = json_decode((string) $response->getBody(), true);
 
+        $byName = [];
+        foreach ($body['definitions'] as $definition) {
+            $byName[$definition['name']] = $definition;
+        }
+
         expect($response->getStatusCode())->toBe(200);
-        expect($body['count'])->toBe(1);
-        expect($body['definitions'][0]['parameters'])->toHaveCount(2);
-        expect($body['definitions'][0]['parameters'][0]['name'])->toBe('subject');
-        expect($body['definitions'][0]['parameters'][1]['default'])->toBe('php');
+        expect($byName['harness']['parameters'])->toHaveCount(2);
+        expect($byName['harness']['parameters'][0]['name'])->toBe('subject');
+        expect($byName['harness']['parameters'][1]['default'])->toBe('php');
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
@@ -127,6 +165,83 @@ test('loop handler creates loop scoped to project and applies parameters', funct
         expect((int) $storedLoop['max_iterations'])->toBe(2);
         expect($configuration['roles'][0]['prompt'])->toContain('loop lifecycle API');
         expect($configuration['roles'][0]['prompt'])->toContain('php');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler create rejects an artifact_required loop when the session persona disables artifacts', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $persona = writeLoopPersona($fixture['workspacePath'], 'capped', artifactsEnabled: false);
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', $persona);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(422);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['details']['capability'])->toBe('artifacts');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler accepts an artifact_required loop when the session persona enables artifacts', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $persona = writeLoopPersona($fixture['workspacePath'], 'creator', artifactsEnabled: true);
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', $persona);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+
+        expect($response->getStatusCode())->toBe(201);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler accepts an artifact_required loop with no session (ungated headless)', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+
+        expect($response->getStatusCode())->toBe(201);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
