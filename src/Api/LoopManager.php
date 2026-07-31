@@ -170,12 +170,19 @@ final class LoopManager
             ? $workScopeSession['persona_id']
             : null;
 
+        // Inherit the work-scope session's rooted workspace so the stage's
+        // execution agent operates against the same filesystem root (D3).
+        $parentWorkspace = is_array($workScopeSession) && is_string($workScopeSession['workspace'] ?? null) && $workScopeSession['workspace'] !== ''
+            ? $workScopeSession['workspace']
+            : null;
+
         // Create a fresh execution session for this stage's background task
         $sessionId = $this->storage->createSession(
             modelRole: $stageResult->role,
             model: '',
             persona: $activePersona,
             visibility: 'hidden',
+            workspace: $parentWorkspace,
         );
 
         // Propagate active project context from parent session to task session

@@ -114,6 +114,18 @@ final class LoopExecutor
         // Resolve project: explicit → session active → auto-create
         $resolvedProjectId = $this->resolveProject($definition, $goal, $projectId, $projectSlug, $sessionId);
 
+        // Capture the loop-owning session's rooted workspace before any headless
+        // reassignment overwrites $sessionId, so the auto-provisioned work-scope
+        // session inherits it (D3). No owning session (pure headless) means no
+        // workspace to inherit — the work-scope session stays unrooted.
+        $ownerWorkspace = null;
+        if ($sessionId !== null && $this->sessionStorage !== null) {
+            $ownerSession = $this->sessionStorage->getSession($sessionId);
+            if (is_array($ownerSession) && is_string($ownerSession['workspace'] ?? null) && $ownerSession['workspace'] !== '') {
+                $ownerWorkspace = $ownerSession['workspace'];
+            }
+        }
+
         // Headless start: no conversation session was supplied. Auto-provision a
         // hidden loop-owned work-scope session so LoopManager can propagate the
         // project to stage sessions (cross-stage artifacts are project-scoped) and
@@ -124,6 +136,7 @@ final class LoopExecutor
                 modelRole: 'orchestrator',
                 model: '',
                 visibility: 'hidden',
+                workspace: $ownerWorkspace,
             );
             $this->sessionStorage->setActiveProject($sessionId, $resolvedProjectId);
         }

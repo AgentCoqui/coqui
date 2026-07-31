@@ -86,6 +86,25 @@ test('tick inherits active persona from parent loop session', function () {
     expect($session['persona_id'])->toBe('caelum');
 });
 
+test('tick inherits the workspace from the parent loop session', function () {
+    $rootedParentSessionId = $this->storage->createSession(
+        'orchestrator',
+        'ollama/qwen3:latest',
+        workspace: '/srv/agents/ws-loop',
+    );
+    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $rootedParentSessionId);
+
+    $this->manager->tick();
+
+    $state = $this->loopStore->getCurrentState($loopId);
+    $stage = $state['stages'][0];
+    $task = $this->storage->getTask((string) $stage['task_id']);
+    $session = $this->storage->getSession((string) $task['session_id']);
+
+    expect($session)->not->toBeNull();
+    expect($session['workspace'])->toBe('/srv/agents/ws-loop');
+});
+
 test('reconcile completes a finished stage and creates a loop output artifact', function () {
     $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $this->parentSessionId);
 

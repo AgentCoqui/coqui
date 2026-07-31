@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tests\Conformance;
 
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
+use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -28,6 +30,7 @@ use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
@@ -121,6 +124,80 @@ it('CORE-19: session carries an opaque workspace echoed verbatim; null = no root
         expect($resolver->resolve($unrooted))->toBe('/global/default/ws');
         expect($resolver->resolve(null))->toBe('/global/default/ws');
         expect($resolver->resolve('does-not-exist'))->toBe('/global/default/ws');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-21: loop stages thread prior-stage output and inherit the session workspace', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core21-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $pdo = $storage->getPdo();
+        $loopStore = new LoopStore($pdo);
+        $projectStore = new ProjectStore($pdo);
+        $artifactStore = artifactStoreForTest($pdo);
+        $executor = new LoopExecutor(
+            loopStore: $loopStore,
+            projectStore: $projectStore,
+        );
+        $manager = new LoopManager(
+            storage: $storage,
+            loopStore: $loopStore,
+            executor: $executor,
+            artifactStore: $artifactStore,
+        );
+
+        // A work-scope session rooted at an opaque workspace.
+        $workScopeSessionId = $storage->createSession(
+            'orchestrator',
+            'anthropic/claude-sonnet-4',
+            workspace: '/srv/agents/ws-loop-21',
+        );
+
+        $definition = [
+            'name' => 'two-stage',
+            'description' => 'Two stage loop',
+            'roles' => [
+                ['role' => 'coder', 'prompt' => 'Implement the requested change.'],
+                ['role' => 'reviewer', 'prompt' => 'Review the implementation.'],
+            ],
+            'termination_condition' => [
+                'type' => 'iteration_bound',
+                'value' => 1,
+            ],
+        ];
+
+        $loopId = $executor->startLoop($definition, 'Ship the feature', $workScopeSessionId);
+
+        // (a) Workspace inheritance: stage 1's fresh execution session is rooted at
+        // the work-scope session's workspace (D3).
+        $manager->tick();
+        $stageOne = $loopStore->getCurrentState($loopId)['stages'][0];
+        $stageOneTask = $storage->getTask((string) $stageOne['task_id']);
+        $stageOneSession = $storage->getSession((string) $stageOneTask['session_id']);
+        expect($stageOneSession['workspace'])->toBe('/srv/agents/ws-loop-21');
+
+        // Complete stage 1: reconcile threads its output into a loop_output artifact
+        // scoped to the work-scope session.
+        $storage->addMessage((string) $stageOneTask['session_id'], 'assistant', 'Stage one implementation output');
+        $storage->updateTaskStatus((string) $stageOne['task_id'], 'completed', ['result' => 'Stage one implementation output']);
+        $manager->reconcile();
+
+        expect($artifactStore->list($workScopeSessionId, 'loop_output'))->toHaveCount(1);
+
+        // (b) Prior-output threading: stage 2's dispatch prompt carries the prior
+        // stage's output under the "Previous Stages This Cycle" context section.
+        $manager->tick();
+        $stageTwo = $loopStore->getCurrentState($loopId)['stages'][1];
+        $stageTwoTask = $storage->getTask((string) $stageTwo['task_id']);
+        expect($stageTwoTask['prompt'])->toContain('Previous Stages This Cycle');
+        expect($stageTwoTask['prompt'])->toContain('Stage one implementation output');
+
+        // Stage 2's session inherits the same rooted workspace.
+        $stageTwoSession = $storage->getSession((string) $stageTwoTask['session_id']);
+        expect($stageTwoSession['workspace'])->toBe('/srv/agents/ws-loop-21');
     } finally {
         cleanupSqliteTestDb($dbPath);
     }
@@ -507,7 +584,6 @@ $rows = [
     'CORE-17: deleting a session cascade-stops any non-terminal loop using it',
     'CORE-18: list operations paginate + declare a default sort',
     'CORE-20: loop definitions carry no on_question; loops never block on a question',
-    'CORE-21: loop stages thread prior-stage output + inherit the session workspace',
     'CORE-22: artifact_required is persona-gated; a def requiring it on a no-artifacts instance is rejected 422 at loop creation',
     'CORE-23: a stage whose role/definition is undefined at dispatch resolves blocked + Critical',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
