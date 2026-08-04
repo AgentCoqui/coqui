@@ -489,14 +489,17 @@ final readonly class SessionHandler
         $isArchived = (int) ($session['is_archived'] ?? 0) === 1;
         $isClosed = (int) ($session['is_closed'] ?? 0) === 1;
         $title = $session['title'] ?? null;
+        // Pin kind to the closed session.json enum — any unknown/absent stored
+        // value collapses to `chat`, so an out-of-set kind can never reach the wire.
+        $kind = in_array($session['kind'] ?? 'chat', ['chat', 'loop_workscope'], true)
+            ? (string) $session['kind']
+            : 'chat';
 
         return [
             'id' => (string) ($session['id'] ?? ''),
             'persona_id' => (string) ($session['persona_id'] ?? ''),
             'members' => self::deriveMembers($session),
-            'kind' => is_string($session['kind'] ?? null) && $session['kind'] !== ''
-                ? (string) $session['kind']
-                : 'chat',
+            'kind' => $kind,
             'status' => $isArchived ? 'archived' : ($isClosed ? 'closed' : 'active'),
             'pinned' => (bool) ($session['pinned'] ?? false),
             'version' => is_scalar($session['version'] ?? null) ? max(1, (int) $session['version']) : 1,

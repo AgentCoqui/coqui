@@ -1764,9 +1764,54 @@ it('CORE-57: an in-process thrown error is typed with a code from the closed cat
     expect($v->isValid('error-thrown.json', $bad))->toBeFalse();
 })->group('conformance');
 
+/**
+ * A complete, valid session DB row as {@see SessionStorage::getSession()} returns
+ * it — every column {@see SessionHandler::toWire()} reads is present. The three
+ * enum-bearing inputs are overridable so a single row shape drives the whole
+ * (is_archived, is_closed) status matrix and the kind-coercion checks.
+ *
+ * @return array<string, mixed>
+ */
+function sessionRow(int $isArchived = 0, int $isClosed = 0, string $kind = 'chat'): array
+{
+    return [
+        'id' => '01J0000000000000000SESSION',
+        'persona_id' => '01J000000000000000000PERSONA',
+        'group_members' => [],
+        'kind' => $kind,
+        'is_archived' => $isArchived,
+        'is_closed' => $isClosed,
+        'pinned' => false,
+        'version' => 1,
+        'model' => 'anthropic/claude-sonnet-4',
+        'workspace' => null,
+        'title' => 'Release planning',
+        'token_count' => 0,
+        'created_at' => '2026-07-28T00:00:00Z',
+        'updated_at' => '2026-07-28T00:00:00Z',
+    ];
+}
+
+it('CORE-2: session enums are closed — out-of-set status/kind never produced and rejected', function () {
+    $v = new ConformanceValidator();
+    // (a) schema-reject: the vendored bad-status vector is rejected.
+    $bad = json_decode((string) file_get_contents(__DIR__ . '/spec/conformance/vectors/invalid/session.bad-status.json'), true);
+    expect($v->isValid('session.json', $bad))->toBeFalse();
+
+    // (b) producer-total: over every (is_archived,is_closed) combination, status stays in-set.
+    foreach ([[0, 0], [1, 0], [0, 1], [1, 1]] as [$arch, $closed]) {
+        $wire = SessionHandler::toWire(sessionRow(isArchived: $arch, isClosed: $closed, kind: 'chat'));
+        expect($wire['status'])->toBeIn(['active', 'archived', 'closed']);
+    }
+    // (c) kind is pinned: a garbage stored kind is coerced into the closed set, never leaked.
+    $wire = SessionHandler::toWire(sessionRow(kind: 'wat'));
+    expect($wire['kind'])->toBeIn(['chat', 'loop_workscope']);
+    expect($v->isValid('session.json', SessionHandler::toWire(sessionRow(kind: 'loop_workscope'))))
+        ->toBeTrue();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
-    'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
