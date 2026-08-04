@@ -245,7 +245,7 @@ final class SpawnAgentTool implements ToolInterface
             // outcome is known here: this reached point is a completed run.
             if ($this->storage !== null && $this->sessionId !== null) {
                 $usage = $output->usage;
-                $this->storage->logChildRun(
+                $this->storage->createChildRun(
                     parentSessionId: $this->sessionId,
                     role: $role,
                     model: $modelString,
@@ -282,7 +282,7 @@ final class SpawnAgentTool implements ToolInterface
         } catch (\Throwable $e) {
             // Synchronous run failed: record the child run as failed with no result.
             if ($this->storage !== null && $this->sessionId !== null) {
-                $this->storage->logChildRun(
+                $this->storage->createChildRun(
                     parentSessionId: $this->sessionId,
                     role: $role,
                     model: $modelString,

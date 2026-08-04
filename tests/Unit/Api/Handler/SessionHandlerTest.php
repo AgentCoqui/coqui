@@ -942,7 +942,7 @@ test('session handler summary returns aggregate counts and latest turn data', fu
             1,
         );
 
-        $fixture['storage']->logChildRun(
+        $fixture['storage']->createChildRun(
             parentSessionId: $sessionId,
             role: 'analyst',
             model: 'openai/gpt-4.1-mini',

@@ -2093,13 +2093,17 @@ final class SessionStorage
     }
 
     /**
-     * Record a delegated child-agent run (CAP `child-run.json` shape). coqui runs
-     * children synchronously in-process, so the outcome is known at write time:
-     * pass `status` = 'completed' on success / 'failed' on error, and the token
-     * triad from the child result's usage. `model` is nullable (null ⇒ inherit);
-     * `parentTurnId` is the owning turn id when known (else null).
+     * Record a delegated child-agent run (CAP `child-run.json` shape) and return
+     * its id. This is the single INSERT path for child runs. Callers that know the
+     * outcome at write time (a synchronous in-process child) may pass a terminal
+     * `status` ('completed'/'failed'/'cancelled') with the result + token triad in
+     * one call; callers that spawn-then-execute insert a non-terminal `status`
+     * ('pending'/'running') here and later call {@see finalizeChildRun()} to record
+     * the terminal transition. `completed_at` is set iff `status` is terminal.
+     * `model` is nullable (null ⇒ inherit); `parentTurnId` is the owning turn id
+     * when known (else null).
      */
-    public function logChildRun(
+    public function createChildRun(
         string $parentSessionId,
         string $role,
         ?string $model,
@@ -2146,6 +2150,43 @@ final class SessionStorage
     }
 
     /**
+     * Record the terminal transition of a child run previously inserted with a
+     * non-terminal status by {@see createChildRun()}. Sets the final `status`
+     * ('completed'/'failed'/'cancelled'), the result, the token triad, and stamps
+     * `completed_at`. This is the UPDATE half of the two-phase spawn-then-execute
+     * write path; there is no second INSERT path.
+     */
+    public function finalizeChildRun(
+        string $childRunId,
+        string $status,
+        ?string $result = null,
+        int $promptTokens = 0,
+        int $completionTokens = 0,
+        int $totalTokens = 0,
+    ): void {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE child_runs
+            SET status = :status,
+                result = :result,
+                prompt_tokens = :prompt_tokens,
+                completion_tokens = :completion_tokens,
+                total_tokens = :total_tokens,
+                completed_at = :completed_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'status' => $status,
+            'result' => $result,
+            'prompt_tokens' => $promptTokens,
+            'completion_tokens' => $completionTokens,
+            'total_tokens' => $totalTokens,
+            'completed_at' => date('c'),
+            'id' => $childRunId,
+        ]);
+    }
+
+    /**
      * @return array<array<string, mixed>>
      */
     public function getChildRuns(string $sessionId): array
@@ -2161,6 +2202,24 @@ final class SessionStorage
         $stmt->execute(['parent_session_id' => $sessionId]);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getChildRun(string $childRunId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                   prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
+            FROM child_runs
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $childRunId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
     }
 
     public function updateTokenCount(string $sessionId, int $tokens): void

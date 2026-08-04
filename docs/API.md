@@ -2302,11 +2302,13 @@ This endpoint enables onboarding wizards and management UIs to show users which 
 
 ### Child Runs
 
-Child runs track sub-agent invocations within a session. When the orchestrator spawns a child agent (e.g., `coder`, `reviewer`), the run is recorded with its role, model, prompt, result, and token usage.
+Child runs track sub-agent (delegated) invocations within a session. A child run is a first-class, typed resource (`child-run.json`): it carries `role`, nullable `model` (null ⇒ inherit the parent's model), `prompt`, nullable `result`, a closed-set `status`, the split token triad (`prompt_tokens` / `completion_tokens` / `total_tokens`), `created_at`, and nullable `completed_at`.
+
+`status` is one of `pending`, `running`, `completed`, `failed`, `cancelled`.
 
 #### `GET /api/v1/sessions/{id}/child-runs`
 
-List all child agent runs for a session.
+List all child runs for a session, each as a `child-run.json` resource.
 
 **Response `200`**
 
@@ -2315,14 +2317,19 @@ List all child agent runs for a session.
   "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "child_runs": [
     {
-      "id": "cr1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
-      "parent_iteration": 3,
-      "agent_role": "coder",
+      "id": "cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      "parent_turn_id": null,
+      "role": "coder",
       "model": "anthropic/claude-sonnet-4-20250514",
       "prompt": "Implement the ServerHandler class...",
       "result": "I've created the ServerHandler class...",
-      "token_count": 2450,
-      "created_at": "2026-02-16T14:32:15+00:00"
+      "status": "completed",
+      "prompt_tokens": 120,
+      "completion_tokens": 45,
+      "total_tokens": 165,
+      "created_at": "2026-02-16T14:32:15Z",
+      "completed_at": "2026-02-16T14:32:19Z"
     }
   ],
   "count": 1
@@ -2334,6 +2341,49 @@ List all child agent runs for a session.
 | Status | Code | Condition |
 |--------|------|-----------|
 | `404` | `session_not_found` | Session does not exist |
+
+#### `POST /api/v1/sessions/{id}/child-runs`
+
+Spawn a child run. This is a **gated Core operation**: only a top-level, full-access orchestrator session may spawn a child. Any other session (a delegated/child role, or a non-full access level) is rejected `403 forbidden` — children do not nest.
+
+The child runs **synchronously** (sync-execute-then-report): the row is recorded `running`, the child is executed via the in-process child-agent path, and the terminal `completed`/`failed` transition (with `completed_at` and the token triad) is recorded before the response is written. The response is therefore `202` with an already-terminal `child-run.json` resource. A child that fails during execution still returns `202` with `status: "failed"` — the failure is captured in the resource, not surfaced as an HTTP error.
+
+**Request Body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `role` | string | Yes | The child role to spawn (e.g. `coder`, `reviewer`). Resolved to a model via the role resolver. |
+| `prompt` | string | Yes | The task prompt handed to the child. |
+
+```json
+{
+  "role": "coder",
+  "prompt": "Implement the ServerHandler class..."
+}
+```
+
+**Response `202`** — a `child-run.json` resource (see the list example above) with a terminal `status`.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `400` | `missing_field` | `role` or `prompt` is missing/empty |
+| `403` | `forbidden` | The session is not a top-level, full-access orchestrator session |
+| `404` | `session_not_found` | Session does not exist |
+
+#### `GET /api/v1/sessions/{id}/child-runs/{childRunId}`
+
+Fetch a single child run as a `child-run.json` resource.
+
+**Response `200`** — the `child-run.json` resource.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | No child run with that id belongs to the session |
 
 ### Server
 
@@ -4574,7 +4624,9 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
-| `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
+| `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child runs |
+| `POST` | `/api/v1/sessions/{id}/child-runs` | Yes | Spawn a child run (gated: top-level full-access only; `202`, sync-execute) |
+| `GET` | `/api/v1/sessions/{id}/child-runs/{childRunId}` | Yes | Get a single child run |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
 | `GET` | `/api/v1/config/context` | Yes | Get the supported app-facing context settings with defaults, metadata, and restart state |
 | `PATCH` | `/api/v1/config/context` | Yes | Update supported context settings such as `conversationHistoryInSystemPrompt` and auto-summarize controls |

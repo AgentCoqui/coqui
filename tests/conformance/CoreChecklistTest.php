@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tests\Conformance;
 
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
+use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CarmeloSantana\PHPAgents\Provider\Response as ProviderResponse;
+use CarmeloSantana\PHPAgents\Provider\Usage;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Api\Handler\ChildRunHandler;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
@@ -764,7 +770,7 @@ it('CORE-28: ChildRun is a typed first-class object; status is a closed set; no 
 
     try {
         $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
-        $storage->logChildRun(
+        $storage->createChildRun(
             parentSessionId: $sessionId,
             role: 'coder',
             model: 'anthropic/claude-sonnet-4',
@@ -783,6 +789,154 @@ it('CORE-28: ChildRun is a typed first-class object; status is a closed set; no 
         expect($v->isValid('child-run.json', $wire))->toBeTrue($v->errorText('child-run.json', $wire));
         expect($wire['parent_session_id'])->toBe($sessionId);   // required, present
         expect($wire['status'])->toBeIn(['pending', 'running', 'completed', 'failed', 'cancelled']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-29 (part 1): spawnChildRun runs the child, records running→completed, returns 202; getChildRun fetches it', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core29-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => ['coder' => 'anthropic/claude-sonnet-4'],
+                ],
+            ],
+        ]);
+
+        // A deterministic provider: one Stop response with a split token triad, so
+        // the child completes on its first iteration without touching the network.
+        $provider = new class implements ProviderInterface {
+            public function chat(array $messages, array $tools = [], array $options = []): ProviderResponse
+            {
+                return new ProviderResponse(
+                    content: 'Child result.',
+                    finishReason: ProviderFinishReason::Stop,
+                    model: 'anthropic/claude-sonnet-4',
+                    usage: new Usage(promptTokens: 30, completionTokens: 12, totalTokens: 42),
+                );
+            }
+
+            public function stream(array $messages, array $tools = [], array $options = []): iterable
+            {
+                yield new ProviderResponse(
+                    content: 'Child result.',
+                    finishReason: ProviderFinishReason::Stop,
+                    model: 'anthropic/claude-sonnet-4',
+                    usage: new Usage(promptTokens: 30, completionTokens: 12, totalTokens: 42),
+                );
+            }
+
+            public function structured(array $messages, string $schema, array $options = []): mixed
+            {
+                return [];
+            }
+
+            public function models(): array
+            {
+                return [];
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            public function getModel(): string
+            {
+                return 'anthropic/claude-sonnet-4';
+            }
+
+            public function withModel(string $model): static
+            {
+                return $this;
+            }
+        };
+
+        $handler = new ChildRunHandler(
+            $storage,
+            new RoleResolver($config),
+            new ProviderFactory($config),
+            null,
+            fn (string $model): ProviderInterface => $provider,
+        );
+
+        // Top-level, full-access orchestrator session ⇒ spawning is allowed.
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+
+        $spawn = $handler->spawnChildRun(
+            new \React\Http\Message\ServerRequest(
+                'POST',
+                '/api/v1/sessions/' . $sessionId . '/child-runs',
+                ['Content-Type' => 'application/json'],
+                json_encode(['role' => 'coder', 'prompt' => 'Implement the fix.']) ?: '',
+            ),
+            $sessionId,
+        );
+
+        expect($spawn->getStatusCode())->toBe(202);
+
+        $spawnWire = json_decode((string) $spawn->getBody(), true);
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('child-run.json', $spawnWire))->toBeTrue($v->errorText('child-run.json', $spawnWire));
+        expect($spawnWire['parent_session_id'])->toBe($sessionId);
+        expect($spawnWire['role'])->toBe('coder');
+        expect($spawnWire['status'])->toBeIn(['completed', 'failed']);   // terminal after sync execute
+        expect($spawnWire['status'])->toBe('completed');
+        expect($spawnWire['result'])->toBe('Child result.');
+        expect($spawnWire['prompt_tokens'])->toBe(30);
+        expect($spawnWire['completion_tokens'])->toBe(12);
+        expect($spawnWire['total_tokens'])->toBe(42);
+        expect($spawnWire['completed_at'])->not->toBeNull();
+
+        // The row recorded a running→completed transition: it was inserted running
+        // (created_at) and finalized completed (completed_at, token triad).
+        $childRunId = $spawnWire['id'];
+        $row = $storage->getChildRun($childRunId);
+        expect($row)->not->toBeNull();
+        expect($row['status'])->toBe('completed');
+        expect($row['created_at'])->not->toBeNull();
+        expect($row['completed_at'])->not->toBeNull();
+
+        // getChildRun fetches the same resource.
+        $getResponse = $handler->getChildRun(
+            new \React\Http\Message\ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/child-runs/' . $childRunId),
+            $sessionId,
+            $childRunId,
+        );
+        expect($getResponse->getStatusCode())->toBe(200);
+        $getWire = json_decode((string) $getResponse->getBody(), true);
+        expect($v->isValid('child-run.json', $getWire))->toBeTrue($v->errorText('child-run.json', $getWire));
+        expect($getWire['id'])->toBe($childRunId);
+        expect($getWire['status'])->toBe('completed');
+
+        // getChildRun 404s for an absent child run.
+        $missing = $handler->getChildRun(
+            new \React\Http\Message\ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/child-runs/does-not-exist'),
+            $sessionId,
+            'does-not-exist',
+        );
+        expect($missing->getStatusCode())->toBe(404);
+
+        // A non-top-level / non-full-access session is forbidden from spawning.
+        $childSessionId = $storage->createSession('reviewer', 'anthropic/claude-sonnet-4', 'caelum');
+        $forbidden = $handler->spawnChildRun(
+            new \React\Http\Message\ServerRequest(
+                'POST',
+                '/api/v1/sessions/' . $childSessionId . '/child-runs',
+                ['Content-Type' => 'application/json'],
+                json_encode(['role' => 'coder', 'prompt' => 'Nested spawn attempt.']) ?: '',
+            ),
+            $childSessionId,
+        );
+        expect($forbidden->getStatusCode())->toBe(403);
+        // No child run was written for the forbidden session.
+        expect($storage->getChildRuns($childSessionId))->toHaveCount(0);
     } finally {
         cleanupSqliteTestDb($dbPath);
     }

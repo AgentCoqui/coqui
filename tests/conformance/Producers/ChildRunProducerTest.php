@@ -20,7 +20,7 @@ it('CORE-28: produces a schema-valid completed ChildRun carrying a token triad',
     $sessionId = $this->storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
 
     // A synchronous child run that completed with a rooted model + split usage.
-    $this->storage->logChildRun(
+    $this->storage->createChildRun(
         parentSessionId: $sessionId,
         role: 'coder',
         model: 'anthropic/claude-sonnet-4',
@@ -58,7 +58,7 @@ it('CORE-28: a child run with a null model emits model:null (inherit), never omi
 
     // model NULLABLE — unlike turn.json's non-null model, child-run.json is
     // oneOf[ModelId,null], so null must be emitted (⇒ inherit), never coerced.
-    $this->storage->logChildRun(
+    $this->storage->createChildRun(
         parentSessionId: $sessionId,
         role: 'analyst',
         model: null,

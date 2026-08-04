@@ -161,7 +161,7 @@ it('CORE-14: every produced collection serializes schema-valid and the envelope 
         $auditWire = AuditRecordProducer::toWire($auditRow);
 
         // ── child_runs ──────────────────────────────────────────────────────
-        $storage->logChildRun(
+        $storage->createChildRun(
             parentSessionId: $sessionId,
             role: 'coder',
             model: 'anthropic/claude-sonnet-4',

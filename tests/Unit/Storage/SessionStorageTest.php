@@ -163,10 +163,10 @@ test('loadConversation rebuilds conversation object', function () {
     expect($messages[2]->role()->value)->toBe('assistant');
 });
 
-test('logChildRun saves child run data', function () {
+test('createChildRun saves child run data', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 
-    $this->storage->logChildRun(
+    $this->storage->createChildRun(
         parentSessionId: $sessionId,
         role: 'coder',
         model: 'anthropic/claude',

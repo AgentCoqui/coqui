@@ -16,6 +16,7 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\AuditHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
+use CoquiBot\Coqui\Api\Handler\ChildRunHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
@@ -355,6 +356,12 @@ final class ApiCommand extends Command
         $mcpRuntime->connectEnabled();
         $mcpServerHandler = new McpServerHandler($mcpRuntime->managementService());
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
+        $childRunHandler = new ChildRunHandler(
+            $storage,
+            $boot->roleResolver(),
+            $boot->providerFactory(),
+            $boot->roleDiscovery(),
+        );
         $questionHandler = new QuestionHandler(
             new QuestionPersistence($storage),
             $storage,
@@ -373,7 +380,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler, $auditHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $childRunHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler, $auditHandler);
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
@@ -609,6 +616,7 @@ final class ApiCommand extends Command
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
+        ChildRunHandler $childRun,
         QuestionHandler $question,
         ScheduleHandler $schedule,
         ?ApiLoopHandler $loop,
@@ -714,6 +722,8 @@ final class ApiCommand extends Command
 
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
+        $router->post($v1 . '/sessions/{id}/child-runs', [$childRun, 'spawnChildRun']);
+        $router->get($v1 . '/sessions/{id}/child-runs/{childRunId}', [$childRun, 'getChildRun']);
 
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);

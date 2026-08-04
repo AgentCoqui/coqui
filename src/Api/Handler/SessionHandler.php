@@ -361,7 +361,10 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $runs = $this->storage->getChildRuns($id);
+        $runs = array_map(
+            static fn(array $run): array => self::childRunToWire($run),
+            $this->storage->getChildRuns($id),
+        );
 
         return Router::jsonResponse([
             'session_id' => $id,
