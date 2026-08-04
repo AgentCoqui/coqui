@@ -133,6 +133,32 @@ function personaPatchRequest(string $name, array $body): \React\Http\Message\Ser
     );
 }
 
+/**
+ * Build a GET request that mimics an SSE reconnect: the client echoes the
+ * transport cursor via a `Last-Event-ID` header (an already-encoded string
+ * cursor) and/or a `?since`/`?since_id` query parameter.
+ */
+function sseReconnectRequest(?string $lastEventId = null, ?string $since = null, ?string $sinceId = null): \React\Http\Message\ServerRequest
+{
+    $query = [];
+    if ($since !== null) {
+        $query['since'] = $since;
+    }
+    if ($sinceId !== null) {
+        $query['since_id'] = $sinceId;
+    }
+
+    $path = '/api/v1/sessions/x/messages';
+    if ($query !== []) {
+        $path .= '?' . http_build_query($query);
+    }
+
+    $headers = $lastEventId !== null ? ['Last-Event-ID' => $lastEventId] : [];
+
+    return (new \React\Http\Message\ServerRequest('GET', $path, $headers))
+        ->withQueryParams($query);
+}
+
 it('CORE-9: persona PATCH rejects unknown fields and an empty body', function () {
     [$handler, $workspace, $dbPath] = makePersonaConfigHandler();
     try {
@@ -1516,10 +1542,56 @@ it('CORE-51: turn SSE frames are emitted only in the closed per-channel event se
     expect($v->isValid('sse-turn-event.json', $unknown))->toBeFalse();
 })->group('conformance');
 
+it('CORE-5: a turn stream reconnect replays only events after the Last-Event-ID cursor', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core5-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $storage = new SessionStorage($dbPath);
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $turnProcessId = $storage->createTurnProcess($sessionId, 'stream me');
+        // Seed 3 turn_events — a fresh db AUTOINCREMENTs their ids to 1, 2, 3.
+        $storage->appendTurnEvent($turnProcessId, 'text_delta', ['content' => 'a']);
+        $storage->appendTurnEvent($turnProcessId, 'text_delta', ['content' => 'b']);
+        $storage->appendTurnEvent($turnProcessId, 'text_delta', ['content' => 'c']);
+
+        // A reconnect echoes the transport cursor as a Last-Event-ID header (the
+        // encoded string form of rowid 2); the resolver decodes it to the numeric
+        // rowid used to filter the replay.
+        $after = MessageHandler::resolveReplayCursor(sseReconnectRequest(lastEventId: SseCursor::encode(2)));
+        expect($after)->toBe(2);
+
+        $replayed = $storage->getTurnEvents($turnProcessId, sinceId: $after);
+        expect(array_map(static fn(array $e): int => (int) $e['id'], $replayed))->toBe([3]);
+
+        // Precedence: header wins over ?since, which wins over legacy ?since_id.
+        expect(MessageHandler::resolveReplayCursor(
+            sseReconnectRequest(lastEventId: SseCursor::encode(2), since: SseCursor::encode(1), sinceId: '0'),
+        ))->toBe(2);
+        expect(MessageHandler::resolveReplayCursor(
+            sseReconnectRequest(since: SseCursor::encode(1), sinceId: '0'),
+        ))->toBe(1);
+        expect(MessageHandler::resolveReplayCursor(sseReconnectRequest(sinceId: '3')))->toBe(3);
+        // A fresh connection (no cursor) replays from the beginning.
+        expect(MessageHandler::resolveReplayCursor(sseReconnectRequest()))->toBeNull();
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-41: an SSE error frame carries a code from the closed catalog', function () {
+    $frame = MessageHandler::buildErrorFrame(ApiErrorCode::INTERNAL_ERROR, 'the turn crashed', SseCursor::encode(42));
+    $v = new ConformanceValidator();
+    expect($v->isValid('sse-error.json', $frame))->toBeTrue($v->errorText('sse-error.json', $frame));
+    expect($frame['data']['code'])->toBe('internal_error');
+    expect(ApiErrorCode::tryFrom($frame['data']['code']))->not->toBeNull();
+    // A code outside the closed catalog is rejected by the schema.
+    $bad = $frame;
+    $bad['data']['code'] = 'kaboom';
+    expect($v->isValid('sse-error.json', $bad))->toBeFalse();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
-    'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
@@ -1530,7 +1602,6 @@ $rows = [
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-36: responses/events are wire-tolerant: consumers MUST NOT reject unknown fields/enums',
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
-    'CORE-41: SSE error events carry a code from the closed catalog',
     'CORE-46: discovery InstanceInfo types auth/limits/api/builtin_toolkits; auth scheme is a closed set',
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',

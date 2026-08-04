@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Api\Sse\SseCursor;
+use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -237,8 +238,10 @@ final readonly class TaskHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Task not found');
         }
 
-        $params = $request->getQueryParams();
-        $sinceId = isset($params['since_id']) ? (int) $params['since_id'] : null;
+        // Honor a resumable reconnect: the Last-Event-ID header (an encoded string
+        // cursor) wins, then ?since, then the legacy ?since_id. Shared with the
+        // turn stream so both streams resolve the cursor identically.
+        $sinceId = MessageHandler::resolveReplayCursor($request);
 
         $stream = new ThroughStream();
 
@@ -283,6 +286,16 @@ final readonly class TaskHandler
             } catch (\Throwable) {
                 // Best effort — stream may have been closed by client
                 try {
+                    // Terminal `error` frame with a catalog code, mirroring the turn
+                    // stream (schema/sse-error.json), before closing.
+                    if ($stream->isWritable()) {
+                        $frame = MessageHandler::buildErrorFrame(
+                            ApiErrorCode::INTERNAL_ERROR,
+                            'The task event stream failed',
+                            SseCursor::encode($lastEventId ?? 0),
+                        );
+                        $stream->write(SseStream::format($frame['event'], $frame['data'], $frame['id']));
+                    }
                     $stream->end();
                     if ($timer instanceof \React\EventLoop\TimerInterface) {
                         \React\EventLoop\Loop::cancelTimer($timer);

@@ -119,7 +119,12 @@ final readonly class MessageHandler
             return $this->sendBlocking($id, $prompt, $filePaths);
         }
 
-        return $this->sendStreaming($id, $prompt, $filePaths);
+        // Honor a resumable reconnect: the client may echo the transport cursor
+        // (Last-Event-ID header / ?since / legacy ?since_id) so the stream replays
+        // strictly after it rather than from the beginning.
+        $replayCursor = self::resolveReplayCursor($request);
+
+        return $this->sendStreaming($id, $prompt, $filePaths, $replayCursor);
     }
 
     /**
@@ -202,8 +207,10 @@ final readonly class MessageHandler
      * that polls SQLite for events emitted by the child process.
      *
      * @param string[] $filePaths
+     * @param ?int $replayCursor Resumable reconnect cursor (numeric rowid) — the
+     *        stream replays events strictly after it; null replays from the start.
      */
-    private function sendStreaming(string $sessionId, string $prompt, array $filePaths = []): Response
+    private function sendStreaming(string $sessionId, string $prompt, array $filePaths = [], ?int $replayCursor = null): Response
     {
         $turnProcessId = $this->turnManager->start(
             $sessionId,
@@ -221,7 +228,11 @@ final readonly class MessageHandler
         // event set (schema/sse-turn-event.json — token|message|tool_call|
         // tool_result|question|done|error). A client learns the outcome from the
         // terminal `done` frame's turn record, not from a transport handshake.
-        $lastEventId = null;
+        //
+        // Seed the cursor from a resumable reconnect (Last-Event-ID / ?since):
+        // getTurnEvents filters `id > :since_id`, so a non-null cursor replays
+        // strictly after it.
+        $lastEventId = $replayCursor;
         /** @var ?TimerInterface $timer */
         $timer = null;
 
@@ -262,6 +273,11 @@ final readonly class MessageHandler
                 }
             } catch (\Throwable) {
                 try {
+                    // Terminal `error` frame — the turn stream's closed set includes
+                    // `error` (schema/sse-turn-event.json / sse-error.json), so a
+                    // stream failure classifies with a catalog code rather than a
+                    // silent close.
+                    $this->writeErrorFrame($stream, $lastEventId, 'The agent turn stream failed');
                     if ($stream->isWritable()) {
                         $stream->end();
                     }
@@ -461,6 +477,26 @@ final readonly class MessageHandler
     }
 
     /**
+     * Write the terminal `error` frame to the wire. Shares the {@see SseStream}
+     * encoding used by every other frame; the id is the encoded string cursor of
+     * the last delivered event (or 0 when none were delivered).
+     */
+    private function writeErrorFrame(ThroughStream $stream, ?int $lastEventId, string $message): void
+    {
+        if (!$stream->isWritable()) {
+            return;
+        }
+
+        $frame = self::buildErrorFrame(
+            ApiErrorCode::INTERNAL_ERROR,
+            $message,
+            SseCursor::encode($lastEventId ?? 0),
+        );
+
+        $stream->write(SseStream::format($frame['event'], $frame['data'], $frame['id']));
+    }
+
+    /**
      * Resolve a coqui-internal turn event to a `[capEvent, data]` pair, or null
      * to drop it. See {@see writeSseEvent} for the full mapping table.
      *
@@ -517,6 +553,54 @@ final readonly class MessageHandler
     public static function buildTurnEventFrame(string $event, array $data, string $id): array
     {
         return ['id' => $id, 'event' => $event, 'data' => $data];
+    }
+
+    /**
+     * Resolve the SSE replay cursor for a reconnect. Pure — no storage access —
+     * so it is unit-testable and shared by the turn and task streams.
+     *
+     * Precedence: the `Last-Event-ID` header (an opaque {@see SseCursor} string
+     * the client echoes back) wins, then the `?since` query, then the legacy
+     * `?since_id` query; null when the client presents no cursor (a fresh
+     * connection replays from the beginning). Every source is decoded through
+     * {@see SseCursor::decode}, so the returned cursor is always the numeric
+     * rowid the replay stores filter on with `id > :since_id`.
+     */
+    public static function resolveReplayCursor(ServerRequestInterface $request): ?int
+    {
+        $header = $request->getHeaderLine('Last-Event-ID');
+        if ($header !== '') {
+            return SseCursor::decode($header);
+        }
+
+        $params = $request->getQueryParams();
+
+        if (isset($params['since']) && $params['since'] !== '') {
+            return SseCursor::decode((string) $params['since']);
+        }
+
+        if (isset($params['since_id']) && $params['since_id'] !== '') {
+            return SseCursor::decode((string) $params['since_id']);
+        }
+
+        return null;
+    }
+
+    /**
+     * Build a terminal `error` frame for a streaming failure. Pure — the single
+     * place the `{id, event: 'error', data}` shape is assembled, so it is
+     * unit-testable and shared by the stream path.
+     *
+     * The `data` payload is a full Error record ({@see ApiErrorCode::toPayload}:
+     * `{error, code, details?}`), so a stream failure classifies with the same
+     * closed code catalog an ordinary HTTP error carries (schema/sse-error.json →
+     * schema/error.json). The `$id` is the already-encoded string cursor.
+     *
+     * @return array{id: string, event: string, data: array{error: string, code: string, details?: mixed}}
+     */
+    public static function buildErrorFrame(ApiErrorCode $code, string $message, string $id): array
+    {
+        return ['id' => $id, 'event' => 'error', 'data' => $code->toPayload($message)];
     }
 
     /**
