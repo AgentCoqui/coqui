@@ -10,8 +10,8 @@ use CoquiBot\Coqui\Storage\LoopStore;
  * Emits a strictly-typed loop-live.json snapshot (CAP 0.5.0 CORE-6) from the
  * loop's persisted row, iterations, and stages.
  *
- * The producer reads the same LoopStore data the untyped LoopLiveViewBuilder
- * consumes, but maps internal status vocabularies onto the closed CAP enums and
+ * The producer reads the loop's LoopStore data and maps internal status
+ * vocabularies onto the closed CAP enums, and
  * emits only the schema-declared keys (additionalProperties:false). It is a pure
  * read with no side effects.
  */
