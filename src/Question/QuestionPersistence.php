@@ -20,6 +20,20 @@ final class QuestionPersistence
 {
     public function __construct(private readonly SessionStorage $storage) {}
 
+    /**
+     * Persist an asked question and its audit trail.
+     *
+     * The two `turn_id`s are decoupled on purpose. `questions.turn_id` (no FK) is
+     * the client-facing correlation key used in `/sessions/{id}/turns/{turnId}/…`
+     * URLs — for the API child-turn flow that is a `turn_processes` id, which is
+     * NOT a `turns` row. `audit_log.turn_id` FKs to `turns(id)` under
+     * `PRAGMA foreign_keys=ON`, so it must stay null or a real `turns` id.
+     *
+     * Callers whose `$turnId` is a real `turns` row leave `$questionTurnId` null
+     * and both columns link to it. The suspending API responder passes
+     * `turnId: null` (FK-safe audit) with the `turn_processes` id as
+     * `$questionTurnId` so the turn-scoped answer path can resolve the question.
+     */
     public function persistAsked(
         string $sessionId,
         QuestionRequest $question,
@@ -27,8 +41,9 @@ final class QuestionPersistence
         ?string $turnId = null,
         ?string $loopId = null,
         ?string $stageId = null,
+        ?string $questionTurnId = null,
     ): void {
-        $this->storage->createQuestion($sessionId, $question, $responderKind, $turnId, $loopId, $stageId);
+        $this->storage->createQuestion($sessionId, $question, $responderKind, $questionTurnId ?? $turnId, $loopId, $stageId);
         $this->storage->logAudit(
             sessionId: $sessionId,
             toolName: 'ask_user',

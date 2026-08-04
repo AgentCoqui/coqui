@@ -39,11 +39,19 @@ final class SuspendingQuestionResponder implements QuestionResponderInterface
 
     public function ask(QuestionRequest $question): QuestionResponse
     {
-        // turnId is the audit/questions link to the `turns` table; the API
-        // child-turn flow has a `turn_processes` id instead, so leave it null
-        // (audit_log.turn_id FKs to turns(id)). The turnProcessId is used only
-        // to stream the question event and is not a `turns` row.
-        $this->persistence->persistAsked($this->sessionId, $question, 'suspending', turnId: null);
+        // The audit link stays null: audit_log.turn_id FKs to turns(id) and the
+        // API child-turn flow has a `turn_processes` id, not a `turns` row. That
+        // same turnProcessId is the client-facing correlation key (the {turnId}
+        // in /sessions/{id}/turns/{turnId}/answer), so it is written to the FK-free
+        // questions.turn_id column — without it submitTurnAnswer can never resolve
+        // this question.
+        $this->persistence->persistAsked(
+            $this->sessionId,
+            $question,
+            'suspending',
+            turnId: null,
+            questionTurnId: $this->turnProcessId,
+        );
         $this->storage->appendTurnEvent($this->turnProcessId, 'question', $question->toArray());
 
         $deadline = hrtime(true) + ($this->timeoutSeconds * 1_000_000_000);

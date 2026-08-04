@@ -54,6 +54,7 @@ use CoquiBot\Coqui\Export\JobProducer;
 use CoquiBot\Coqui\Export\LoopDefinitionProducer;
 use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Question\QuestionPersistence;
+use CoquiBot\Coqui\Question\SuspendingQuestionResponder;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
@@ -1176,6 +1177,54 @@ it('CORE-48: turn stream emits question frames carrying question_id; submitTurnA
         expect($invalid->getStatusCode())->toBe(422);
         expect(json_decode((string) $invalid->getBody(), true)['code'])->toBe('validation_error');
         expect($storage->getQuestion($request2->id)['status'])->toBe('pending');
+
+        // (c) The PRODUCTION write path. The cases above hand-seed questions.turn_id
+        // via createQuestion; the runtime instead reaches it through
+        // SuspendingQuestionResponder, which must persist its `turn_processes` id
+        // into questions.turn_id or submitTurnAnswer is a dead 404. Prove it end to
+        // end: a real responder ask() resolved through the turn-scoped endpoint,
+        // keyed purely on the turn id.
+        $turn3 = $storage->createTurnProcess($sessionId, 'suspend me');
+        $request3 = new QuestionRequest(
+            id: '01J00000000000000000QCORE483',
+            prompt: 'Deploy where?',
+            format: QuestionFormat::SingleSelect,
+            options: [new QuestionOption('staging'), new QuestionOption('production')],
+            allowOther: false,
+            suggested: new QuestionResponse(selected: ['staging']),
+        );
+
+        $answered = false;
+        $responder = new SuspendingQuestionResponder(
+            new QuestionPersistence($storage),
+            $storage,
+            $sessionId,
+            $turn3,
+            sleeper: function () use (&$answered, $handler, $sessionId, $turn3): void {
+                if ($answered) {
+                    return;
+                }
+                $answered = true;
+                // Answer the way a client does: keyed only on the turn id, which
+                // resolves ONLY if the responder wrote questions.turn_id. A 404
+                // here (the bug) would leave ask() polling until it times out.
+                $resolve = $handler->submitTurnAnswer(
+                    core48AnswerRequest(['selected' => ['production'], 'text' => null]),
+                    $sessionId,
+                    $turn3,
+                );
+                expect($resolve->getStatusCode())->toBe(200);
+            },
+        );
+
+        $result = $responder->ask($request3);
+        expect($result->selected)->toBe(['production']);
+
+        // The real path persisted the turn_processes id into questions.turn_id —
+        // the exact column the false-green hand-seeded and the runtime left null.
+        $row = $storage->getQuestion($request3->id);
+        expect($row['turn_id'])->toBe($turn3);
+        expect($row['status'])->toBe('answered');
     } finally {
         cleanupSqliteTestDb($dbPath);
     }
