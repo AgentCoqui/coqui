@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
+use CoquiBot\Coqui\Api\Budget\BudgetBreakdownProducer;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Middleware\IdempotencyMiddleware;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
@@ -29,8 +30,10 @@ use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Content\ContentStore;
+use CoquiBot\Coqui\Contract\ContextUsageSnapshot;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
+use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
 use CoquiBot\Coqui\Contract\StageFinding;
 use CoquiBot\Coqui\Contract\StageSeverity;
 use CoquiBot\Coqui\Contract\Verdict;
@@ -1810,9 +1813,95 @@ it('CORE-2: session enums are closed — out-of-set status/kind never produced a
         ->toBeTrue();
 })->group('conformance');
 
+/**
+ * A realistic composition-ordered budget snapshot (Budgeting.md §1): pinned
+ * critical/workflow sections compose first, the deferrable volatile section
+ * (memory) composes last and is shed under budget pressure. The producer
+ * preserves composition order (schema/budget-breakdown.json: "in composition
+ * order"), so this order is exactly what a real over-budget prompt yields — and
+ * because composition order runs pinned-first, the priority field comes out
+ * non-decreasing, making the shed order inspectable.
+ */
+function budgetSnapshotWithShed(): PromptBudgetSnapshot
+{
+    $section = static fn (string $id, string $priority, bool $included, int $tokens, string $decision): array => [
+        'id' => $id,
+        'title' => ucfirst($id),
+        'group' => 'system',
+        'priority' => $priority,
+        'pinned' => $priority !== 'volatile',
+        'deferrable' => $priority === 'volatile',
+        'included' => $included,
+        'decision' => $decision,
+        'rationale' => '',
+        'source' => null,
+        'tokens' => $tokens,
+    ];
+
+    return new PromptBudgetSnapshot(
+        role: 'orchestrator',
+        model: 'ollama/qwen3:latest',
+        toolCount: 0,
+        toolkitCount: 0,
+        promptTokens: 150,
+        toolTokens: 0,
+        totalTokens: 150,
+        toolkitBreakdown: [],
+        promptSections: [
+            $section('security', 'critical', true, 100, 'included'),
+            $section('workflow', 'workflow', true, 50, 'included'),
+            // Shed under budget pressure: excluded, carries a reason.
+            $section('memory', 'volatile', false, 40, 'memory_cap'),
+        ],
+        appliedLoadingModes: [],
+        loadingDecisions: [],
+        deferredToolkits: [],
+        toolkitBudget: [
+            'effective_role' => 'orchestrator',
+            'budget_tokens' => 0,
+            'budget_source' => 'default',
+            'promotion_budget_percent' => 0,
+            'promotion_budget_source' => 'default',
+            'promotion_budget_tokens' => 0,
+            'auto_candidate_count' => 0,
+            'auto_candidate_tokens' => 0,
+            'used_promotion_budget_tokens' => 0,
+            'within_budget' => false,
+            'deferred_count' => 0,
+        ],
+        contextWindow: new ContextUsageSnapshot(
+            maxTokens: 8192,
+            reservedTokens: 0,
+            usedTokens: 150,
+            usagePercent: 1.83,
+            breakdown: [],
+        ),
+    );
+}
+
+it('CORE-12: budget breakdown exposes priority tiers and shed order inspectably', function () {
+    $v = new ConformanceValidator();
+    $wire = (new BudgetBreakdownProducer())->toWire(budgetSnapshotWithShed());
+    expect($v->isValid('budget-breakdown.json', $wire))->toBeTrue($v->errorText('budget-breakdown.json', $wire));
+
+    // pinned/security ranks first (lowest priority int).
+    $priorities = array_column($wire['sections'], 'priority');
+    expect(min($priorities))->toBe(0);
+
+    // a shed section is inspectable: excluded, carries a reason.
+    $shed = array_values(array_filter($wire['sections'], static fn (array $s): bool => $s['included'] === false));
+    expect($shed)->not->toBeEmpty();
+    expect($shed[0]['shed_reason'])->toBeString();
+
+    // composition order runs pinned-first, so priorities are non-decreasing —
+    // the actual shed order is legible from the wire.
+    $sorted = $priorities;
+    sort($sorted);
+    expect($priorities)->toBe($sorted);
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
-    'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
 
