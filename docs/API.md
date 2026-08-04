@@ -2348,6 +2348,8 @@ Spawn a child run. This is a **gated Core operation**: only a top-level, full-ac
 
 The child runs **synchronously** (sync-execute-then-report): the row is recorded `running`, the child is executed via the in-process child-agent path, and the terminal `completed`/`failed` transition (with `completed_at` and the token triad) is recorded before the response is written. The response is therefore `202` with an already-terminal `child-run.json` resource. A child that fails during execution still returns `202` with `status: "failed"` — the failure is captured in the resource, not surfaced as an HTTP error.
 
+> **Note:** the HTTP-spawned child is **text-only** — it runs with its provider, role, and prompt but **no toolkits** (no filesystem, shell, edit, or memory tools). Its `result` is the model's response to the prompt, not the outcome of tool-driven work. This differs from the in-agent `spawn_agent` tool, whose child is granted an access-level toolkit graph. Toolkit-equipped HTTP child runs are out of scope for this endpoint's current revision.
+
 **Request Body**
 
 | Field | Type | Required | Description |
