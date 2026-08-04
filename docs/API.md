@@ -162,7 +162,7 @@ http://192.168.1.100:3300
 ## Content Type
 
 Most request bodies must be JSON with `Content-Type: application/json`.
-File upload endpoints accept `Content-Type: multipart/form-data`.
+The content upload endpoint accepts `Content-Type: multipart/form-data` or a raw binary body typed by its own `Content-Type`.
 All responses return `Content-Type: application/json` unless noted otherwise (SSE streams use `text/event-stream`, file downloads use the file's MIME type).
 
 ## Error Format
@@ -256,8 +256,8 @@ Client recommendation:
 Use session file uploads when your client needs to attach images or documents to a prompt.
 
 1. Upload via `POST /api/v1/sessions/{id}/files`.
-2. Capture the returned file IDs.
-3. Pass those IDs in the `files` array when sending a message.
+2. Capture the returned `content_ref` from the `content.json` response.
+3. Reference that blob when sending a message (typed `attachments[]` of `{content_ref, mime_type}`).
 
 ## Endpoints
 
@@ -1217,66 +1217,44 @@ Files are session-scoped uploads that can be attached to messages for multimodal
 
 **Limits:**
 
-- Maximum file size: **50 MiB** per file
-- Maximum files per request: **20**
+- Maximum blob size: **50 MiB** per upload (one blob per request)
 
 #### `POST /api/v1/sessions/{id}/files`
 
-Upload one or more files to a session. Uses `multipart/form-data` encoding.
+Upload a single content blob to a session. Accepts either `multipart/form-data` (the first uploaded file is stored) or a raw binary request body (the bytes are the body, the MIME type is the request `Content-Type`).
+
+The blob is stored content-addressed: the response is a CAP `content.json` object keyed by the SHA-256 of the bytes. Re-uploading identical bytes returns the existing object (the same `content_ref`).
 
 Closed or archived sessions are read-only. `POST` and `DELETE` file endpoints return `409 session_closed` when clients try to mutate historical sessions.
 
 **Request**
 
-Send files as form fields named `files[]`. Multiple files can be uploaded in a single request.
+Multipart:
 
 ```bash
 curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "files[]=@screenshot.png" \
-  -F "files[]=@notes.txt"
+  -F "files[]=@screenshot.png"
+```
+
+Raw binary:
+
+```bash
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: text/markdown" \
+  --data-binary @notes.md
 ```
 
 **Response `201`**
 
 ```json
 {
-  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "files": [
-    {
-      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "screenshot.png",
-      "mime_type": "image/png",
-      "size": 245760,
-      "is_image": true,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    },
-    {
-      "id": "f2a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "notes.txt",
-      "mime_type": "text/plain",
-      "size": 1024,
-      "is_image": false,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    }
-  ],
-  "count": 2
-}
-```
-
-If some files succeed and others fail, the response includes both:
-
-```json
-{
-  "session_id": "...",
-  "files": [{ "id": "...", "..." : "..." }],
-  "count": 1,
-  "errors": [
-    {
-      "file": "malware.exe",
-      "error": "File type \"application/x-msdownload\" is not allowed"
-    }
-  ]
+  "content_ref": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+  "mime_type": "image/png",
+  "size": 245760,
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "created_at": "2026-02-16T14:30:05Z"
 }
 ```
 
@@ -1284,9 +1262,10 @@ If some files succeed and others fail, the response includes both:
 
 | Status | Code | Condition |
 |--------|------|-----------|
-| `400` | `missing_field` | No files in the request |
+| `400` | `missing_field` | No multipart file and an empty request body |
+| `400` | `validation_error` | Disallowed MIME type, or a failed multipart part |
 | `404` | `session_not_found` | Session does not exist |
-| `413` | `payload_too_large` | More than 20 files in a single request |
+| `413` | `payload_too_large` | Blob exceeds the 50 MiB maximum |
 
 #### `GET /api/v1/sessions/{id}/files`
 
@@ -1311,23 +1290,32 @@ List all uploaded files for a session.
 }
 ```
 
-#### `GET /api/v1/sessions/{id}/files/{fileId}`
+#### `GET /api/v1/sessions/{id}/files/{ref}`
 
-Download a specific file. Returns the raw file content with appropriate headers.
+Download a content blob by its `content_ref`. Returns the stored bytes with appropriate headers.
 
 **Response `200`**
 
-Returns the file binary with:
-- `Content-Type`: the file's MIME type
-- `Content-Length`: file size in bytes
-- `Content-Disposition`: `inline; filename="original_name.ext"`
+Returns the full blob with:
+- `Content-Type`: the blob's MIME type
+- `Content-Length`: byte length
+- `Accept-Ranges`: `bytes`
+
+**Response `206` (partial)**
+
+When the request carries a single `Range: bytes=a-b` header (`b` optional, defaults to the last byte), the response is the requested slice with:
+- `Content-Range`: `bytes a-b/total`
+- `Content-Length`: slice length
+- `Accept-Ranges`: `bytes`
+
+A malformed, multi-range, or unsatisfiable `Range` is ignored and the full blob is returned with `200`.
 
 **Error Responses**
 
 | Status | Code | Condition |
 |--------|------|-----------|
 | `404` | `session_not_found` | Session does not exist |
-| `404` | `not_found` | File not found |
+| `404` | `content_not_found` | No blob for that `content_ref` |
 
 #### `DELETE /api/v1/sessions/{id}/files/{fileId}`
 

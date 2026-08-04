@@ -25,31 +25,92 @@ final class ContentStore
     ) {}
 
     /**
-     * Store a blob's metadata, addressed by the SHA-256 of its bytes.
+     * Store a blob and its bytes, addressed by the SHA-256 of the bytes.
      *
-     * The bytes themselves are not persisted here — this indexes the blob so
-     * attachments/artifacts can reference it by `content_ref`. Returns the wire
+     * Content-addressed and idempotent: an identical blob (same sha256) is stored
+     * once — a second `store()` returns the existing row's wire object (and its
+     * original `content_ref`) rather than inserting a duplicate. Returns the wire
      * object exactly as it validates against `content.json`.
      *
      * @return array{content_ref: string, mime_type: string, size: int, sha256: string, created_at: string}
      */
     public function store(string $bytes, string $mimeType): array
     {
+        $sha256 = hash('sha256', $bytes);
+
+        $existing = $this->findBySha256($sha256);
+        if ($existing !== null) {
+            return self::toWire($existing);
+        }
+
         $row = [
             'content_ref' => IdGenerator::hex(),
             'mime_type' => $mimeType,
             'size' => strlen($bytes),
-            'sha256' => hash('sha256', $bytes),
+            'sha256' => $sha256,
             'created_at' => Clock::nowUtc(),
         ];
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO content (content_ref, mime_type, size, sha256, created_at)
-            VALUES (:content_ref, :mime_type, :size, :sha256, :created_at)
+            INSERT INTO content (content_ref, mime_type, size, sha256, created_at, bytes)
+            VALUES (:content_ref, :mime_type, :size, :sha256, :created_at, :bytes)
         SQL);
-        $stmt->execute($row);
+        $stmt->bindValue(':content_ref', $row['content_ref'], PDO::PARAM_STR);
+        $stmt->bindValue(':mime_type', $row['mime_type'], PDO::PARAM_STR);
+        $stmt->bindValue(':size', $row['size'], PDO::PARAM_INT);
+        $stmt->bindValue(':sha256', $row['sha256'], PDO::PARAM_STR);
+        $stmt->bindValue(':created_at', $row['created_at'], PDO::PARAM_STR);
+        $stmt->bindValue(':bytes', $bytes, PDO::PARAM_LOB);
+        $stmt->execute();
 
         return self::toWire($row);
+    }
+
+    /**
+     * Fetch a stored blob's metadata by `content_ref`, or null when absent.
+     *
+     * @return array{content_ref: string, mime_type: string, size: int, sha256: string, created_at: string}|null
+     */
+    public function get(string $contentRef): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT content_ref, mime_type, size, sha256, created_at FROM content WHERE content_ref = :ref',
+        );
+        $stmt->execute([':ref' => $contentRef]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? self::toWire($row) : null;
+    }
+
+    /**
+     * Fetch a stored blob's raw bytes by `content_ref`, or null when absent.
+     */
+    public function readBytes(string $contentRef): ?string
+    {
+        $stmt = $this->db->prepare('SELECT bytes FROM content WHERE content_ref = :ref');
+        $stmt->execute([':ref' => $contentRef]);
+        $bytes = $stmt->fetchColumn();
+
+        return is_string($bytes) ? $bytes : null;
+    }
+
+    /**
+     * Fetch the raw persisted row for a blob addressed by its `sha256`, or null.
+     *
+     * Backs store()'s dedup. Returns the raw column map (not the wire projection)
+     * so store() can re-emit it verbatim via {@see toWire()}.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findBySha256(string $sha256): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT content_ref, mime_type, size, sha256, created_at FROM content WHERE sha256 = :sha256',
+        );
+        $stmt->execute([':sha256' => $sha256]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
     }
 
     /**

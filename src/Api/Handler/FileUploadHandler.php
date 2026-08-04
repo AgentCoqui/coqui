@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -14,111 +15,112 @@ use Psr\Http\Message\UploadedFileInterface;
 use React\Http\Message\Response;
 
 /**
- * File upload endpoints for session-scoped file management.
+ * Content endpoints for session-scoped blobs (CAP 0.5.0 putContent/getContent).
  *
- * POST   /api/v1/sessions/{id}/files            — upload files (multipart/form-data)
- * GET    /api/v1/sessions/{id}/files            — list uploaded files
- * GET    /api/v1/sessions/{id}/files/{fileId}   — download a file
- * DELETE /api/v1/sessions/{id}/files/{fileId}   — delete a file
+ * POST   /api/v1/sessions/{id}/files            — upload one blob (multipart OR raw binary)
+ * GET    /api/v1/sessions/{id}/files            — list session uploads
+ * GET    /api/v1/sessions/{id}/files/{ref}      — download a blob by content_ref (Range-aware)
+ * DELETE /api/v1/sessions/{id}/files/{fileId}   — delete a session upload
+ *
+ * Upload and download flow through the content-addressed {@see ContentStore}: an
+ * upload returns a typed `content.json` object and a download serves the stored
+ * bytes by `content_ref`, honoring a `Range` header with a 206 partial response.
+ * `list`/`delete` remain on the per-session {@see FileUploadStorage} surface.
  */
 final readonly class FileUploadHandler
 {
+    private ContentStore $contentStore;
+
     public function __construct(
         private SessionStorage $sessionStorage,
         private FileUploadStorage $uploadStorage,
-    ) {}
+    ) {
+        $this->contentStore = new ContentStore($sessionStorage->getPdo());
+    }
 
     /**
      * POST /api/v1/sessions/{id}/files
      *
-     * Accepts multipart/form-data with one or more files in the "files[]" field.
+     * Uploads a single blob and returns a typed `content.json` object addressed
+     * by the SHA-256 of its bytes. Accepts either multipart/form-data (the first
+     * uploaded file) or a raw binary request body (bytes are the body, MIME is the
+     * request Content-Type). Content-addressed: re-uploading identical bytes
+     * returns the existing object.
      */
-    public function upload(ServerRequestInterface $request, string $id): Response
+    public function upload(ServerRequestInterface $request, string $id = ''): Response
     {
+        $id = $id !== '' ? $id : $this->sessionIdFromPath($request);
+
         $session = SessionAccess::requireWritableSession($this->sessionStorage, $id);
         if ($session instanceof Response) {
             return $session;
         }
 
-        $uploadedFiles = $this->flattenUploadedFiles($request->getUploadedFiles());
-
-        if ($uploadedFiles === []) {
-            return Router::errorResponse(
-                ApiErrorCode::MISSING_FIELD,
-                'No files uploaded. Send files as multipart/form-data with field name "files[]"',
-            );
+        $blob = $this->readBlob($request);
+        if ($blob instanceof Response) {
+            return $blob;
         }
 
-        if (count($uploadedFiles) > FileUploadStorage::MAX_FILES_PER_REQUEST) {
+        [$bytes, $mimeType] = $blob;
+
+        // Preserve the existing size + MIME guards on the content-addressed path.
+        if (strlen($bytes) > FileUploadStorage::MAX_FILE_SIZE) {
             return Router::errorResponse(
                 ApiErrorCode::PAYLOAD_TOO_LARGE,
-                sprintf('Maximum %d files per request', FileUploadStorage::MAX_FILES_PER_REQUEST),
+                sprintf('Content exceeds maximum size of %d bytes', FileUploadStorage::MAX_FILE_SIZE),
             );
         }
 
-        $results = [];
-        $errors = [];
+        if (!$this->uploadStorage->isAllowedMimeType($mimeType)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Content type "%s" is not allowed', $mimeType),
+            );
+        }
 
-        foreach ($uploadedFiles as $uploaded) {
-            // Check for upload errors
+        $content = $this->contentStore->store($bytes, $mimeType);
+
+        return Router::jsonResponse($content, 201);
+    }
+
+    /**
+     * Resolve the request into raw bytes + MIME type for a single-blob upload.
+     *
+     * Prefers a multipart upload (first file's stream + client media type); falls
+     * back to the raw request body with the request Content-Type. Returns an error
+     * Response when nothing usable is present or a multipart part carries an error.
+     *
+     * @return array{0: string, 1: string}|Response
+     */
+    private function readBlob(ServerRequestInterface $request): array|Response
+    {
+        $uploadedFiles = $this->flattenUploadedFiles($request->getUploadedFiles());
+
+        if ($uploadedFiles !== []) {
+            $uploaded = $uploadedFiles[0];
+
             if ($uploaded->getError() !== UPLOAD_ERR_OK) {
-                $errors[] = [
-                    'file' => $uploaded->getClientFilename() ?? 'unknown',
-                    'error' => $this->uploadErrorMessage($uploaded->getError()),
-                ];
-
-                continue;
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    $this->uploadErrorMessage($uploaded->getError()),
+                );
             }
 
-            // Validate file size
-            $size = $uploaded->getSize();
-            if ($size !== null && $size > FileUploadStorage::MAX_FILE_SIZE) {
-                $errors[] = [
-                    'file' => $uploaded->getClientFilename() ?? 'unknown',
-                    'error' => sprintf('File exceeds maximum size of %d bytes', FileUploadStorage::MAX_FILE_SIZE),
-                ];
-
-                continue;
-            }
-
-            // Validate MIME type
-            $mimeType = $uploaded->getClientMediaType() ?? 'application/octet-stream';
-            if (!$this->uploadStorage->isAllowedMimeType($mimeType)) {
-                $errors[] = [
-                    'file' => $uploaded->getClientFilename() ?? 'unknown',
-                    'error' => sprintf('File type "%s" is not allowed', $mimeType),
-                ];
-
-                continue;
-            }
-
-            try {
-                $contents = (string) $uploaded->getStream();
-                $originalName = $uploaded->getClientFilename() ?? 'upload';
-
-                $metadata = $this->uploadStorage->store($id, $contents, $originalName, $mimeType);
-                $results[] = $metadata;
-            } catch (\Throwable $e) {
-                $errors[] = [
-                    'file' => $uploaded->getClientFilename() ?? 'unknown',
-                    'error' => $e->getMessage(),
-                ];
-            }
+            return [
+                (string) $uploaded->getStream(),
+                $uploaded->getClientMediaType() ?? 'application/octet-stream',
+            ];
         }
 
-        $response = [
-            'session_id' => $id,
-            'files' => $results,
-            'count' => count($results),
-        ];
-
-        if ($errors !== []) {
-            $response['errors'] = $errors;
+        $bytes = (string) $request->getBody();
+        if ($bytes === '') {
+            return Router::errorResponse(
+                ApiErrorCode::MISSING_FIELD,
+                'No content uploaded. Send a multipart file or a raw binary body.',
+            );
         }
 
-        $status = $results !== [] ? 201 : 400;
-
-        return Router::jsonResponse($response, $status);
+        return [$bytes, $this->normalizeMime($request->getHeaderLine('Content-Type'))];
     }
 
     /**
@@ -141,46 +143,80 @@ final readonly class FileUploadHandler
     }
 
     /**
-     * GET /api/v1/sessions/{id}/files/{fileId}
+     * GET /api/v1/sessions/{id}/files/{ref}
      *
-     * Returns the raw file content with appropriate Content-Type header.
+     * Serves a content-addressed blob by `content_ref`. Honors a single
+     * `Range: bytes=a-b` header with a 206 partial response (Content-Range +
+     * Accept-Ranges); otherwise returns the full blob with a 200. A missing ref
+     * is a `content_not_found` (404).
      */
-    public function get(ServerRequestInterface $request, string $id, string $fileId): Response
+    public function get(ServerRequestInterface $request, string $id = '', string $fileId = ''): Response
     {
+        $id = $id !== '' ? $id : $this->sessionIdFromPath($request);
+        $fileId = $fileId !== '' ? $fileId : $this->contentRefFromPath($request);
+
         $session = SessionAccess::requireReadableSession($this->sessionStorage, $id);
         if ($session instanceof Response) {
             return $session;
         }
 
-        $metadata = $this->uploadStorage->get($id, $fileId);
+        $content = $this->contentStore->get($fileId);
+        $bytes = $content !== null ? $this->contentStore->readBytes($fileId) : null;
 
-        if ($metadata === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'File not found');
+        if ($content === null || $bytes === null) {
+            return Router::errorResponse(ApiErrorCode::CONTENT_NOT_FOUND, 'Content not found');
         }
 
-        $filePath = $this->uploadStorage->getFilePath($id, $fileId);
+        $total = strlen($bytes);
+        $headers = [
+            'Content-Type' => $content['mime_type'],
+            'Accept-Ranges' => 'bytes',
+        ];
 
-        if ($filePath === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'File not found on disk');
+        $range = $this->parseRange($request->getHeaderLine('Range'), $total);
+
+        if ($range === null) {
+            $headers['Content-Length'] = (string) $total;
+
+            return new Response(200, $headers, $bytes);
         }
 
-        $contents = file_get_contents($filePath);
-        if ($contents === false) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to read file');
+        [$start, $end] = $range;
+        $slice = substr($bytes, $start, $end - $start + 1);
+
+        $headers['Content-Range'] = sprintf('bytes %d-%d/%d', $start, $end, $total);
+        $headers['Content-Length'] = (string) strlen($slice);
+
+        return new Response(206, $headers, $slice);
+    }
+
+    /**
+     * Parse a single `bytes=a-b` Range header against a known total length.
+     *
+     * `b` is optional (defaults to the last byte). Returns the inclusive
+     * [start, end] byte offsets, or null when the header is absent, malformed,
+     * multi-range, or unsatisfiable (so the caller serves the full blob).
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private function parseRange(string $header, int $total): ?array
+    {
+        if ($header === '' || $total === 0) {
+            return null;
         }
 
-        return new Response(
-            200,
-            [
-                'Content-Type' => $metadata->mimeType,
-                'Content-Length' => (string) $metadata->size,
-                'Content-Disposition' => sprintf(
-                    'inline; filename="%s"',
-                    addslashes($metadata->originalName),
-                ),
-            ],
-            $contents,
-        );
+        if (preg_match('/^bytes=(\d+)-(\d*)$/', trim($header), $m) !== 1) {
+            return null;
+        }
+
+        $start = (int) $m[1];
+        $end = $m[2] === '' ? $total - 1 : (int) $m[2];
+
+        if ($start > $end || $start >= $total) {
+            return null;
+        }
+
+        return [$start, min($end, $total - 1)];
     }
 
     /**
@@ -200,6 +236,36 @@ final readonly class FileUploadHandler
         }
 
         return Router::jsonResponse(['deleted' => true]);
+    }
+
+    /**
+     * Extract the session id from a `/sessions/{id}/files...` request path.
+     */
+    private function sessionIdFromPath(ServerRequestInterface $request): string
+    {
+        return preg_match('#/sessions/([^/]+)/files#', $request->getUri()->getPath(), $m) === 1
+            ? $m[1]
+            : '';
+    }
+
+    /**
+     * Extract the content ref from a `/sessions/{id}/files/{ref}` request path.
+     */
+    private function contentRefFromPath(ServerRequestInterface $request): string
+    {
+        return preg_match('#/sessions/[^/]+/files/([^/]+)#', $request->getUri()->getPath(), $m) === 1
+            ? $m[1]
+            : '';
+    }
+
+    /**
+     * Reduce a Content-Type header to its bare media type (drop any parameters).
+     */
+    private function normalizeMime(string $contentType): string
+    {
+        $mime = trim(explode(';', $contentType)[0]);
+
+        return $mime !== '' ? strtolower($mime) : 'application/octet-stream';
     }
 
     /**

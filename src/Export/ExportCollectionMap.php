@@ -66,6 +66,14 @@ final class ExportCollectionMap
     }
 
     /**
+     * Whether the export envelope types a collection of this name.
+     */
+    public function has(string $collection): bool
+    {
+        return in_array($collection, self::names(), true);
+    }
+
+    /**
      * The internal, diagnostics-only collections (typed for export validation but
      * not part of the public Core object surface).
      *

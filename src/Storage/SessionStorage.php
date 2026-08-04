@@ -194,19 +194,23 @@ final class SessionStorage
             )
         SQL);
 
-        // CAP 0.5.0 content-addressed blob index (content.json). The row is the
+        // CAP 0.5.0 content-addressed blob store (content.json). The row is the
         // immutable metadata for a byte blob referenced by attachments/artifacts;
         // content_ref is the opaque id, sha256 the lowercase-hex integrity digest.
-        // The spec never interprets the bytes, so no FK and no payload column here.
+        // The spec never interprets the bytes; the `bytes` BLOB carries the payload
+        // so getContent can serve it (with Range) directly from the store. sha256 is
+        // uniquely indexed so store() can dedup identical blobs to one row.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS content (
                 content_ref TEXT PRIMARY KEY,
                 mime_type   TEXT NOT NULL,
                 size        INTEGER NOT NULL,
                 sha256      TEXT NOT NULL,
-                created_at  TEXT NOT NULL
+                created_at  TEXT NOT NULL,
+                bytes       BLOB NOT NULL
             )
         SQL);
+        $this->db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_content_sha256 ON content (sha256)');
 
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS audit_log (

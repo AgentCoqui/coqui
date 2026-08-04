@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
+use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
@@ -36,6 +37,7 @@ use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Contract\TerminationCondition;
 use CoquiBot\Coqui\Contract\TerminationType;
 use CoquiBot\Coqui\Export\AuditRecordProducer;
+use CoquiBot\Coqui\Export\ContentProducer;
 use CoquiBot\Coqui\Export\ExportCollectionMap;
 use CoquiBot\Coqui\Export\JobEventProducer;
 use CoquiBot\Coqui\Export\JobProducer;
@@ -44,6 +46,7 @@ use CoquiBot\Coqui\Persona\PersonaSnapshotStore;
 use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -1366,6 +1369,87 @@ it('CORE-11: instances expose a typed model catalog (id, context_window, tokeniz
     expect($llamaWire['tokenizer_hint'])->toBe('unknown');
 })->group('conformance');
 
+/**
+ * Build a real FileUploadHandler over a temp SQLite db + temp workspace.
+ *
+ * @return array{0: FileUploadHandler, 1: SessionStorage, 2: string, 3: string}
+ */
+function makeFileUploadHandler(): array
+{
+    $dbPath = sys_get_temp_dir() . '/coqui-core44-' . bin2hex(random_bytes(8)) . '.db';
+    $ws = sys_get_temp_dir() . '/coqui-core44-ws-' . bin2hex(random_bytes(8));
+    mkdir($ws, 0755, true);
+
+    $storage = new SessionStorage($dbPath);
+    $handler = new FileUploadHandler($storage, new FileUploadStorage($ws));
+
+    return [$handler, $storage, $dbPath, $ws];
+}
+
+/** A raw-binary (non-multipart) content upload request. */
+function binaryUploadRequest(string $sid, string $bytes, string $mime): \React\Http\Message\ServerRequest
+{
+    return new \React\Http\Message\ServerRequest(
+        'POST',
+        '/api/v1/sessions/' . $sid . '/files',
+        ['Content-Type' => $mime],
+        $bytes,
+    );
+}
+
+/** A content download request, optionally carrying a Range header. */
+function rangeGetRequest(string $sid, string $ref, ?string $range): \React\Http\Message\ServerRequest
+{
+    return new \React\Http\Message\ServerRequest(
+        'GET',
+        '/api/v1/sessions/' . $sid . '/files/' . $ref,
+        $range !== null ? ['Range' => $range] : [],
+    );
+}
+
+it('CORE-44: content upload returns a typed content object; download honors Range and 404s a missing ref', function () {
+    [$handler, $storage, $dbPath, $ws] = makeFileUploadHandler();
+    try {
+        $sid = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', null);
+        $up = $handler->upload(binaryUploadRequest($sid, 'hello world', 'text/plain'));
+        $obj = json_decode((string) $up->getBody(), true);
+        $v = new ConformanceValidator();
+        expect($v->isValid('content.json', $obj))->toBeTrue($v->errorText('content.json', $obj));
+        // Range download → 206 with the requested slice.
+        $part = $handler->get(rangeGetRequest($sid, $obj['content_ref'], 'bytes=0-4'));
+        expect($part->getStatusCode())->toBe(206);
+        expect((string) $part->getBody())->toBe('hello');
+        expect($part->getHeaderLine('Content-Range'))->toStartWith('bytes 0-4/');
+        expect($part->getHeaderLine('Accept-Ranges'))->toBe('bytes');
+        // Missing ref → content_not_found.
+        $missing = $handler->get(rangeGetRequest($sid, 'nope', null));
+        expect($missing->getStatusCode())->toBe(404);
+        expect(json_decode((string) $missing->getBody(), true)['code'])->toBe('content_not_found');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($ws);
+    }
+})->group('conformance');
+
+it('CORE-45: the export envelope types a content collection', function () {
+    $map = new ExportCollectionMap();
+    expect($map->has('content'))->toBeTrue();
+    // A produced content row validates against content.json (element type of the export content[]).
+    $dbPath = sys_get_temp_dir() . '/coqui-core45-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $storage = new SessionStorage($dbPath);
+        $store = new ContentStore($storage->getPdo());
+        $wire = $store->store('bytes here', 'application/octet-stream');
+        $v = new ConformanceValidator();
+        expect($v->isValid('content.json', $wire))->toBeTrue($v->errorText('content.json', $wire));
+        // The typed producer projects the same row identically.
+        $produced = ContentProducer::toWire($wire);
+        expect($v->isValid('content.json', $produced))->toBeTrue($v->errorText('content.json', $produced));
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -1382,8 +1466,6 @@ $rows = [
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
     'CORE-41: SSE error events carry a code from the closed catalog',
     'CORE-43: messages carry typed attachments[] of {content_ref, mime_type}',
-    'CORE-44: content ops (putContent/getContent) are bound (multipart/binary upload + Range download)',
-    'CORE-45: export types a content collection; import round-trips it (preserve+remap)',
     'CORE-46: discovery InstanceInfo types auth/limits/api/builtin_toolkits; auth scheme is a closed set',
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
