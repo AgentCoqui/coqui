@@ -901,10 +901,11 @@ test('GET /loops/{id}/live returns a snapshot for a known loop', function (): vo
         expect($response->getStatusCode())->toBe(200);
 
         $body = json_decode((string) $response->getBody(), true);
-        expect($body['loop']['id'])->toBe($loopId);
-        expect($body['loop']['goal'])->toBe('do the thing');
-        expect($body['budget']['iterations'])->toBe(['used' => 0, 'max' => 3]);
-        expect($body)->toHaveKeys(['loop', 'position', 'current_stage', 'budget', 'stages', 'recent_events']);
+        // The live endpoint now returns the strictly-typed loop-live.json shape.
+        expect($body['loop_id'])->toBe($loopId);
+        expect($body['status'])->toBe('running');
+        expect($body['budget']['max_iterations'])->toBe(3);
+        expect($body)->toHaveKeys(['loop_id', 'status', 'current_iteration', 'current_stage', 'budget', 'stages']);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }

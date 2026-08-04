@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
-use CoquiBot\Coqui\Api\LoopLiveViewBuilder;
+use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopStreamTracker;
 use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
@@ -571,19 +571,16 @@ final readonly class LoopHandler
 
     /**
      * GET /api/v1/loops/{id}/live
+     *
+     * Returns the strictly-typed loop-live.json snapshot (CAP 0.5.0 CORE-6).
      */
     public function live(ServerRequestInterface $request, string $id): Response
     {
-        if ($this->storage === null) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop live view is not available');
-        }
-
-        $snapshot = (new LoopLiveViewBuilder($this->store, $this->storage))->build($id);
-        if ($snapshot === null) {
+        if ($this->store->getLoop($id) === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
         }
 
-        return Router::jsonResponse($snapshot->toArray());
+        return Router::jsonResponse((new LoopLiveProducer($this->store))->toWire($id));
     }
 
     /**

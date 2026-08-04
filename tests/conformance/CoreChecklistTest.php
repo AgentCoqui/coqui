@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Tests\Conformance;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
@@ -23,6 +24,9 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
+use CoquiBot\Coqui\Contract\StageFinding;
+use CoquiBot\Coqui\Contract\StageSeverity;
+use CoquiBot\Coqui\Contract\Verdict;
 use CoquiBot\Coqui\Contract\QuestionFormat;
 use CoquiBot\Coqui\Contract\QuestionOption;
 use CoquiBot\Coqui\Contract\QuestionRequest;
@@ -1166,12 +1170,69 @@ it('CORE-10: a stale If-Match session write is rejected 409 version_conflict', f
     }
 })->group('conformance');
 
+it('CORE-6: the loop live snapshot is fully typed', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core6-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $storage = new SessionStorage($dbPath);
+        $loopStore = new LoopStore($storage->getPdo());
+
+        $loopId = $loopStore->createLoop(
+            definitionName: 'review-cycle',
+            goal: 'Ship the typed live snapshot.',
+            configuration: ['roles' => ['researcher', 'implementer']],
+            maxIterations: 10,
+        );
+        $iterationId = $loopStore->createIteration($loopId, 1);
+        $stage0 = $loopStore->createStage($iterationId, 0, 'researcher');
+        $stage1 = $loopStore->createStage($iterationId, 1, 'implementer');
+        $loopStore->updateStage($stage0, 'completed', resultSummary: 'Gathered prior art.');
+        $loopStore->updateStage($stage1, 'running');
+        $loopStore->updateLoopProgress($loopId, 1, 1);
+
+        $wire = (new LoopLiveProducer($loopStore))->toWire($loopId);
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('loop-live.json', $wire))->toBeTrue($v->errorText('loop-live.json', $wire));
+        expect($wire)->toHaveKeys(['loop_id', 'status', 'current_iteration', 'current_stage', 'budget', 'stages']);
+        expect($wire['stages'])->toHaveCount(2);
+        // Internal 'completed' maps to the CAP stage status 'done'.
+        expect($wire['stages'][0]['status'])->toBe('done');
+        expect($wire['stages'][1]['status'])->toBe('running');
+        expect($wire['budget']['max_iterations'])->toBe(10);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-7: verdict is typed and approval requires both flags with no Critical/Important', function () {
+    $v = new ConformanceValidator();
+
+    $approved = Verdict::fromFindings(requirementsMet: true, qualityPass: true, findings: [
+        new StageFinding(StageSeverity::Minor, 'nit'),
+    ]);
+    expect($v->isValid('verdict.json', $approved->toWire()))->toBeTrue($v->errorText('verdict.json', $approved->toWire()));
+    expect($approved->isApproved())->toBeTrue();
+
+    // Both flags true but a Critical finding blocks approval.
+    $blocked = Verdict::fromFindings(true, true, [new StageFinding(StageSeverity::Critical, 'boom')]);
+    expect($v->isValid('verdict.json', $blocked->toWire()))->toBeTrue($v->errorText('verdict.json', $blocked->toWire()));
+    expect($blocked->isApproved())->toBeFalse();
+
+    // An Important finding also blocks approval.
+    expect(Verdict::fromFindings(true, true, [new StageFinding(StageSeverity::Important, 'gap')])->isApproved())->toBeFalse();
+
+    // A false flag blocks approval even with no findings.
+    $noFindings = Verdict::fromFindings(true, false, []);
+    expect($v->isValid('verdict.json', $noFindings->toWire()))->toBeTrue($v->errorText('verdict.json', $noFindings->toWire()));
+    expect($noFindings->toWire()['findings'])->toBe([]);
+    expect(Verdict::fromFindings(false, true, [])->isApproved())->toBeFalse();
+    expect(Verdict::fromFindings(true, false, [])->isApproved())->toBeFalse();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
-    'CORE-6: the loop live snapshot is fully typed',
-    'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
