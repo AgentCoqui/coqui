@@ -27,4 +27,26 @@ final class RequestBodyException extends \RuntimeException
     ) {
         parent::__construct($message);
     }
+
+    /**
+     * Render this rejection as the typed in-process thrown-error payload
+     * (CAP `error-thrown.json`): the same closed `code` catalog and
+     * human-readable `error` the HTTP binding carries. Empty details are
+     * omitted; present details serialize as a JSON object, never `[]`.
+     *
+     * @return array{error: string, code: string, details?: object}
+     */
+    public function toThrownError(): array
+    {
+        $out = [
+            'error' => $this->getMessage(),
+            'code' => $this->errorCode->value,
+        ];
+
+        if ($this->details !== []) {
+            $out['details'] = (object) $this->details;
+        }
+
+        return $out;
+    }
 }

@@ -40,6 +40,7 @@ use CoquiBot\Coqui\Contract\QuestionRequest;
 use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Contract\TerminationCondition;
 use CoquiBot\Coqui\Contract\TerminationType;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Export\AuditRecordProducer;
 use CoquiBot\Coqui\Export\ContentProducer;
 use CoquiBot\Coqui\Export\ExportCollectionMap;
@@ -1751,6 +1752,18 @@ it('CORE-36/39: profiles is an OPEN set — an unknown profile still validates a
     expect($v->isValid('instance-info.json', $vector))->toBeTrue($v->errorText('instance-info.json', $vector));
 })->group('conformance');
 
+it('CORE-57: an in-process thrown error is typed with a code from the closed catalog', function () {
+    $v = new ConformanceValidator();
+    $thrown = (new RequestBodyException(ApiErrorCode::NOT_FOUND, 'No such persona', ['id' => 'p_missing']))->toThrownError();
+    expect($v->isValid('error-thrown.json', $thrown))->toBeTrue($v->errorText('error-thrown.json', $thrown));
+    expect($thrown['code'])->toBe('not_found');
+    expect(ApiErrorCode::tryFrom($thrown['code']))->not->toBeNull();
+    // An off-catalog code is rejected by the schema (mirrors invalid/error-thrown.bad-code.json).
+    $bad = $thrown;
+    $bad['code'] = 'kaboom';
+    expect($v->isValid('error-thrown.json', $bad))->toBeFalse();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -1764,7 +1777,6 @@ $rows = [
     'CORE-49: question format is rich (multi-select) with a typed option shape',
     'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
-    'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
 ];
 
