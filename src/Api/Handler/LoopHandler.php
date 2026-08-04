@@ -16,7 +16,9 @@ use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Contract\LoopDefinition;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\Clock;
@@ -30,9 +32,8 @@ use React\Http\Message\Response;
  * POST   /api/v1/loops                    — create loop
  * GET    /api/v1/loops                    — list loops
  * GET    /api/v1/loops/definitions        — list available definitions
- * GET    /api/v1/loops/definitions/{name} — get one raw definition
- * POST   /api/v1/loops/definitions        — create a definition
- * PUT    /api/v1/loops/definitions/{name} — upsert a definition
+ * GET    /api/v1/loops/definitions/{name} — get one definition (with version)
+ * PUT    /api/v1/loops/definitions/{name} — create (If-None-Match: *) or update (If-Match: <version>) a definition
  * DELETE /api/v1/loops/definitions/{name} — delete a definition
  * GET    /api/v1/loops/{id}               — get loop status
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
@@ -49,7 +50,14 @@ use React\Http\Message\Response;
  */
 final readonly class LoopHandler
 {
+    use DecodesRequestBody;
+
     private const float POLL_INTERVAL = 1.0;
+
+    /**
+     * Object type key used for loop-definition version counters in ObjectVersionStore.
+     */
+    private const string LOOP_DEFINITION_OBJECT_TYPE = 'loop_definition';
 
     public function __construct(
         private LoopStore $store,
@@ -58,6 +66,7 @@ final readonly class LoopHandler
         private ?SessionStorage $storage = null,
         private ?ProjectStore $projectStore = null,
         private ?PersonaDiscovery $personaDiscovery = null,
+        private ?ObjectVersionStore $objectVersions = null,
     ) {}
 
     /**
@@ -259,6 +268,7 @@ final readonly class LoopHandler
         foreach ($defs as $def) {
             $result[] = [
                 'name' => $def->name,
+                'version' => $this->loopDefinitionVersion($def->name),
                 'builtin' => $this->discovery->isBuiltin($def->name),
                 'description' => $def->description,
                 'parameters' => array_map(
@@ -292,57 +302,100 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
         }
 
-        return Router::jsonResponse($this->discovery->getRawDefinition($name));
-    }
-
-    /**
-     * POST /api/v1/loops/definitions
-     */
-    public function createDefinition(ServerRequestInterface $request): Response
-    {
-        $body = json_decode((string) $request->getBody(), true);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
-        }
-
-        $name = isset($body['name']) ? trim((string) $body['name']) : '';
-        if (!$this->discovery->isValidDefinitionName($name)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid or missing loop definition name');
-        }
-        if ($this->discovery->exists($name)) {
-            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Loop definition "%s" already exists', $name));
-        }
-
-        try {
-            $this->discovery->saveDefinition($name, $body);
-        } catch (\InvalidArgumentException $e) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
-        }
-
-        return Router::jsonResponse($this->discovery->getRawDefinition($name), 201);
+        return Router::jsonResponse($this->servedDefinitionWire($name));
     }
 
     /**
      * PUT /api/v1/loops/definitions/{name}
+     *
+     * The single write path for a loop definition, branching on the CAP 0.5.0
+     * optimistic-concurrency preconditions:
+     *
+     *  - `If-None-Match: *`      — create; 409 conflict if it already exists.
+     *  - `If-Match: <version>`   — update; 409 version_conflict on a mismatch,
+     *                              404 content_not_found if it does not exist.
+     *  - neither header          — 409 conflict; a precondition is mandatory.
+     *
+     * The authoring body is strict (loop-definition.put.json): the server-owned
+     * `version` lives in the ObjectVersionStore, never in the on-disk file, so a
+     * body carrying `version`/`id` is a 422 validation_error.
      */
-    public function updateDefinition(ServerRequestInterface $request, string $name): Response
+    public function putDefinition(ServerRequestInterface $request, string $name): Response
     {
         if (!$this->discovery->isValidDefinitionName($name)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name');
-        }
-
-        $body = json_decode((string) $request->getBody(), true);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid loop definition name', ['name' => $name], 422);
         }
 
         try {
-            $this->discovery->saveDefinition($name, $body);
-        } catch (\InvalidArgumentException $e) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+            $body = $this->decodeAuthoringBody(
+                $request,
+                ['name', 'roles', 'termination_condition'],
+                ['description', 'parameters', 'max_rework_attempts'],
+            );
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
-        return Router::jsonResponse($this->discovery->getRawDefinition($name));
+        $precondition = $this->readPrecondition($request);
+        $current = $this->objectVersions?->current(self::LOOP_DEFINITION_OBJECT_TYPE, $name) ?? 0;
+        $exists = $this->discovery->exists($name);
+
+        if ($precondition->isCreate) {
+            if ($exists || $current !== 0) {
+                return Router::errorResponse(
+                    ApiErrorCode::CONFLICT,
+                    sprintf('Loop definition "%s" already exists.', $name),
+                    ['name' => $name],
+                    409,
+                );
+            }
+
+            $saved = $this->persistDefinition($name, $body);
+            if ($saved instanceof Response) {
+                return $saved;
+            }
+
+            $this->objectVersions?->create(self::LOOP_DEFINITION_OBJECT_TYPE, $name);
+
+            return Router::jsonResponse($this->servedDefinitionWire($name), 201);
+        }
+
+        if ($precondition->expectedVersion !== null) {
+            if (!$exists) {
+                return Router::errorResponse(
+                    ApiErrorCode::CONTENT_NOT_FOUND,
+                    sprintf('Loop definition "%s" not found.', $name),
+                    ['name' => $name],
+                    404,
+                );
+            }
+
+            $currentVersion = max(1, $current);
+            if ($precondition->expectedVersion !== $currentVersion) {
+                return Router::errorResponse(
+                    ApiErrorCode::VERSION_CONFLICT,
+                    sprintf('Loop definition "%s" has changed; expected version %d.', $name, $currentVersion),
+                    ['expected_version' => $precondition->expectedVersion, 'current_version' => $currentVersion],
+                    409,
+                );
+            }
+
+            $saved = $this->persistDefinition($name, $body);
+            if ($saved instanceof Response) {
+                return $saved;
+            }
+
+            $this->objectVersions?->bump(self::LOOP_DEFINITION_OBJECT_TYPE, $name);
+
+            return Router::jsonResponse($this->servedDefinitionWire($name));
+        }
+
+        return Router::errorResponse(
+            ApiErrorCode::CONFLICT,
+            'A precondition is required: use If-None-Match: * to create or If-Match: <version> to update.',
+            ['reason' => 'precondition_required'],
+            409,
+        );
     }
 
     /**
@@ -357,7 +410,52 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
         }
 
+        // Clear the version-counter row so a later recreate of the same name
+        // seeds cleanly at version 1 instead of colliding with an orphaned row.
+        $this->objectVersions?->delete(self::LOOP_DEFINITION_OBJECT_TYPE, $name);
+
         return Router::jsonResponse(['deleted' => true, 'name' => $name]);
+    }
+
+    /**
+     * Persist an authoring body to disk, or a 422 Response on a structural error.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function persistDefinition(string $name, array $body): Response|true
+    {
+        try {
+            $this->discovery->saveDefinition($name, $body);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage(), ['name' => $name], 422);
+        }
+
+        return true;
+    }
+
+    /**
+     * The served loop-definition wire: the on-disk authoring source plus the
+     * server-assigned `version` from the ObjectVersionStore.
+     *
+     * @return array<string, mixed>
+     */
+    private function servedDefinitionWire(string $name): array
+    {
+        $raw = $this->discovery->getRawDefinition($name);
+        $raw['version'] = $this->loopDefinitionVersion($name);
+
+        return $raw;
+    }
+
+    /**
+     * Current loop-definition version, defaulting to 1 for a pre-existing file
+     * definition that has never been written through the versioned API.
+     */
+    private function loopDefinitionVersion(string $name): int
+    {
+        $current = $this->objectVersions?->current(self::LOOP_DEFINITION_OBJECT_TYPE, $name) ?? 0;
+
+        return max(1, $current);
     }
 
     /**
@@ -964,8 +1062,7 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/active/count', [$this, 'activeCount']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
         $router->get($v1 . '/loops/definitions/{name}', [$this, 'getDefinition']);
-        $router->post($v1 . '/loops/definitions', [$this, 'createDefinition']);
-        $router->put($v1 . '/loops/definitions/{name}', [$this, 'updateDefinition']);
+        $router->put($v1 . '/loops/definitions/{name}', [$this, 'putDefinition']);
         $router->delete($v1 . '/loops/definitions/{name}', [$this, 'deleteDefinition']);
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/history', [$this, 'history']);

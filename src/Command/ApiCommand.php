@@ -365,7 +365,7 @@ final class ApiCommand extends Command
         );
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
-            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore, $boot->personaDiscovery())
+            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore, $boot->personaDiscovery(), new ObjectVersionStore($storage->getPdo()))
             : null;
 
         // Build router

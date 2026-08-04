@@ -3433,9 +3433,10 @@ boot.
 
 #### `GET /api/v1/loops/definitions/{name}`
 
-Get one loop definition as its raw JSON (the exact stored file contents).
+Get one loop definition. The response is the stored authoring file plus a
+server-assigned `version` token (the on-disk file never stores `version`).
 
-**Response `200`** — the raw definition object.
+**Response `200`** — the definition object, including `version`.
 
 **Errors**
 
@@ -3445,11 +3446,21 @@ Get one loop definition as its raw JSON (the exact stored file contents).
 `{name}` must match `^[a-z0-9][a-z0-9_-]*$` (the name becomes a filename, so
 this is a strict path-traversal guard).
 
-#### `POST /api/v1/loops/definitions`
+#### `PUT /api/v1/loops/definitions/{name}`
 
-Create a new loop definition. Create-only — use `PUT` to overwrite an existing
-one. The `name` field in the body is authoritative and becomes the filename
-(`workspace/loops/{name}.json`).
+The single write path for a loop definition. It branches on the optimistic-
+concurrency precondition headers — a precondition is mandatory:
+
+- `If-None-Match: *` — **create**; fails with `409 conflict` if a definition
+  with that name already exists.
+- `If-Match: <version>` — **update**; fails with `409 version_conflict` if the
+  stored `version` differs, or `404 content_not_found` if it does not exist.
+- neither header — `409 conflict` (a precondition is required).
+
+The path `{name}` is authoritative and becomes the filename
+(`workspace/loops/{name}.json`). The body is a strict authoring shape: the
+server-owned `version` is assigned on create and incremented on each update, so
+a body carrying `version` (or any other server-owned field) is rejected.
 
 **Request**
 
@@ -3464,26 +3475,18 @@ one. The `name` field in the body is authoritative and becomes the filename
 }
 ```
 
-**Response `201`** — the stored raw definition.
+**Response `201`** (create) or `200` (update) — the stored definition, including
+its current `version`.
 
 **Errors**
 
-- `400 validation_error` — missing/invalid `name` (must match `^[a-z0-9][a-z0-9_-]*$`),
-  or an invalid structure (e.g. empty `roles`, missing `termination_condition`).
-- `409 conflict` — a definition with that name already exists.
-
-#### `PUT /api/v1/loops/definitions/{name}`
-
-Upsert a loop definition — creates it if absent, overwrites it if present. The
-path `{name}` is authoritative; any `name` in the body is ignored.
-
-**Request** — same shape as `POST`, without a required `name`.
-
-**Response `200`** — the stored raw definition.
-
-**Errors**
-
-- `400 validation_error` — invalid `{name}`, or an invalid structure.
+- `422 validation_error` — invalid `{name}`, an invalid structure (e.g. empty
+  `roles`, missing `termination_condition`), or a body carrying a server-owned
+  field such as `version`.
+- `409 conflict` — the definition already exists (on create), or no precondition
+  header was supplied.
+- `409 version_conflict` — the `If-Match` version does not match the stored one.
+- `404 content_not_found` — `If-Match` update of a definition that does not exist.
 
 #### `DELETE /api/v1/loops/definitions/{name}`
 
@@ -4659,9 +4662,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
-| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one raw loop definition |
-| `POST` | `/api/v1/loops/definitions` | Yes | Create a loop definition |
-| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Upsert a loop definition |
+| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one loop definition (with version) |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Create (If-None-Match: *) or update (If-Match: version) a loop definition |
 | `DELETE` | `/api/v1/loops/definitions/{name}` | Yes | Delete a loop definition |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
 | `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |

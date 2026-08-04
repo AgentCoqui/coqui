@@ -372,6 +372,7 @@ it('CORE-22: artifact_required is persona-gated; a def requiring it on a no-arti
             $storage,
             $projectStore,
             new PersonaDiscovery($workspacePath),
+            new ObjectVersionStore($pdo),
         );
 
         $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'capped');
