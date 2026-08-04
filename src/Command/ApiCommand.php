@@ -343,7 +343,7 @@ final class ApiCommand extends Command
         $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($promptInspectionService);
-        $budgetHandler = new BudgetHandler($previewRunner);
+        $budgetHandler = new BudgetHandler($previewRunner, $storage);
         $commandCatalogHandler = new CommandCatalogHandler();
         $mcpRuntime = McpRuntime::fromWorkspace(
             $boot->workspacePath(),
@@ -692,6 +692,7 @@ final class ApiCommand extends Command
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
+        $router->get($v1 . '/sessions/{id}/budget', [$budget, 'session']);
         $router->get($v1 . '/server/commands', [$commands, 'get']);
 
         // Artifacts

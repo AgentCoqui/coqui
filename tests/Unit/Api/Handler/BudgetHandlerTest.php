@@ -90,7 +90,7 @@ function createBudgetHandlerFixture(): array
     return [
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
-        'handler' => new BudgetHandler($runner),
+        'handler' => new BudgetHandler($runner, $storage),
     ];
 }
 
@@ -160,7 +160,7 @@ test('budget handler includes conversation history prompt section when session_i
         providerFactory: new ProviderFactory($config),
     );
 
-    $handler = new BudgetHandler($runner);
+    $handler = new BudgetHandler($runner, $storage);
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
     $storage->addMessage($sessionId, 'user', 'Earlier question');
     $storage->addMessage($sessionId, 'assistant', 'Earlier answer');

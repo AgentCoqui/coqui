@@ -747,6 +747,83 @@ it('CORE-28: ChildRun is a typed first-class object; status is a closed set; no 
     }
 })->group('conformance');
 
+it('CORE-55: budget observability is typed (GET /sessions/{id}/budget breakdown)', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-core55-' . bin2hex(random_bytes(8));
+    mkdir($workspacePath . '/data', 0755, true);
+    file_put_contents($workspacePath . '/.env', '');
+
+    $dbPath = sys_get_temp_dir() . '/coqui-core55-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+    $projectRoot = dirname(__DIR__, 2);
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+            ],
+        ],
+    ]);
+    $credentialResolver = new \CoquiBot\Coqui\Config\CredentialResolver($workspacePath);
+
+    $runner = new \CoquiBot\Coqui\Agent\AgentRunner(
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: $projectRoot,
+        workspacePath: $workspacePath,
+        storage: $storage,
+        observer: null,
+        discovery: new \CoquiBot\Coqui\Config\ToolkitDiscovery(
+            projectRoot: $projectRoot,
+            workspacePath: $workspacePath,
+            credentialResolver: $credentialResolver,
+        ),
+        blacklist: new \CoquiBot\Coqui\Config\CatastrophicBlacklist(),
+        credentialResolver: $credentialResolver,
+        providerFactory: new \CarmeloSantana\PHPAgents\Provider\ProviderFactory($config),
+    );
+
+    $handler = new \CoquiBot\Coqui\Api\Handler\BudgetHandler($runner, $storage);
+
+    try {
+        // A missing session is a typed 404 with the catalog code.
+        $missing = $handler->session(
+            new \React\Http\Message\ServerRequest('GET', '/api/v1/sessions/does-not-exist/budget'),
+            'does-not-exist',
+        );
+        expect($missing->getStatusCode())->toBe(404);
+
+        $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
+        $response = $handler->session(
+            new \React\Http\Message\ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/budget'),
+            $sessionId,
+        );
+        expect($response->getStatusCode())->toBe(200);
+
+        $wire = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('budget-breakdown.json', $wire))->toBeTrue($v->errorText('budget-breakdown.json', $wire));
+
+        // total_estimated_tokens is the sum of the INCLUDED sections' tokens.
+        $includedSum = array_sum(array_map(
+            static fn(array $s): int => $s['included'] ? $s['estimated_tokens'] : 0,
+            $wire['sections'],
+        ));
+        expect($wire['total_estimated_tokens'])->toBe($includedSum);
+        // Cost is legible against capacity: the window is always a positive int.
+        expect($wire['model_context_window'])->toBeGreaterThanOrEqual(1);
+        // Every included section reports no shed reason.
+        foreach ($wire['sections'] as $section) {
+            if ($section['included']) {
+                expect($section['shed_reason'])->toBeNull();
+            }
+        }
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($workspacePath);
+    }
+})->group('conformance');
+
 it('CORE-42: content is a typed object addressed by an opaque ref; sha256 identity is required', function () {
     $dbPath = sys_get_temp_dir() . '/coqui-core42-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
@@ -1315,7 +1392,6 @@ $rows = [
     'CORE-51: SSE frames are typed per channel; unknown event shapes are rejected',
     'CORE-52: SSE frame id is a string cursor; a numeric id is rejected',
     'CORE-53: creators accept an Idempotency-Key request header for dedup',
-    'CORE-55: budget observability is typed (GET /sessions/{id}/budget breakdown)',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
