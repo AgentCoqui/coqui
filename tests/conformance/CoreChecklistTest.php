@@ -1938,6 +1938,76 @@ it('CORE-12: budget breakdown exposes priority tiers and shed order inspectably'
     expect($priorities)->toBe($sorted);
 })->group('conformance');
 
+/**
+ * Build a raw `questions` table row (id, session_id, turn_id, loop_id, stage_id,
+ * responder_kind, request, answer, status, created_at, answered_at), serializing
+ * `request`/`answer` as JSON exactly as SessionStorage does. The stored `request`
+ * carries the authoring shape (prompt/format/options/allow_other/suggested); the
+ * `answer` column is the coqui `{selected, text}` object (or null when unanswered).
+ *
+ * @param list<array<string, mixed>> $options   Authoring options as {label, description?}.
+ * @param array{selected?: list<string>, text?: ?string}|null $answer
+ * @param array{selected?: list<string>, text?: ?string}|null $suggested
+ * @return array<string, mixed>
+ */
+function questionRow(
+    string $format = 'text',
+    array $options = [],
+    string $status = 'pending',
+    ?array $answer = null,
+    ?array $suggested = null,
+    string $id = '01J000000000000000000QCORE49',
+    string $sessionId = '01J000000000000000000WS049',
+    string $prompt = 'Which toppings would you like?',
+    bool $allowOther = false,
+    string $createdAt = '2026-07-28T12:05:00Z',
+    ?string $answeredAt = null,
+): array {
+    $request = [
+        'id' => $id,
+        'prompt' => $prompt,
+        'format' => $format,
+        'options' => $options,
+        'allow_other' => $allowOther,
+        'suggested' => $suggested ?? ['selected' => [], 'text' => null],
+        'header' => null,
+    ];
+
+    return [
+        'id' => $id,
+        'session_id' => $sessionId,
+        'turn_id' => null,
+        'loop_id' => null,
+        'stage_id' => null,
+        'responder_kind' => 'interactive',
+        'request' => json_encode($request, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'answer' => $answer === null ? null : json_encode($answer, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        'status' => $status,
+        'created_at' => $createdAt,
+        'answered_at' => $answeredAt,
+    ];
+}
+
+it('CORE-49: question wire is rich (multi-select) with a typed {value,label} option shape', function () {
+    $v = new ConformanceValidator();
+    // A coqui multi_select question row projects to a valid question.json with typed options.
+    $wire = QuestionPersistence::toWire(questionRow(
+        format: 'multi_select',
+        options: [['label' => 'cheese', 'description' => 'Cheddar'], ['label' => 'mushroom']],
+        status: 'pending',                     // stored form
+        answer: ['selected' => ['cheese', 'mushroom'], 'text' => null],
+    ));
+    expect($v->isValid('question.json', $wire))->toBeTrue($v->errorText('question.json', $wire));
+    expect($wire['format'])->toBe('multi_select');
+    expect($wire['status'])->toBe('open');                 // pending → open
+    expect($wire['options'][0])->toMatchArray(['value' => 'cheese']);   // value is required + present
+    expect($wire['answer'])->toBe(['cheese', 'mushroom']); // multi_select ⇒ array answer
+
+    // The vendored malformed-option vector (option without value) is rejected.
+    $bad = json_decode((string) file_get_contents(__DIR__ . '/spec/conformance/vectors/invalid/question.malformed-option.json'), true);
+    expect($v->isValid('question.json', $bad))->toBeFalse();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
@@ -1945,7 +2015,6 @@ $rows = [
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
-    'CORE-49: question format is rich (multi-select) with a typed option shape',
     'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
