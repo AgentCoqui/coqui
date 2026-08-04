@@ -36,3 +36,30 @@ test('tick creates scheduled task session with persisted persona metadata', func
     expect($session)->not->toBeNull();
     expect($session['persona_id'])->toBe('caelum');
 });
+
+test('tick dispatches a turn schedule but skips a loop schedule', function () {
+    $turnId = $this->scheduleStore->create(
+        name: 'turn-schedule',
+        scheduleExpression: '@once',
+        action: ['kind' => 'turn', 'prompt' => 'Do the turn work'],
+        role: 'orchestrator',
+    );
+    $loopId = $this->scheduleStore->create(
+        name: 'loop-schedule',
+        scheduleExpression: '@once',
+        action: ['kind' => 'loop', 'definition_name' => 'research'],
+        role: 'orchestrator',
+    );
+
+    $past = gmdate('Y-m-d\TH:i:s\Z', time() - 120);
+    $this->scheduleStore->forceNextRun($turnId, $past);
+    $this->scheduleStore->forceNextRun($loopId, $past);
+
+    $this->manager->tick();
+
+    // The turn schedule dispatched a background task.
+    expect($this->storage->getTaskByScheduleId($turnId))->not->toBeNull();
+
+    // The loop schedule did NOT — no empty-prompt turn is fired.
+    expect($this->storage->getTaskByScheduleId($loopId))->toBeNull();
+});

@@ -99,6 +99,14 @@ final class ScheduleManager
     {
         $scheduleId = (string) $schedule['id'];
 
+        // Guard: only turn-kind schedules dispatch a background task here.
+        // Loop-kind schedules persist through the public API but their dispatch
+        // is deferred to the future loops profile; running one as a turn would
+        // fire an empty-prompt turn every tick, so skip it entirely.
+        if ((string) ($schedule['action_kind'] ?? 'turn') !== 'turn') {
+            return;
+        }
+
         // Guard: duplicate enqueue protection
         if (isset($this->inFlight[$scheduleId])) {
             return;

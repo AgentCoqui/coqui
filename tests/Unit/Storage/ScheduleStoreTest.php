@@ -465,3 +465,26 @@ test('schedule validator rejects prompt longer than 50000 characters', function 
     expect($error)->not->toBeNull();
     expect($error)->toContain('50000');
 });
+
+test('create rejects a loop action whose definition_name is not a slug', function () {
+    expect(fn () => $this->store->create(
+        name: 'non-slug-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => 'Research Loop'],
+        personaId: 'p_1',
+    ))->toThrow(\CoquiBot\Coqui\Exception\RequestBodyException::class);
+});
+
+test('create accepts a loop action with a slug definition_name', function () {
+    $id = $this->store->create(
+        name: 'slug-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => 'research-loop_1'],
+        personaId: 'p_1',
+    );
+
+    $schedule = $this->store->get($id);
+
+    expect($schedule['action_kind'])->toBe('loop');
+    expect($schedule['definition_name'])->toBe('research-loop_1');
+});
