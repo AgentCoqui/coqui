@@ -328,7 +328,7 @@ final class ApiCommand extends Command
             new ObjectVersionStore($storage->getPdo()),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery());
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery(), new ObjectVersionStore($storage->getPdo()));
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->personaDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle);
@@ -648,11 +648,12 @@ final class ApiCommand extends Command
         $router->get($v1 . '/config/persona-preferences/schema', [$config, 'personaPreferenceSchema']);
         $router->get($v1 . '/config/personas/{name}', [$config, 'persona']);
 
-        // Roles (read-only — create/update/delete are REPL-only)
+        // Roles (create/update via PUT; delete is REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
         $router->get($v1 . '/roles', [$role, 'list']);
         $router->get($v1 . '/roles/{name}', [$role, 'get']);
+        $router->put($v1 . '/roles/{name}', [$role, 'put']);
         $router->get($v1 . '/personas', [$config, 'personas']);
         $router->get($v1 . '/personas/{name}', [$config, 'persona']);
         $router->post($v1 . '/personas', [$config, 'createPersona']);

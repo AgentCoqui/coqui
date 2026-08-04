@@ -10,7 +10,9 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
+use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
@@ -160,6 +162,146 @@ it('CORE-37: persona create rejects a server-owned field (422) and accepts the a
     } finally {
         cleanupTestTree($workspace);
         cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+/**
+ * Build the real RoleHandler over a temp workspace + temp SQLite db, wired to a
+ * live ObjectVersionStore. Returns [handler, workspace, dbPath].
+ *
+ * @return array{0: RoleHandler, 1: string, 2: string}
+ */
+function makeRoleHandler(): array
+{
+    $workspace = sys_get_temp_dir() . '/coqui-role-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspace . '/roles', 0755, true);
+
+    $dbPath = sys_get_temp_dir() . '/coqui-role-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    $config = OpenClawConfig::fromArray([
+        'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+    ]);
+    $roleDiscovery = new RoleDiscovery($workspace);
+    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery);
+
+    $handler = new RoleHandler($roleDiscovery, $roleResolver, null, new ObjectVersionStore($storage->getPdo()));
+
+    return [$handler, $workspace, $dbPath];
+}
+
+/**
+ * Build the real loop-definition PUT handler over a temp workspace + temp
+ * SQLite db, wired to a live ObjectVersionStore. Returns [handler, workspace, dbPath].
+ *
+ * @return array{0: LoopHandler, 1: string, 2: string}
+ */
+function makeLoopDefHandler(): array
+{
+    $workspace = sys_get_temp_dir() . '/coqui-loopdef-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspace . '/loops', 0755, true);
+
+    $dbPath = sys_get_temp_dir() . '/coqui-loopdef-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+    $loopStore = new LoopStore($storage->getPdo());
+    $discovery = new LoopDiscovery($workspace);
+
+    $handler = new LoopHandler($loopStore, $discovery, null, $storage, null, null, new ObjectVersionStore($storage->getPdo()));
+
+    return [$handler, $workspace, $dbPath];
+}
+
+/**
+ * Build a PUT request for a role, with optional precondition headers.
+ *
+ * @param array<string, mixed> $body
+ */
+function rolePutRequest(string $name, array $body, ?string $ifNoneMatch = null, ?int $ifMatch = null): \React\Http\Message\ServerRequest
+{
+    $headers = ['Content-Type' => 'application/json'];
+    if ($ifNoneMatch !== null) {
+        $headers['If-None-Match'] = $ifNoneMatch;
+    }
+    if ($ifMatch !== null) {
+        $headers['If-Match'] = (string) $ifMatch;
+    }
+
+    return new \React\Http\Message\ServerRequest('PUT', '/api/v1/roles/' . $name, $headers, json_encode($body) ?: '');
+}
+
+/**
+ * Build a PUT request for a loop definition, with optional precondition headers.
+ *
+ * @param array<string, mixed> $body
+ */
+function loopDefPutRequest(string $name, array $body, ?string $ifNoneMatch = null, ?int $ifMatch = null): \React\Http\Message\ServerRequest
+{
+    $headers = ['Content-Type' => 'application/json'];
+    if ($ifNoneMatch !== null) {
+        $headers['If-None-Match'] = $ifNoneMatch;
+    }
+    if ($ifMatch !== null) {
+        $headers['If-Match'] = (string) $ifMatch;
+    }
+
+    return new \React\Http\Message\ServerRequest('PUT', '/api/v1/loops/definitions/' . $name, $headers, json_encode($body) ?: '');
+}
+
+/**
+ * A minimal, valid loop-definition authoring body (loop-definition.put.json).
+ *
+ * @return array<string, mixed>
+ */
+function validLoopDefBody(string $name = 'ci'): array
+{
+    return [
+        'name' => $name,
+        'description' => 'CI loop',
+        'roles' => [['role' => 'plan', 'prompt' => 'go']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+    ];
+}
+
+it('CORE-38: role/loop-definition PUT distinguishes create (If-None-Match:*) from update (If-Match:v); persisted rows require version', function () {
+    // --- role ---
+    [$roleHandler, $rWs, $rDb] = makeRoleHandler();
+    try {
+        $create = $roleHandler->put(rolePutRequest('reviewer', ['name' => 'reviewer', 'access_level' => 'readonly'], ifNoneMatch: '*'), 'reviewer');
+        expect($create->getStatusCode())->toBe(201);
+        $created = json_decode((string) $create->getBody(), true);
+        expect($created['version'])->toBe(1);
+
+        // The persisted role is a schema-valid role.json (carries version).
+        $v = new ConformanceValidator();
+        $roleWire = $roleHandler->servedRoleWire('reviewer');
+        expect($v->isValid('role.json', $roleWire))->toBeTrue($v->errorText('role.json', $roleWire));
+
+        // Re-create without a precondition-for-update ⇒ conflict.
+        expect($roleHandler->put(rolePutRequest('reviewer', ['name' => 'reviewer', 'access_level' => 'readonly'], ifNoneMatch: '*'), 'reviewer')->getStatusCode())->toBe(409);
+
+        // Update with the wrong version ⇒ version_conflict.
+        $stale = $roleHandler->put(rolePutRequest('reviewer', ['name' => 'reviewer', 'access_level' => 'full'], ifMatch: 99), 'reviewer');
+        expect($stale->getStatusCode())->toBe(409);
+        expect(json_decode((string) $stale->getBody(), true)['code'])->toBe('version_conflict');
+    } finally {
+        cleanupTestTree($rWs);
+        cleanupSqliteTestDb($rDb);
+    }
+
+    // --- loop-definition (same contract) ---
+    [$loopHandler, $lWs, $lDb] = makeLoopDefHandler();
+    try {
+        $createDef = $loopHandler->putDefinition(loopDefPutRequest('ci', validLoopDefBody(), ifNoneMatch: '*'), 'ci');
+        expect($createDef->getStatusCode())->toBe(201);
+        // The served definition carries the server-assigned version.
+        expect(json_decode((string) $createDef->getBody(), true)['version'])->toBe(1);
+
+        $stale = $loopHandler->putDefinition(loopDefPutRequest('ci', validLoopDefBody(), ifMatch: 99), 'ci');
+        expect($stale->getStatusCode())->toBe(409);
+        expect(json_decode((string) $stale->getBody(), true)['code'])->toBe('version_conflict');
+    } finally {
+        cleanupTestTree($lWs);
+        cleanupSqliteTestDb($lDb);
     }
 })->group('conformance');
 
@@ -994,7 +1136,6 @@ $rows = [
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-36: responses/events are wire-tolerant: consumers MUST NOT reject unknown fields/enums',
-    'CORE-38: role/loop-definition PUT distinguishes create (If-None-Match:*) from update (If-Match:v); persisted rows require version',
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
     'CORE-41: SSE error events carry a code from the closed catalog',
     'CORE-43: messages carry typed attachments[] of {content_ref, mime_type}',

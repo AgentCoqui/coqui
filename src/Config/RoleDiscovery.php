@@ -289,6 +289,95 @@ final class RoleDiscovery
     }
 
     /**
+     * Whether a role name is a valid slug (delegates to the parser's rules).
+     * This is also the path-traversal guard: names become filenames.
+     */
+    public function isValidRoleName(string $name): bool
+    {
+        return $this->parser->validateName($name) === [];
+    }
+
+    /**
+     * Persist an API-authored role to workspace/roles/{name}.md.
+     *
+     * Mirrors LoopDiscovery::saveDefinition: the filename is authoritative for
+     * the name, server-owned tokens (version/id/timestamps) are stripped and
+     * never written (the version lives in ObjectVersionStore), and the on-disk
+     * file is the authoring source only. The authoring body is the strict
+     * role.put.json shape; display_name/description are synthesized because that
+     * shape does not carry them, so the file re-parses cleanly.
+     *
+     * @param array<string, mixed> $body role.put.json authoring body
+     * @throws \InvalidArgumentException on an invalid name/access_level or a reserved name
+     * @throws \RuntimeException on a write failure
+     */
+    public function saveRole(string $name, array $body): void
+    {
+        if (!$this->isValidRoleName($name)) {
+            throw new \InvalidArgumentException(sprintf('Invalid role name: "%s"', $name));
+        }
+
+        if ($this->isReservedName($name)) {
+            throw new \InvalidArgumentException(sprintf('Role name "%s" is reserved and cannot be written.', $name));
+        }
+
+        // Server-owned tokens are never persisted into the authoring file.
+        unset($body['version'], $body['id'], $body['created_at'], $body['updated_at']);
+
+        $accessLevel = is_string($body['access_level'] ?? null) ? $body['access_level'] : '';
+        if (!$this->parser->isValidAccessLevel($accessLevel)) {
+            throw new \InvalidArgumentException(sprintf('Invalid access_level: "%s"', $accessLevel));
+        }
+
+        // Coqui stores toolkits as a comma-separated string; the wire shape is a
+        // string list. Fold it down on write and RoleProducer unfolds it on read.
+        $toolkits = null;
+        if (isset($body['toolkits']) && is_array($body['toolkits'])) {
+            $names = array_values(array_filter(
+                array_map(static fn($t): string => is_string($t) ? trim($t) : '', $body['toolkits']),
+                static fn(string $t): bool => $t !== '',
+            ));
+            $toolkits = $names === [] ? null : implode(',', $names);
+        }
+
+        $maxIterations = isset($body['max_iterations']) && is_numeric($body['max_iterations'])
+            ? (int) $body['max_iterations']
+            : null;
+
+        $model = isset($body['model']) && is_string($body['model']) && $body['model'] !== ''
+            ? $body['model']
+            : null;
+
+        $instructions = isset($body['instructions']) && is_string($body['instructions'])
+            ? $body['instructions']
+            : '';
+
+        $displayName = str_replace(['-', '_'], ' ', $name);
+        $displayName = ucwords($displayName);
+
+        $props = new RoleProperties(
+            name: $name,
+            displayName: $displayName,
+            description: sprintf('%s role.', $displayName),
+            path: '',
+            accessLevel: $accessLevel,
+            model: $model,
+            toolkits: $toolkits,
+            maxIterations: $maxIterations,
+        );
+
+        $content = $this->parser->buildRoleFile($props, $instructions, includeVersion: false);
+
+        $this->ensureRolesDir();
+        $filePath = $this->rolesDir . '/' . $name . '.md';
+        if (file_put_contents($filePath, $content) === false) {
+            throw new \RuntimeException(sprintf('Failed to write role "%s"', $name));
+        }
+
+        $this->invalidateCache();
+    }
+
+    /**
      * Create a new role file.
      *
      * @param array<string, mixed>|RoleProperties $properties Frontmatter data or value object.
