@@ -255,7 +255,7 @@ final readonly class InteractiveSessionService
         $primary = $activeSessions[0] ?? [];
 
         return new SessionTypeException(
-            ApiErrorCode::PERSONA_SESSION_ACTIVE,
+            ApiErrorCode::CONFLICT,
             sprintf('Persona "%s" already has an active session. Confirm closure before starting or reassigning a fresh session.', $persona),
             [
                 'persona_id' => $persona,

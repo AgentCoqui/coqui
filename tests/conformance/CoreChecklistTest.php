@@ -769,10 +769,42 @@ it('CORE-59: nullable producer timestamps are null or Z, never a non-Z offset', 
     }
 })->group('conformance');
 
+it('CORE-4: the ApiErrorCode catalog is exactly the closed error.json code set', function () {
+    $schema = json_decode(file_get_contents(__DIR__ . '/spec/schema/error.json'), true, flags: JSON_THROW_ON_ERROR);
+    $catalog = $schema['properties']['code']['enum'];
+    sort($catalog);
+    $coqui = array_map(fn (ApiErrorCode $c) => $c->value, ApiErrorCode::cases());
+    sort($coqui);
+    // Exact set equality: complete (every catalog code exists) AND closed (no extras).
+    expect($coqui)->toBe($catalog);
+})->group('conformance');
+
+it('CORE-40: every HTTP status documented in error-coverage.json is produced by some catalog code', function () {
+    $coverage = json_decode(
+        file_get_contents(__DIR__ . '/spec/conformance/error-coverage.json'),
+        true,
+        flags: JSON_THROW_ON_ERROR,
+    );
+    $documented = [];
+    foreach ($coverage as $statuses) {
+        foreach ($statuses as $s) {
+            $documented[(int) $s] = true;
+        }
+    }
+    // Every documented status is reachable from the closed catalog. 412 is the If-Match
+    // precondition status emitted with the version_conflict code + a ?int status override.
+    $reachable = [412 => true];
+    foreach (ApiErrorCode::cases() as $c) {
+        $reachable[$c->httpStatus()] = true;
+    }
+    foreach (array_keys($documented) as $status) {
+        expect($reachable)->toHaveKey($status, "status {$status} has no catalog code");
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
-    'CORE-4: error payloads carry a code from the closed catalog',
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
     'CORE-6: the loop live snapshot is fully typed',
     'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
@@ -792,7 +824,6 @@ $rows = [
     'CORE-37: create bodies are authoring-shaped; server-owned fields (id/version/timestamps) are rejected 422',
     'CORE-38: role/loop-definition PUT distinguishes create (If-None-Match:*) from update (If-Match:v); persisted rows require version',
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
-    'CORE-40: every operation\'s documented error codes come from the closed catalog via reusable responses; coverage is complete',
     'CORE-41: SSE error events carry a code from the closed catalog',
     'CORE-43: messages carry typed attachments[] of {content_ref, mime_type}',
     'CORE-44: content ops (putContent/getContent) are bound (multipart/binary upload + Range download)',

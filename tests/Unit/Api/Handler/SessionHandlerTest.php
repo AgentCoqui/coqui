@@ -672,7 +672,7 @@ test('session handler create requires confirmation when a persona already has an
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('persona_session_active');
+        expect($body['code'])->toBe('conflict');
         expect($body['details']['active_session_id'])->toBe($activeSessionId);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
@@ -774,7 +774,7 @@ test('session handler update requires confirmation before reassigning into an ac
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('persona_session_active');
+        expect($body['code'])->toBe('conflict');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
