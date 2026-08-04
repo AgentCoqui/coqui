@@ -21,9 +21,18 @@ use PDOException;
  * inside a SINGLE transaction: a mid-import failure rolls the whole thing back so
  * a malformed or conflicting envelope is rejected, never half-applied.
  *
- * PRESERVE mode (this task) inserts every row with its ORIGINAL id verbatim; a
- * primary-key collision aborts the import with `conflict`. REMAP mode — which
- * mints fresh ids and rewrites every foreign key — arrives in Task 11.
+ * PRESERVE mode inserts every row with its ORIGINAL id verbatim; a primary-key
+ * collision aborts the import with `conflict`. REMAP mode mints a fresh id for
+ * every imported id-keyed primary key and rewrites every foreign key that points
+ * into an imported collection to the new id, so no id can collide with the target
+ * store. Both modes share ONE insert path via {@see ImportIdMap} (preserve is the
+ * identity remap), so the FK rewrite is exercised in every import, not a branch.
+ *
+ * SCOPE of "every FK": the rewrite covers the foreign keys of the IMPORTED
+ * collections only. `memories.persona_id` is a documented carry-forward the import
+ * never touches (memories is deferred to the Memory Core reshape and is not
+ * persisted), so it is intentionally OUT of the remap's "every FK" claim — the
+ * remap neither imports nor rewrites it.
  *
  * Only DB-backed collections are persisted. File-authored objects (`roles`,
  * `loop_definitions`) have no table, and the internal diagnostics collections
@@ -48,6 +57,28 @@ final class ImportService
         'audit_records',
     ];
 
+    /**
+     * The collections whose primary key is an opaque id the remap regenerates. Each
+     * is a namespace in the {@see ImportIdMap}. Name-keyed (`roles`, `skills`) and
+     * content-addressed (`content`) collections are absent by design — their keys
+     * are never rewritten.
+     *
+     * @var list<string>
+     */
+    private const array ID_KEYED_COLLECTIONS = [
+        'personas',
+        'sessions',
+        'turns',
+        'messages',
+        'loops',
+        'loop_iterations',
+        'loop_stages',
+        'child_runs',
+        'questions',
+        'artifacts',
+        'scheduled_tasks',
+    ];
+
     public function __construct(
         private readonly PDO $pdo,
         private readonly EnvelopeItemValidator $validator,
@@ -60,15 +91,34 @@ final class ImportService
      */
     public function import(array $envelope, ImportMode $mode): ImportResult
     {
-        if ($mode === ImportMode::Remap) {
-            throw new \RuntimeException(
-                'Import remap mode is not implemented yet (CORE-56 part 2, Task 11).',
-            );
-        }
-
         $this->validateEnvelope($envelope);
 
-        return $this->transactionally(fn(): ImportResult => $this->persist($envelope));
+        $map = $this->buildIdMap($envelope, $mode);
+
+        return $this->transactionally(fn(): ImportResult => $this->persist($envelope, $map));
+    }
+
+    /**
+     * Register every id-keyed primary key up front so a foreign key can resolve to
+     * its target's new id regardless of insert order. Under remap each registration
+     * mints a fresh id; under preserve the map is the identity.
+     *
+     * Name-keyed (`roles`, `skills`) and content-addressed (`content`) collections
+     * are deliberately not registered — their keys are never rewritten.
+     *
+     * @param array<string, mixed> $envelope
+     */
+    private function buildIdMap(array $envelope, ImportMode $mode): ImportIdMap
+    {
+        $map = new ImportIdMap($mode === ImportMode::Remap);
+
+        foreach (self::ID_KEYED_COLLECTIONS as $collection) {
+            foreach ($this->itemsOf($envelope, $collection) as $item) {
+                $map->register($collection, $this->str($item, 'id'));
+            }
+        }
+
+        return $map;
     }
 
     /**
@@ -103,25 +153,25 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function persist(array $envelope): ImportResult
+    private function persist(array $envelope, ImportIdMap $map): ImportResult
     {
         $counts = [];
         $owners = $this->collectSessionOwners($envelope);
 
-        $counts['personas'] = $this->insertPersonas($envelope);
-        $counts['sessions'] = $this->insertSessions($envelope);
-        $counts['session_members'] = $this->insertSessionMembers($envelope, $owners);
-        $counts['turns'] = $this->insertTurns($envelope);
+        $counts['personas'] = $this->insertPersonas($envelope, $map);
+        $counts['sessions'] = $this->insertSessions($envelope, $map);
+        $counts['session_members'] = $this->insertSessionMembers($envelope, $owners, $map);
+        $counts['turns'] = $this->insertTurns($envelope, $map);
         $counts['content'] = $this->insertContent($envelope);
-        $counts['messages'] = $this->insertMessages($envelope);
+        $counts['messages'] = $this->insertMessages($envelope, $map);
         $counts['skills'] = $this->insertSkills($envelope);
-        $counts['loops'] = $this->insertLoops($envelope);
-        $counts['loop_iterations'] = $this->insertLoopIterations($envelope);
-        $counts['loop_stages'] = $this->insertLoopStages($envelope);
-        $counts['child_runs'] = $this->insertChildRuns($envelope);
-        $counts['questions'] = $this->insertQuestions($envelope);
-        $counts['artifacts'] = $this->insertArtifacts($envelope);
-        $counts['scheduled_tasks'] = $this->insertScheduledTasks($envelope);
+        $counts['loops'] = $this->insertLoops($envelope, $map);
+        $counts['loop_iterations'] = $this->insertLoopIterations($envelope, $map);
+        $counts['loop_stages'] = $this->insertLoopStages($envelope, $map);
+        $counts['child_runs'] = $this->insertChildRuns($envelope, $map);
+        $counts['questions'] = $this->insertQuestions($envelope, $map);
+        $counts['artifacts'] = $this->insertArtifacts($envelope, $map);
+        $counts['scheduled_tasks'] = $this->insertScheduledTasks($envelope, $map);
 
         $skipped = [];
         foreach (self::NON_PERSISTED as $name) {
@@ -130,7 +180,7 @@ final class ImportService
             }
         }
 
-        return new ImportResult($counts, $skipped);
+        return new ImportResult($counts, $skipped, $map->all());
     }
 
     // ── collection inserts ──────────────────────────────────────────────────
@@ -138,7 +188,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertPersonas(array $envelope): int
+    private function insertPersonas(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO personas (id, name, avatar, model, allowed_roles, soul, backstory, context, preferences, version, created_at, updated_at)'
             . ' VALUES (:id, :name, :avatar, :model, :allowed_roles, :soul, :backstory, :context, :preferences, :version, :created_at, :updated_at)';
@@ -146,7 +196,7 @@ final class ImportService
         $n = 0;
         foreach ($this->itemsOf($envelope, 'personas') as $item) {
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
+                ':id' => $map->resolve('personas', $this->str($item, 'id')),
                 ':name' => $this->str($item, 'name'),
                 ':avatar' => $this->json($item['avatar'] ?? null) ?? '{}',
                 ':model' => $this->str($item, 'model'),
@@ -168,7 +218,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertSessions(array $envelope): int
+    private function insertSessions(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO sessions (id, persona_id, model_role, model, kind, pinned, workspace, version, title, session_type, group_enabled, is_closed, is_archived, token_count, created_at, updated_at)'
             . ' VALUES (:id, :persona_id, :model_role, :model, :kind, :pinned, :workspace, :version, :title, :session_type, :group_enabled, :is_closed, :is_archived, :token_count, :created_at, :updated_at)';
@@ -181,8 +231,8 @@ final class ImportService
             $kind = $this->str($item, 'kind');
 
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':persona_id' => $persona !== '' ? $persona : null,
+                ':id' => $map->resolve('sessions', $this->str($item, 'id')),
+                ':persona_id' => $persona !== '' ? $map->resolve('personas', $persona) : null,
                 // model_role is a NOT NULL operational column the wire never carries
                 // and no producer reads back; a stable placeholder keeps the row valid.
                 ':model_role' => 'orchestrator',
@@ -214,7 +264,7 @@ final class ImportService
      * @param array<string, mixed> $envelope
      * @param array<string, string> $owners session_id => owner persona_id
      */
-    private function insertSessionMembers(array $envelope, array $owners): int
+    private function insertSessionMembers(array $envelope, array $owners, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO session_group_members (session_id, persona_id, member_order, created_at)'
             . ' VALUES (:session_id, :persona_id, :member_order, :created_at)';
@@ -223,6 +273,8 @@ final class ImportService
         $order = [];
         $n = 0;
         foreach ($this->itemsOf($envelope, 'session_members') as $item) {
+            // Owner detection runs on the ORIGINAL ids (the owners map is keyed by
+            // them); only the persisted join columns are rewritten to the new ids.
             $sessionId = $this->str($item, 'session_id');
             $personaId = $this->str($item, 'persona_id');
             if ($sessionId === '' || $personaId === '') {
@@ -240,8 +292,8 @@ final class ImportService
             $ord = $order[$sessionId] ?? 0;
             $order[$sessionId] = $ord + 1;
             $this->insert($sql, [
-                ':session_id' => $sessionId,
-                ':persona_id' => $personaId,
+                ':session_id' => $map->resolve('sessions', $sessionId),
+                ':persona_id' => $map->resolve('personas', $personaId),
                 ':member_order' => $ord,
                 ':created_at' => $now,
             ]);
@@ -254,7 +306,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertTurns(array $envelope): int
+    private function insertTurns(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO turns (id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model, prompt_tokens, completion_tokens, total_tokens, iterations, duration_ms, tools_used, status, created_at, completed_at)'
             . ' VALUES (:id, :session_id, :actor_persona_id, :turn_number, :user_prompt, :response_text, :model, :prompt_tokens, :completion_tokens, :total_tokens, :iterations, :duration_ms, :tools_used, :status, :created_at, :completed_at)';
@@ -263,9 +315,9 @@ final class ImportService
         foreach ($this->itemsOf($envelope, 'turns') as $item) {
             $status = $this->str($item, 'status');
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':session_id' => $this->str($item, 'session_id'),
-                ':actor_persona_id' => $this->nullStr($item, 'actor_persona_id'),
+                ':id' => $map->resolve('turns', $this->str($item, 'id')),
+                ':session_id' => $map->resolve('sessions', $this->str($item, 'session_id')),
+                ':actor_persona_id' => $map->resolveNullable('personas', $this->nullStr($item, 'actor_persona_id')),
                 ':turn_number' => $this->int($item, 'turn_number', 1),
                 ':user_prompt' => $this->str($item, 'user_prompt'),
                 ':response_text' => $this->nullStr($item, 'response_text'),
@@ -315,7 +367,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertMessages(array $envelope): int
+    private function insertMessages(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO messages (id, session_id, turn_id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at)'
             . ' VALUES (:id, :session_id, :turn_id, :role, :content, :tool_calls, :tool_call_id, :actor_name, :actor_role, :created_at)';
@@ -324,12 +376,12 @@ final class ImportService
 
         $n = 0;
         foreach ($this->itemsOf($envelope, 'messages') as $item) {
-            $id = $this->str($item, 'id');
+            $id = $map->resolve('messages', $this->str($item, 'id'));
             $role = $this->str($item, 'role');
             $this->insert($sql, [
                 ':id' => $id,
-                ':session_id' => $this->str($item, 'session_id'),
-                ':turn_id' => $this->nullStr($item, 'turn_id'),
+                ':session_id' => $map->resolve('sessions', $this->str($item, 'session_id')),
+                ':turn_id' => $map->resolveNullable('turns', $this->nullStr($item, 'turn_id')),
                 ':role' => $role !== '' ? $role : 'assistant',
                 ':content' => $this->str($item, 'content'),
                 ':tool_calls' => $this->json($item['tool_calls'] ?? null),
@@ -346,9 +398,16 @@ final class ImportService
                     if (!is_array($attachment)) {
                         continue;
                     }
+                    // content is content-addressed (sha256 is the UNIQUE identity;
+                    // content_ref is its opaque, preserved self-key), so it is never
+                    // registered as a remap namespace. resolve() therefore returns an
+                    // id-shaped content_ref that IS a content key rewritten and a
+                    // never-registered one (a real content ref, a path-shaped artifact
+                    // ref) untouched — here it passes through, matching the preserved
+                    // content row.
                     $this->insert($attachmentSql, [
                         ':message_id' => $id,
-                        ':content_ref' => $this->str($attachment, 'content_ref'),
+                        ':content_ref' => $map->resolve('content', $this->str($attachment, 'content_ref')),
                         ':mime_type' => $this->str($attachment, 'mime_type'),
                     ]);
                 }
@@ -390,7 +449,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertLoops(array $envelope): int
+    private function insertLoops(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO loops (id, definition_name, persona_id, session_id, goal, status, current_iteration, current_stage, max_iterations, deadline, termination_criteria, configuration, origin, started_at, completed_at, last_activity_at, rework_attempts, dispatch_state, last_dispatch_error, metadata)'
             . ' VALUES (:id, :definition_name, :persona_id, :session_id, :goal, :status, :current_iteration, :current_stage, :max_iterations, :deadline, :termination_criteria, :configuration, :origin, :started_at, :completed_at, :last_activity_at, :rework_attempts, :dispatch_state, :last_dispatch_error, :metadata)';
@@ -405,10 +464,10 @@ final class ImportService
                 : null;
 
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
+                ':id' => $map->resolve('loops', $this->str($item, 'id')),
                 ':definition_name' => $this->str($item, 'definition_name'),
-                ':persona_id' => $this->nullStr($item, 'persona_id'),
-                ':session_id' => $this->nullStr($item, 'session_id'),
+                ':persona_id' => $map->resolveNullable('personas', $this->nullStr($item, 'persona_id')),
+                ':session_id' => $map->resolveNullable('sessions', $this->nullStr($item, 'session_id')),
                 ':goal' => $this->str($item, 'goal'),
                 ':status' => $status !== '' ? $status : 'running',
                 ':current_iteration' => $this->int($item, 'current_iteration', 0),
@@ -436,7 +495,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertLoopIterations(array $envelope): int
+    private function insertLoopIterations(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO loop_iterations (id, loop_id, iteration_number, status, outcome_summary, started_at, completed_at)'
             . ' VALUES (:id, :loop_id, :iteration_number, :status, :outcome_summary, :started_at, :completed_at)';
@@ -445,8 +504,8 @@ final class ImportService
         foreach ($this->itemsOf($envelope, 'loop_iterations') as $item) {
             $status = $this->str($item, 'status');
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':loop_id' => $this->str($item, 'loop_id'),
+                ':id' => $map->resolve('loop_iterations', $this->str($item, 'id')),
+                ':loop_id' => $map->resolve('loops', $this->str($item, 'loop_id')),
                 ':iteration_number' => $this->int($item, 'iteration_number', 1),
                 ':status' => $status !== '' ? $status : 'pending',
                 ':outcome_summary' => $this->nullStr($item, 'outcome_summary'),
@@ -462,7 +521,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertLoopStages(array $envelope): int
+    private function insertLoopStages(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO loop_stages (id, iteration_id, stage_index, role, task_id, artifact_id, status, result_summary, started_at, completed_at, verdict)'
             . ' VALUES (:id, :iteration_id, :stage_index, :role, :task_id, :artifact_id, :status, :result_summary, :started_at, :completed_at, :verdict)';
@@ -471,13 +530,15 @@ final class ImportService
         foreach ($this->itemsOf($envelope, 'loop_stages') as $item) {
             $status = $this->str($item, 'status');
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':iteration_id' => $this->str($item, 'iteration_id'),
+                ':id' => $map->resolve('loop_stages', $this->str($item, 'id')),
+                ':iteration_id' => $map->resolve('loop_iterations', $this->str($item, 'iteration_id')),
                 ':stage_index' => $this->int($item, 'stage_index', 0),
                 ':role' => $this->str($item, 'role'),
-                // The wire renames the coqui `task_id` column to `job_id`.
+                // The wire renames the coqui `task_id` column to `job_id`. `jobs` is a
+                // diagnostics collection that is validated-but-never-imported, so there
+                // is no jobs namespace to remap into — the reference is left as-is.
                 ':task_id' => $this->nullStr($item, 'job_id'),
-                ':artifact_id' => $this->nullStr($item, 'artifact_id'),
+                ':artifact_id' => $map->resolveNullable('artifacts', $this->nullStr($item, 'artifact_id')),
                 ':status' => $status !== '' ? $status : 'pending',
                 ':result_summary' => $this->nullStr($item, 'result_summary'),
                 ':started_at' => $this->nullStr($item, 'started_at'),
@@ -493,7 +554,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertChildRuns(array $envelope): int
+    private function insertChildRuns(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO child_runs (id, parent_session_id, parent_turn_id, role, model, prompt, result, status, prompt_tokens, completion_tokens, total_tokens, created_at, completed_at)'
             . ' VALUES (:id, :parent_session_id, :parent_turn_id, :role, :model, :prompt, :result, :status, :prompt_tokens, :completion_tokens, :total_tokens, :created_at, :completed_at)';
@@ -502,9 +563,9 @@ final class ImportService
         foreach ($this->itemsOf($envelope, 'child_runs') as $item) {
             $status = $this->str($item, 'status');
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':parent_session_id' => $this->str($item, 'parent_session_id'),
-                ':parent_turn_id' => $this->nullStr($item, 'parent_turn_id'),
+                ':id' => $map->resolve('child_runs', $this->str($item, 'id')),
+                ':parent_session_id' => $map->resolve('sessions', $this->str($item, 'parent_session_id')),
+                ':parent_turn_id' => $map->resolveNullable('turns', $this->nullStr($item, 'parent_turn_id')),
                 ':role' => $this->str($item, 'role'),
                 ':model' => $this->nullStr($item, 'model'),
                 ':prompt' => $this->str($item, 'prompt'),
@@ -525,7 +586,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertQuestions(array $envelope): int
+    private function insertQuestions(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO questions (id, session_id, turn_id, loop_id, stage_id, responder_kind, request, answer, status, created_at, answered_at)'
             . ' VALUES (:id, :session_id, :turn_id, :loop_id, :stage_id, :responder_kind, :request, :answer, :status, :created_at, :answered_at)';
@@ -535,17 +596,23 @@ final class ImportService
             $request = $this->rebuildQuestionRequest($item);
             $answer = $this->rebuildQuestionAnswer($item, $request);
             $status = $this->str($item, 'status');
+            $questionId = $map->resolve('questions', $request->id);
+
+            // The persisted request JSON embeds the question id; keep it in lockstep
+            // with the (possibly remapped) row id so the object surface stays coherent.
+            $requestArray = $request->toArray();
+            $requestArray['id'] = $questionId;
 
             $this->insert($sql, [
-                ':id' => $request->id,
-                ':session_id' => $this->str($item, 'session_id'),
+                ':id' => $questionId,
+                ':session_id' => $map->resolve('sessions', $this->str($item, 'session_id')),
                 // Internal correlation columns are not on the wire; import restores
                 // the object surface only, so they stay null.
                 ':turn_id' => null,
                 ':loop_id' => null,
                 ':stage_id' => null,
                 ':responder_kind' => 'interactive',
-                ':request' => json_encode($request->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                ':request' => json_encode($requestArray, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 ':answer' => $answer === null
                     ? null
                     : json_encode($answer->toArray(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
@@ -566,7 +633,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertArtifacts(array $envelope): int
+    private function insertArtifacts(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, path, content_hash, version, metadata, created_at, updated_at)'
             . ' VALUES (:id, :session_id, :turn_id, :title, :type, :content, :language, :filepath, :path, :content_hash, :version, :metadata, :created_at, :updated_at)';
@@ -576,8 +643,8 @@ final class ImportService
             $type = $this->str($item, 'type');
             $createdAt = $this->str($item, 'created_at');
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
-                ':session_id' => $this->str($item, 'session_id'),
+                ':id' => $map->resolve('artifacts', $this->str($item, 'id')),
+                ':session_id' => $map->resolve('sessions', $this->str($item, 'session_id')),
                 ':turn_id' => null,
                 // The wire renames `title` to `name`.
                 ':title' => $this->str($item, 'name'),
@@ -585,8 +652,11 @@ final class ImportService
                 ':content' => '',
                 ':language' => null,
                 ':filepath' => null,
-                // content_ref is projected from `path` (else content_hash); restore path.
-                ':path' => $this->str($item, 'content_ref'),
+                // content_ref is projected from `path` (else content_hash); restore
+                // path. An artifact ref is a filesystem path (e.g. artifacts/x/out.md),
+                // never a content key, so resolve() through the (empty) content
+                // namespace leaves it intact.
+                ':path' => $map->resolve('content', $this->str($item, 'content_ref')),
                 ':content_hash' => null,
                 ':version' => 1,
                 ':metadata' => $this->json($item['metadata'] ?? null),
@@ -602,7 +672,7 @@ final class ImportService
     /**
      * @param array<string, mixed> $envelope
      */
-    private function insertScheduledTasks(array $envelope): int
+    private function insertScheduledTasks(array $envelope, ImportIdMap $map): int
     {
         $sql = 'INSERT INTO scheduled_tasks (id, name, cron, persona_id, action_kind, prompt, definition_name, enabled, last_run_at, next_run_at, created_at, updated_at)'
             . ' VALUES (:id, :name, :cron, :persona_id, :action_kind, :prompt, :definition_name, :enabled, :last_run_at, :next_run_at, :created_at, :updated_at)';
@@ -615,10 +685,10 @@ final class ImportService
             $createdAt = $this->str($item, 'created_at');
 
             $this->insert($sql, [
-                ':id' => $this->str($item, 'id'),
+                ':id' => $map->resolve('scheduled_tasks', $this->str($item, 'id')),
                 ':name' => $this->str($item, 'name'),
                 ':cron' => $this->str($item, 'cron'),
-                ':persona_id' => $this->nullStr($item, 'persona_id'),
+                ':persona_id' => $map->resolveNullable('personas', $this->nullStr($item, 'persona_id')),
                 ':action_kind' => $kind === 'loop' ? 'loop' : 'turn',
                 ':prompt' => $kind === 'loop'
                     ? null

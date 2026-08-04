@@ -52,6 +52,8 @@ use CoquiBot\Coqui\Contract\QuestionResponse;
 use CoquiBot\Coqui\Contract\TerminationCondition;
 use CoquiBot\Coqui\Contract\TerminationType;
 use CoquiBot\Coqui\Exception\RequestBodyException;
+use CoquiBot\Coqui\Import\ImportMode;
+use CoquiBot\Coqui\Import\ImportService;
 use CoquiBot\Coqui\Export\AuditRecordProducer;
 use CoquiBot\Coqui\Export\ContentProducer;
 use CoquiBot\Coqui\Export\ExportCollectionMap;
@@ -71,6 +73,7 @@ use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
+use CoquiBot\Coqui\Tests\Conformance\Support\ExportEnvelopeFixture;
 
 // CAP 0.5.0 Core conformance scoreboard (conformance/checklist.md, CORE-1..CORE-59).
 // Each row starts as a todo and is replaced by a real assertion in the phase that
@@ -2415,10 +2418,190 @@ it('CORE-49: question wire is rich (multi-select) with a typed {value,label} opt
     expect($v->isValid('question.json', $bad))->toBeFalse();
 })->group('conformance');
 
+/**
+ * A fresh import target: a store with every DB-backed table created plus an
+ * ImportService bound to its connection, and the temp paths to clean up. Named for
+ * CORE-56 to avoid colliding with the unit suite's freshImportTarget() (Pest
+ * test-file functions share one global namespace).
+ *
+ * @return array{0: SessionStorage, 1: ImportService, 2: string, 3: string}
+ */
+function core56FreshTarget(): array
+{
+    $dbPath = sys_get_temp_dir() . '/coqui-core56-dst-' . bin2hex(random_bytes(8)) . '.db';
+    $workspace = sys_get_temp_dir() . '/coqui-core56-dst-ws-' . bin2hex(random_bytes(6));
+    mkdir($workspace, 0775, true);
+
+    $storage = new SessionStorage($dbPath);
+    $pdo = $storage->pdo();
+    new LoopStore($pdo);
+    new ScheduleStore($pdo);
+    new SkillLifecycleStore($pdo);
+    new ArtifactStore($pdo, new ArtifactFileService($workspace));
+
+    return [$storage, new ImportService($pdo, new ConformanceValidator()), $dbPath, $workspace];
+}
+
+/**
+ * Build the reference envelope: the full DB-backed graph (with a group session that
+ * carries a NON-owner member, so `session_members` has a join row to rewrite) plus a
+ * schema-valid, file-authored `roles` collection injected on top — roles have no DB
+ * table, so they must be supplied at the envelope surface.
+ *
+ * @return array<string, mixed>
+ */
+function core56ReferenceEnvelope(): array
+{
+    $srcDb = sys_get_temp_dir() . '/coqui-core56-src-' . bin2hex(random_bytes(8)) . '.db';
+    $srcWs = sys_get_temp_dir() . '/coqui-core56-src-ws-' . bin2hex(random_bytes(6));
+    mkdir($srcWs, 0775, true);
+
+    try {
+        $source = new SessionStorage($srcDb);
+        new LoopStore($source->pdo());
+        new ScheduleStore($source->pdo());
+        new SkillLifecycleStore($source->pdo());
+        ExportEnvelopeFixture::seed($source, $srcWs);
+        ExportEnvelopeFixture::seedGroupMember($source);
+        $envelope = ExportEnvelopeFixture::assemble($source);
+
+        // roles are file-authored (no DB table); inject a schema-valid role.json so
+        // the name-keyed non-remap can be asserted on the envelope surface.
+        $envelope['roles'] = [[
+            'name' => 'orchestrator',
+            'access_level' => 'full',
+            'version' => 1,
+            'model' => 'anthropic/claude-sonnet-4',
+            'toolkits' => ['filesystem', 'shell'],
+            'max_iterations' => 12,
+            'gate' => false,
+            'instructions' => 'Coordinate stages and delegate to specialized roles.',
+        ]];
+
+        return $envelope;
+    } finally {
+        cleanupSqliteTestDb($srcDb);
+        cleanupTestTree($srcWs);
+    }
+}
+
+/**
+ * Import $envelope into a fresh store under $mode and re-assemble the DB-backed
+ * envelope. `roles` never persist (file-authored; import validates but skips them),
+ * so they are carried forward from the source unchanged — which is exactly what
+ * "remap does not touch a name-keyed collection" means for a role.
+ *
+ * @param array<string, mixed> $envelope
+ * @return array<string, mixed>
+ */
+function core56ImportRoundtrip(array $envelope, ImportMode $mode): array
+{
+    [$target, $import, $db, $ws] = core56FreshTarget();
+
+    try {
+        $import->import($envelope, $mode);
+        $reassembled = ExportEnvelopeFixture::assemble($target);
+        if (isset($envelope['roles'])) {
+            $reassembled['roles'] = $envelope['roles'];
+        }
+
+        return $reassembled;
+    } finally {
+        cleanupSqliteTestDb($db);
+        cleanupTestTree($ws);
+    }
+}
+
+it('CORE-56: import supports preserve and remap; remap atomically rewrites every imported FK', function () {
+    $envelope = core56ReferenceEnvelope();
+
+    // The group session contributed a real NON-owner join row: the remap must rewrite
+    // session_members.{session_id, persona_id}, not merely top-level PKs.
+    $ownerless = array_values(array_filter(
+        $envelope['session_members'],
+        static fn(array $m): bool => $m['persona_id'] === ExportEnvelopeFixture::SECOND_PERSONA_ID,
+    ));
+    expect($ownerless)->toHaveCount(1);
+
+    // (a) PRESERVE keeps every id identical across a store roundtrip.
+    $preserved = core56ImportRoundtrip($envelope, ImportMode::Preserve);
+    expect(ExportEnvelopeFixture::canonical($preserved))
+        ->toBe(ExportEnvelopeFixture::canonical($envelope));
+
+    // (b) REMAP regenerates every imported id-keyed PK but preserves the graph shape
+    // + FK CONSISTENCY. SCOPE: "every FK" is the foreign keys of the IMPORTED
+    // collections. `memories.persona_id` is a documented carry-forward the import
+    // never persists or rewrites — it is intentionally OUTSIDE this claim, so the
+    // assertions below never imply memories was remapped.
+    $remapped = core56ImportRoundtrip($envelope, ImportMode::Remap);
+
+    // Every imported id-keyed PK changed (the id sets are disjoint from the source's).
+    $sessionIds = array_column($remapped['sessions'], 'id');
+    $personaIds = array_column($remapped['personas'], 'id');
+    $turnIds = array_column($remapped['turns'], 'id');
+    $loopIds = array_column($remapped['loops'], 'id');
+    $iterationIds = array_column($remapped['loop_iterations'], 'id');
+
+    expect($sessionIds)->not->toContain($envelope['sessions'][0]['id']);
+    expect($personaIds)->not->toContain($envelope['personas'][0]['id']);
+    expect($remapped['turns'][0]['id'])->not->toBe($envelope['turns'][0]['id']);
+    expect($remapped['messages'][0]['id'])->not->toBe($envelope['messages'][0]['id']);
+    expect($remapped['loops'][0]['id'])->not->toBe($envelope['loops'][0]['id']);
+    expect($remapped['artifacts'][0]['id'])->not->toBe($envelope['artifacts'][0]['id']);
+    expect($remapped['questions'][0]['id'])->not->toBe($envelope['questions'][0]['id']);
+    expect($remapped['scheduled_tasks'][0]['id'])->not->toBe($envelope['scheduled_tasks'][0]['id']);
+
+    // Referential integrity over the remapped graph: every FK resolves to a remapped
+    // row, never to an old id and never dangling.
+    foreach ($remapped['session_members'] as $m) {
+        expect($sessionIds)->toContain($m['session_id']);
+        expect($personaIds)->toContain($m['persona_id']);
+    }
+    foreach ($remapped['turns'] as $t) {
+        expect($sessionIds)->toContain($t['session_id']);
+        if (($t['actor_persona_id'] ?? null) !== null) {
+            expect($personaIds)->toContain($t['actor_persona_id']);
+        }
+    }
+    foreach ($remapped['messages'] as $msg) {
+        expect($sessionIds)->toContain($msg['session_id']);
+        if (($msg['turn_id'] ?? null) !== null) {
+            expect($turnIds)->toContain($msg['turn_id']);
+        }
+    }
+    foreach ($remapped['loop_iterations'] as $it) {
+        expect($loopIds)->toContain($it['loop_id']);
+    }
+    foreach ($remapped['loop_stages'] as $st) {
+        expect($iterationIds)->toContain($st['iteration_id']);
+    }
+    foreach ($remapped['child_runs'] as $cr) {
+        expect($sessionIds)->toContain($cr['parent_session_id']);
+    }
+    foreach ($remapped['questions'] as $q) {
+        expect($sessionIds)->toContain($q['session_id']);
+    }
+    foreach ($remapped['artifacts'] as $art) {
+        expect($sessionIds)->toContain($art['session_id']);
+    }
+    foreach ($remapped['scheduled_tasks'] as $task) {
+        if (($task['persona_id'] ?? null) !== null) {
+            expect($personaIds)->toContain($task['persona_id']);
+        }
+    }
+
+    // (c) NAME-keyed collections are NOT remapped. `skills` roundtrips through the DB
+    // (real teeth: a store-derived name survived); `roles` is file-authored and passes
+    // through untouched.
+    expect(array_column($remapped['skills'], 'name'))
+        ->toBe(array_column($envelope['skills'], 'name'));
+    expect(array_column($remapped['roles'], 'name'))
+        ->toBe(array_column($envelope['roles'], 'name'));
+})->group('conformance');
+
 $rows = [
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
-    'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
 ];
 

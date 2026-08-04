@@ -149,6 +149,54 @@ final class ExportEnvelopeFixture
         );
     }
 
+    public const string SECOND_PERSONA_ID = 'persona_nova';
+
+    /**
+     * Seed a SECOND persona and a group session that keeps {@see PERSONA_ID} as its
+     * OWNER (a wire session requires a non-empty owner `persona_id`) while adding the
+     * second persona as a NON-owner member. That populates the `session_group_members`
+     * join with a real non-owner row — the path the solo-owner {@see seed()} never
+     * exercises — so the remap has a `session_members.{session_id, persona_id}` join
+     * to rewrite.
+     */
+    public static function seedGroupMember(SessionStorage $storage): void
+    {
+        $pdo = $storage->pdo();
+
+        $pdo->prepare(
+            'INSERT INTO personas (id, name, avatar, model, allowed_roles, soul, backstory, context, preferences, version, created_at, updated_at)'
+            . ' VALUES (:id, :name, :avatar, :model, :allowed_roles, :soul, :backstory, :context, :preferences, :version, :created_at, :updated_at)'
+        )->execute([
+            ':id' => self::SECOND_PERSONA_ID,
+            ':name' => 'Nova',
+            ':avatar' => json_encode(['tint' => '#4a2b52'], JSON_THROW_ON_ERROR),
+            ':model' => 'anthropic/claude-sonnet-4',
+            ':allowed_roles' => json_encode(['orchestrator'], JSON_THROW_ON_ERROR),
+            ':soul' => 'You are Nova, a rigorous reviewer.',
+            ':backstory' => null,
+            ':context' => null,
+            ':preferences' => null,
+            ':version' => 1,
+            ':created_at' => '2026-07-28T00:00:01Z',
+            ':updated_at' => '2026-07-28T00:00:01Z',
+        ]);
+
+        // Owner = PERSONA_ID; promote the row to a group session and add the second
+        // persona as a non-owner member row.
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', self::PERSONA_ID);
+        $pdo->prepare("UPDATE sessions SET session_type = 'group', group_enabled = 1 WHERE id = :id")
+            ->execute([':id' => $sessionId]);
+        $pdo->prepare(
+            'INSERT INTO session_group_members (session_id, persona_id, member_order, created_at)'
+            . ' VALUES (:session_id, :persona_id, :member_order, :created_at)'
+        )->execute([
+            ':session_id' => $sessionId,
+            ':persona_id' => self::SECOND_PERSONA_ID,
+            ':member_order' => 0,
+            ':created_at' => '2026-07-28T00:00:02Z',
+        ]);
+    }
+
     /**
      * Assemble the DB-backed export envelope from a live store.
      *
