@@ -22,6 +22,7 @@ use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Config\RoleParser;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
@@ -1737,6 +1738,43 @@ it('CORE-35: InstanceInfo profile_versions use semver', function () {
     expect($info['profile_versions']['mcp'])->toBe('0.3.0');
 })->group('conformance');
 
+/**
+ * Build a schema-valid InstanceInfo whose portable built-in toolkit list is the
+ * argument — production-representative (mirrors ApiCommand's wiring), varying
+ * only the builtin_toolkits so CORE-32 can assert `vision` is declared.
+ *
+ * @param list<string> $builtins
+ * @return array<string, mixed>
+ */
+function instanceInfoWithBuiltins(array $builtins): array
+{
+    return (new InstanceInfoBuilder(
+        profiles: ['artifacts', 'questions', 'skills', 'schedules', 'mcp'],
+        bindings: ['in-process', 'http-sse'],
+        builtinToolkits: $builtins,
+        mcpTransports: ['stdio'],
+        authRequired: true,
+        limits: ['max_page_size' => 100, 'max_payload_bytes' => 10_485_760, 'max_content_bytes' => 104_857_600],
+        api: ['base_path' => '/api/v1', 'api_major' => '1'],
+    ))->build();
+}
+
+it('CORE-32: vision is a declared access-gated built-in; generation is extension-only', function () {
+    $v = new ConformanceValidator();
+    $info = instanceInfoWithBuiltins(['shell', 'fs', 'web', 'vision']);
+    expect($v->isValid('instance-info.json', $info))->toBeTrue($v->errorText('instance-info.json', $info));
+    // vision (image understanding) is a portable, access-gated built-in.
+    expect($info['builtin_toolkits'])->toContain('vision');
+    // generation is NOT a built-in — it is extension-only (absent from core).
+    expect($info['builtin_toolkits'])->not->toContain('image_generation');
+    expect($info['builtin_toolkits'])->not->toContain('generate_image');
+    // "access-gated" means vision is reachable at a non-full access level:
+    // `readonly` is a valid access level in the source-of-truth constant, and
+    // VisionTool (vision_analyze) is read-safe, so it survives read-only gating.
+    $accessLevels = (new \ReflectionClass(RoleParser::class))->getConstant('VALID_ACCESS_LEVELS');
+    expect($accessLevels)->toContain('readonly');
+})->group('conformance');
+
 it('CORE-36/39: profiles is an OPEN set — an unknown profile still validates and is not rejected', function () {
     // The vendored schema puts no enum on profiles.items; an unknown profile MUST validate (CORE-39),
     // and coqui's discovery must not reject it (CORE-36 forward tolerance).
@@ -1903,7 +1941,6 @@ it('CORE-12: budget breakdown exposes priority tiers and shed order inspectably'
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
-    'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',

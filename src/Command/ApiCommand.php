@@ -792,7 +792,10 @@ final class ApiCommand extends Command
             defaultModel: $defaultModel,
             models: $models,
             // Portable built-in toolkits; native host toolkits are absent (⇒ none).
-            builtinToolkits: ['shell', 'fs', 'web'],
+            // `vision` (VisionTool/vision_analyze) is an access-gated built-in:
+            // read-safe, reachable at `readonly`. Image generation stays
+            // extension-only (no generation tool exists in core).
+            builtinToolkits: ['shell', 'fs', 'web', 'vision'],
             // Only the stdio transport class exists today.
             mcpTransports: ['stdio'],
             // Omit auth entirely when embedded/no-key; require it when a key is set.
