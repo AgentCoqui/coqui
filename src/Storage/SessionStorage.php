@@ -212,6 +212,24 @@ final class SessionStorage
         SQL);
         $this->db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_content_sha256 ON content (sha256)');
 
+        // CAP 0.5.0 typed message attachments (attachment.json). Each row is a
+        // reference from a message to a Content blob, routed by mime_type. The
+        // content_ref is the opaque handle carried on the wire; it is NOT a foreign
+        // key into `content` — a message MAY reference a blob whose row is absent
+        // (e.g. imported/remapped history under PRAGMA foreign_keys=ON), so only the
+        // owning message FK is enforced (attachments cascade when the message is
+        // deleted). Ordering is stable by insertion via the autoincrement rowid.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS message_attachments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id  TEXT NOT NULL,
+                content_ref TEXT NOT NULL,
+                mime_type   TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )
+        SQL);
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_message_attachments_message ON message_attachments (message_id)');
+
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS audit_log (
                 id TEXT PRIMARY KEY,
@@ -1261,6 +1279,10 @@ final class SessionStorage
         return $this->db;
     }
 
+    /**
+     * @param list<array{content_ref: string, mime_type: string}>|null $attachments
+     *        Optional typed attachments (attachment.json shape) to carry on the message.
+     */
     public function addMessage(
         string $sessionId,
         string $role,
@@ -1270,6 +1292,7 @@ final class SessionStorage
         ?string $turnId = null,
         ?string $actorName = null,
         ?string $actorRole = null,
+        ?array $attachments = null,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
@@ -1292,10 +1315,94 @@ final class SessionStorage
             'created_at' => $now,
         ]);
 
+        if ($attachments !== null && $attachments !== []) {
+            $this->insertMessageAttachments($id, $attachments);
+        }
+
         $this->db->prepare('UPDATE sessions SET updated_at = :now WHERE id = :id')
             ->execute(['now' => $now, 'id' => $sessionId]);
 
         return $id;
+    }
+
+    /**
+     * Persist typed attachments for a message (attachment.json rows).
+     *
+     * @param list<array{content_ref: string, mime_type: string}> $attachments
+     */
+    private function insertMessageAttachments(string $messageId, array $attachments): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO message_attachments (message_id, content_ref, mime_type)
+            VALUES (:message_id, :content_ref, :mime_type)
+        SQL);
+
+        foreach ($attachments as $attachment) {
+            $stmt->execute([
+                'message_id' => $messageId,
+                'content_ref' => (string) $attachment['content_ref'],
+                'mime_type' => (string) $attachment['mime_type'],
+            ]);
+        }
+    }
+
+    /**
+     * Fetch typed attachments for a set of messages, grouped by message id.
+     *
+     * @param list<string> $messageIds
+     * @return array<string, list<array{content_ref: string, mime_type: string}>>
+     */
+    private function attachmentsByMessage(array $messageIds): array
+    {
+        if ($messageIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT message_id, content_ref, mime_type
+            FROM message_attachments
+            WHERE message_id IN ({$placeholders})
+            ORDER BY id ASC
+        SQL);
+        $stmt->execute($messageIds);
+
+        $grouped = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $grouped[(string) $row['message_id']][] = [
+                'content_ref' => (string) $row['content_ref'],
+                'mime_type' => (string) $row['mime_type'],
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Fetch a single message row in strict producer shape: carries session_id and
+     * turn_id (both required-or-nullable by message.json) plus its typed
+     * attachments[] joined from message_attachments. Returns null when absent.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getMessageRow(string $messageId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
+            FROM messages
+            WHERE id = :id
+        SQL);
+        $stmt->execute(['id' => $messageId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $normalized = $this->normalizeMessageRow($row);
+        $normalized['attachments'] = $this->attachmentsByMessage([$messageId])[$messageId] ?? [];
+
+        return $normalized;
     }
 
     /**
@@ -1304,7 +1411,7 @@ final class SessionStorage
     public function getMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
+            SELECT id, session_id, turn_id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -1312,7 +1419,35 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return $this->attachMessageAttachments(
+            $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC)),
+        );
+    }
+
+    /**
+     * Join each row's typed attachments[] in a single batched query (no N+1).
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachMessageAttachments(array $rows): array
+    {
+        $ids = [];
+        foreach ($rows as $row) {
+            if (isset($row['id']) && is_string($row['id'])) {
+                $ids[] = $row['id'];
+            }
+        }
+
+        $grouped = $this->attachmentsByMessage($ids);
+
+        foreach ($rows as &$row) {
+            $id = isset($row['id']) && is_string($row['id']) ? $row['id'] : '';
+            $row['attachments'] = $grouped[$id] ?? [];
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**

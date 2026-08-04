@@ -138,7 +138,7 @@ final class ApiCommand extends Command
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
         $storage = new SessionStorage($dbPath, auditRedactor: $boot->auditRedactor());
-        $uploadStorage = new FileUploadStorage($boot->workspacePath());
+        $uploadStorage = new FileUploadStorage();
 
         // Read API key from config
         $apiKey = $this->resolveApiKey($boot);
@@ -309,7 +309,7 @@ final class ApiCommand extends Command
         );
 
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->personaDiscovery(), $personaSessionLifecycle, artifactStore: $artifactStore);
-        $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
+        $messageHandler = new MessageHandler($storage, $turnManager);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
@@ -621,9 +621,7 @@ final class ApiCommand extends Command
 
         // File uploads
         $router->post($v1 . '/sessions/{id}/files', [$fileUpload, 'upload']);
-        $router->get($v1 . '/sessions/{id}/files', [$fileUpload, 'list']);
         $router->get($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'get']);
-        $router->delete($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'delete']);
 
         // Turns
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);

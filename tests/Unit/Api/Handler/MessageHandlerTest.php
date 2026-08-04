@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
-use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use React\Http\Message\ServerRequest;
@@ -22,8 +22,7 @@ beforeEach(function () {
         sys_get_temp_dir(),
         $this->tmpDir,
     );
-    $this->uploadStorage = new FileUploadStorage($this->tmpDir);
-    $this->handler = new MessageHandler($this->storage, $this->turnManager, $this->uploadStorage);
+    $this->handler = new MessageHandler($this->storage, $this->turnManager);
     $this->sessionId = $this->storage->createSession('orchestrator', 'test/model');
 });
 
@@ -150,6 +149,65 @@ test('message handler rejects listing messages for hidden sessions', function ()
 
     expect($response->getStatusCode())->toBe(404);
     expect($body['code'])->toBe('session_not_found');
+});
+
+test('message handler 404s an attachment referencing an unknown content_ref', function () {
+    $request = new ServerRequest(
+        'POST',
+        '/api/v1/sessions/' . $this->sessionId . '/messages',
+        ['Content-Type' => 'application/json'],
+        json_encode([
+            'prompt' => 'Describe this.',
+            'attachments' => [['content_ref' => 'does-not-exist', 'mime_type' => 'image/png']],
+        ]) ?: '',
+    );
+
+    $response = $this->handler->send($request, $this->sessionId);
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(404);
+    expect($body['code'])->toBe('content_not_found');
+});
+
+test('message handler resolves an attachment by content_ref past the store lookup', function () {
+    // A real blob in the content store; the send should resolve it, then hit the
+    // active-run guard (proving resolution succeeded — a bad ref would 404 first).
+    $content = new ContentStore($this->storage->getPdo());
+    $stored = $content->store('hello world', 'text/plain');
+
+    markTurnManagerSessionActive($this->turnManager, $this->sessionId);
+
+    $request = new ServerRequest(
+        'POST',
+        '/api/v1/sessions/' . $this->sessionId . '/messages',
+        ['Content-Type' => 'application/json'],
+        json_encode([
+            'prompt' => 'Summarize the attachment.',
+            'attachments' => [['content_ref' => $stored['content_ref'], 'mime_type' => 'text/plain']],
+        ]) ?: '',
+    );
+
+    $response = $this->handler->send($request, $this->sessionId);
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(409);
+    expect($body['code'])->toBe('agent_busy');
+});
+
+test('message handler serializes a stored message with a content_ref attachment', function () {
+    $content = new ContentStore($this->storage->getPdo());
+    $stored = $content->store('attach me', 'text/plain');
+
+    $mid = $this->storage->addMessage($this->sessionId, 'user', 'see attached', attachments: [
+        ['content_ref' => $stored['content_ref'], 'mime_type' => 'text/plain'],
+    ]);
+
+    $wire = MessageHandler::toWire($this->storage->getMessageRow($mid));
+
+    expect($wire['session_id'])->toBe($this->sessionId);
+    expect($wire['attachments'])->toBe([
+        ['content_ref' => $stored['content_ref'], 'mime_type' => 'text/plain'],
+    ]);
 });
 
 test('message handler complete extraction preserves rich turn summary payload', function () {

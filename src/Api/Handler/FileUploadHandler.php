@@ -15,17 +15,18 @@ use Psr\Http\Message\UploadedFileInterface;
 use React\Http\Message\Response;
 
 /**
- * Content endpoints for session-scoped blobs (CAP 0.5.0 putContent/getContent).
+ * Content endpoints for content-addressed blobs (CAP 0.5.0 putContent/getContent).
  *
  * POST   /api/v1/sessions/{id}/files            — upload one blob (multipart OR raw binary)
- * GET    /api/v1/sessions/{id}/files            — list session uploads
  * GET    /api/v1/sessions/{id}/files/{ref}      — download a blob by content_ref (Range-aware)
- * DELETE /api/v1/sessions/{id}/files/{fileId}   — delete a session upload
  *
- * Upload and download flow through the content-addressed {@see ContentStore}: an
- * upload returns a typed `content.json` object and a download serves the stored
- * bytes by `content_ref`, honoring a `Range` header with a 206 partial response.
- * `list`/`delete` remain on the per-session {@see FileUploadStorage} surface.
+ * Both flow through the content-addressed {@see ContentStore}: an upload returns a
+ * typed `content.json` object addressed by the SHA-256 of its bytes, and a
+ * download serves the stored bytes by `content_ref`, honoring a `Range` header
+ * with a 206 partial response. There is no per-session mutable file collection:
+ * content is immutable and deduplicated, referenced by typed message
+ * `attachments[]`, so the legacy per-session list/delete surface is gone.
+ * {@see FileUploadStorage} is retained only for the upload MIME/size policy.
  */
 final readonly class FileUploadHandler
 {
@@ -124,25 +125,6 @@ final readonly class FileUploadHandler
     }
 
     /**
-     * GET /api/v1/sessions/{id}/files
-     */
-    public function list(ServerRequestInterface $request, string $id): Response
-    {
-        $session = SessionAccess::requireReadableSession($this->sessionStorage, $id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $files = $this->uploadStorage->list($id);
-
-        return Router::jsonResponse([
-            'session_id' => $id,
-            'files' => $files,
-            'count' => count($files),
-        ]);
-    }
-
-    /**
      * GET /api/v1/sessions/{id}/files/{ref}
      *
      * Serves a content-addressed blob by `content_ref`. Honors a single
@@ -217,25 +199,6 @@ final readonly class FileUploadHandler
         }
 
         return [$start, min($end, $total - 1)];
-    }
-
-    /**
-     * DELETE /api/v1/sessions/{id}/files/{fileId}
-     */
-    public function delete(ServerRequestInterface $request, string $id, string $fileId): Response
-    {
-        $session = SessionAccess::requireWritableSession($this->sessionStorage, $id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $deleted = $this->uploadStorage->delete($id, $fileId);
-
-        if (!$deleted) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'File not found');
-        }
-
-        return Router::jsonResponse(['deleted' => true]);
     }
 
     /**

@@ -8,7 +8,8 @@ use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
-use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Content\ContentStore;
+use CoquiBot\Coqui\Export\WireFormat;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use Psr\Http\Message\ServerRequestInterface;
@@ -34,11 +35,14 @@ final readonly class MessageHandler
     /** How often to poll SQLite for new events (seconds). */
     private const float POLL_INTERVAL = 0.5;
 
+    private ContentStore $contentStore;
+
     public function __construct(
         private SessionStorage $storage,
         private AgentTurnManager $turnManager,
-        private FileUploadStorage $uploadStorage,
-    ) {}
+    ) {
+        $this->contentStore = new ContentStore($storage->getPdo());
+    }
 
     /**
      * GET /api/v1/sessions/{id}/messages
@@ -60,14 +64,16 @@ final readonly class MessageHandler
     }
 
     /**
-     * POST /api/v1/sessions/{id}/messages  { "prompt": "...", "files": ["file-id-1", ...] }
+     * POST /api/v1/sessions/{id}/messages  { "prompt": "...", "attachments": [{"content_ref": "...", "mime_type": "..."}] }
      *
      * Default: returns an SSE stream.
      * With ?stream=false: blocks and returns JSON with the final result.
      *
-     * The optional "files" array references file IDs from prior uploads
-     * via POST /api/v1/sessions/{id}/files. Images are sent to the LLM as
-     * vision content; text files are injected as context in the prompt.
+     * The optional "attachments" array references content-addressed blobs by
+     * `content_ref` (from a prior POST /api/v1/sessions/{id}/files upload). Each
+     * blob's bytes are resolved from the {@see ContentStore} and passed to the
+     * turn: images are sent to the LLM as vision content; text/document blobs are
+     * injected as context in the prompt.
      */
     public function send(ServerRequestInterface $request, string $id): Response
     {
@@ -92,8 +98,8 @@ final readonly class MessageHandler
             );
         }
 
-        // Resolve optional file references to filesystem paths
-        $filePaths = $this->resolveFilePaths($id, $body);
+        // Resolve optional typed attachments (content_ref -> materialized paths)
+        $filePaths = $this->resolveAttachmentPaths($body);
         if ($filePaths instanceof Response) {
             return $filePaths; // Validation error response
         }
@@ -115,41 +121,76 @@ final readonly class MessageHandler
     }
 
     /**
-     * Resolve file IDs from the request body to filesystem paths.
+     * Resolve typed `attachments[]` from the request body into filesystem paths.
+     *
+     * Each entry is an attachment.json object; its `content_ref` is looked up in
+     * the content-addressed {@see ContentStore} (the store the upload endpoint
+     * writes) and its bytes are materialized to a short-lived scratch file, since
+     * the turn pipeline consumes filesystem paths. An unknown ref is a
+     * `content_not_found` (404); a malformed entry is a `validation_error` (422).
      *
      * @param array<string, mixed> $body
      * @return string[]|Response  Array of file paths on success, or error Response on failure.
      */
-    private function resolveFilePaths(string $sessionId, array $body): array|Response
+    private function resolveAttachmentPaths(array $body): array|Response
     {
-        if (!isset($body['files']) || !is_array($body['files'])) {
+        if (!isset($body['attachments']) || !is_array($body['attachments'])) {
             return [];
         }
 
-        $fileIds = $body['files'];
         $paths = [];
 
-        foreach ($fileIds as $fileId) {
-            if (!is_string($fileId)) {
+        foreach ($body['attachments'] as $attachment) {
+            if (!is_array($attachment) || !isset($attachment['content_ref']) || !is_string($attachment['content_ref'])) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
-                    'Each entry in "files" must be a string file ID',
+                    'Each entry in "attachments" must be an object with a string "content_ref"',
                 );
             }
 
-            $filePath = $this->uploadStorage->getFilePath($sessionId, $fileId);
+            $contentRef = $attachment['content_ref'];
+            $bytes = $this->contentStore->readBytes($contentRef);
 
-            if ($filePath === null) {
+            if ($bytes === null) {
                 return Router::errorResponse(
-                    ApiErrorCode::NOT_FOUND,
-                    sprintf('File "%s" not found in this session', $fileId),
+                    ApiErrorCode::CONTENT_NOT_FOUND,
+                    sprintf('Content "%s" not found', $contentRef),
                 );
             }
 
-            $paths[] = $filePath;
+            $path = $this->materializeAttachment($contentRef, $bytes);
+
+            if ($path === null) {
+                return Router::errorResponse(
+                    ApiErrorCode::INTERNAL_ERROR,
+                    'Failed to materialize attachment content',
+                );
+            }
+
+            $paths[] = $path;
         }
 
         return $paths;
+    }
+
+    /**
+     * Materialize a content blob's bytes to a scratch file for the turn to read.
+     *
+     * The turn pipeline (and {@see \CoquiBot\Coqui\Agent\AgentRunner::buildUserMessage})
+     * consumes filesystem paths and sniffs the MIME from the file bytes, so the
+     * scratch name is arbitrary. Returns the path, or null on a write failure.
+     */
+    private function materializeAttachment(string $contentRef, string $bytes): ?string
+    {
+        $dir = sys_get_temp_dir() . '/coqui-attachments';
+        if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+            return null;
+        }
+
+        $safeRef = preg_replace('/[^a-zA-Z0-9_-]/', '', $contentRef) ?? '';
+        $path = $dir . '/' . bin2hex(random_bytes(6)) . '-' . $safeRef;
+
+        return file_put_contents($path, $bytes) !== false ? $path : null;
     }
 
     /**
@@ -392,6 +433,75 @@ final readonly class MessageHandler
         $sse .= "data: {$data}\n\n";
 
         $stream->write($sse);
+    }
+
+    /**
+     * Project a persisted message row onto the strict `message.json` wire shape.
+     *
+     * Emits only schema-declared properties (the schema is
+     * `additionalProperties: false`): the required `id`/`session_id`/`role`/
+     * `content`/`created_at`, the nullable `turn_id`, the typed `tool_calls`
+     * (decoded from its stored JSON string), the nullable `tool_call_id`/
+     * `actor_name`/`actor_role`, and the typed `attachments[]` of
+     * `{content_ref, mime_type}`. `attachments` is omitted when the message
+     * carries none, keeping the object minimal.
+     *
+     * @param array<string, mixed> $row A row from {@see SessionStorage::getMessageRow()}.
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $row): array
+    {
+        $turnId = $row['turn_id'] ?? null;
+        $toolCallId = $row['tool_call_id'] ?? null;
+        $actorName = $row['actor_name'] ?? null;
+        $actorRole = $row['actor_role'] ?? null;
+
+        $wire = [
+            'id' => (string) ($row['id'] ?? ''),
+            'session_id' => (string) ($row['session_id'] ?? ''),
+            'turn_id' => is_string($turnId) && $turnId !== '' ? $turnId : null,
+            'role' => (string) ($row['role'] ?? ''),
+            'content' => (string) ($row['content'] ?? ''),
+            'tool_calls' => WireFormat::array($row['tool_calls'] ?? null),
+            'tool_call_id' => is_string($toolCallId) && $toolCallId !== '' ? $toolCallId : null,
+            'actor_name' => is_string($actorName) && $actorName !== '' ? $actorName : null,
+            'actor_role' => is_string($actorRole) && $actorRole !== '' ? $actorRole : null,
+            'created_at' => WireFormat::timestamp($row['created_at'] ?? null),
+        ];
+
+        $attachments = self::projectAttachments($row['attachments'] ?? []);
+        if ($attachments !== []) {
+            $wire['attachments'] = $attachments;
+        }
+
+        return $wire;
+    }
+
+    /**
+     * Reduce joined attachment rows to the strict `{content_ref, mime_type}` shape.
+     *
+     * @param mixed $attachments
+     * @return list<array{content_ref: string, mime_type: string}>
+     */
+    private static function projectAttachments(mixed $attachments): array
+    {
+        if (!is_array($attachments)) {
+            return [];
+        }
+
+        $projected = [];
+        foreach ($attachments as $attachment) {
+            if (!is_array($attachment) || !isset($attachment['content_ref'], $attachment['mime_type'])) {
+                continue;
+            }
+
+            $projected[] = [
+                'content_ref' => (string) $attachment['content_ref'],
+                'mime_type' => (string) $attachment['mime_type'],
+            ];
+        }
+
+        return $projected;
     }
 
     /**

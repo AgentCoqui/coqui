@@ -915,16 +915,16 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 ```json
 {
   "prompt": "What files are in the src directory?",
-  "files": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]
+  "attachments": [{ "content_ref": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6", "mime_type": "image/png" }]
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `prompt` | string | Yes | The user prompt to send to the agent |
-| `files` | string[] | No | Array of file IDs from prior uploads (see [Files](#files)) |
+| `attachments` | object[] | No | Typed `attachment.json` references (`{content_ref, mime_type}`) to content-addressed blobs from prior uploads (see [Files](#files)) |
 
-When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
+When `attachments` are provided, each `content_ref` is resolved from the content-addressed store and attached to the message. Image blobs (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document blobs are read and injected as context blocks in the prompt. An unknown `content_ref` is rejected with `404 content_not_found`.
 
 Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a personaScoped conversation has been archived and closed.
 
@@ -1205,7 +1205,7 @@ Delete a specific message from a session.
 
 ### Files
 
-Files are session-scoped uploads that can be attached to messages for multimodal context. Images are sent to the LLM via vision APIs; text and document files are injected as context in the prompt.
+Files are content-addressed blobs. An upload persists the bytes once (deduplicated by SHA-256) and returns a `content_ref`; a message references them by typed `attachments[]` of `{content_ref, mime_type}` for multimodal context. Images are sent to the LLM via vision APIs; text and document blobs are injected as context in the prompt. Content is immutable and shared — there is no per-session mutable file list, so the collection is create-and-read only (no list or delete endpoint).
 
 **Supported MIME types:**
 
@@ -1225,7 +1225,7 @@ Upload a single content blob to a session. Accepts either `multipart/form-data` 
 
 The blob is stored content-addressed: the response is a CAP `content.json` object keyed by the SHA-256 of the bytes. Re-uploading identical bytes returns the existing object (the same `content_ref`).
 
-Closed or archived sessions are read-only. `POST` and `DELETE` file endpoints return `409 session_closed` when clients try to mutate historical sessions.
+Closed or archived sessions are read-only: the upload endpoint returns `409 session_closed` when clients try to add content to a historical session.
 
 **Request**
 
@@ -1267,29 +1267,6 @@ curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
 | `404` | `session_not_found` | Session does not exist |
 | `413` | `payload_too_large` | Blob exceeds the 50 MiB maximum |
 
-#### `GET /api/v1/sessions/{id}/files`
-
-List all uploaded files for a session.
-
-**Response `200`**
-
-```json
-{
-  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "files": [
-    {
-      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "screenshot.png",
-      "mime_type": "image/png",
-      "size": 245760,
-      "is_image": true,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    }
-  ],
-  "count": 1
-}
-```
-
 #### `GET /api/v1/sessions/{id}/files/{ref}`
 
 Download a content blob by its `content_ref`. Returns the stored bytes with appropriate headers.
@@ -1316,25 +1293,6 @@ A malformed, multi-range, or unsatisfiable `Range` is ignored and the full blob 
 |--------|------|-----------|
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `content_not_found` | No blob for that `content_ref` |
-
-#### `DELETE /api/v1/sessions/{id}/files/{fileId}`
-
-Delete a specific uploaded file.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Error Responses**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| `404` | `session_not_found` | Session does not exist |
-| `404` | `not_found` | File not found |
 
 ### Turns
 
@@ -4574,10 +4532,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
 | `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (`SSE` by default, `?stream=false` for blocking) |
 | `DELETE` | `/api/v1/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
-| `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload files (multipart) |
-| `GET` | `/api/v1/sessions/{id}/files` | Yes | List uploaded files |
-| `GET` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Download a file |
-| `DELETE` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
+| `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload a content blob (multipart or raw binary) |
+| `GET` | `/api/v1/sessions/{id}/files/{ref}` | Yes | Download a blob by `content_ref` (Range-aware) |
 | `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |

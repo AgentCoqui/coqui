@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
+use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -849,6 +850,31 @@ it('CORE-42: content is a typed object addressed by an opaque ref; sha256 identi
     }
 })->group('conformance');
 
+it('CORE-43: messages carry typed attachments of {content_ref, mime_type}', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-core43-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $storage = new SessionStorage($dbPath);
+        $sid = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4');
+        $mid = $storage->addMessage($sid, 'user', 'see attached', attachments: [
+            ['content_ref' => '01J00000000000000000CONTENT1', 'mime_type' => 'text/plain'],
+        ]);
+
+        $wire = MessageHandler::toWire($storage->getMessageRow($mid));
+
+        $v = new ConformanceValidator();
+        expect($v->isValid('message.json', $wire))->toBeTrue($v->errorText('message.json', $wire));
+        // The attachment is the typed {content_ref, mime_type} shape (nothing extra).
+        expect($wire['attachments'][0])->toBe([
+            'content_ref' => '01J00000000000000000CONTENT1',
+            'mime_type' => 'text/plain',
+        ]);
+        // session_id is carried (required by message.json); turn_id is optional/nullable.
+        expect($wire['session_id'])->toBe($sid);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 it('CORE-26: skills carry a typed origin (closed kind); imported/script skills are untrusted-by-default', function () {
     $dbPath = sys_get_temp_dir() . '/coqui-core26-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
@@ -1381,7 +1407,7 @@ function makeFileUploadHandler(): array
     mkdir($ws, 0755, true);
 
     $storage = new SessionStorage($dbPath);
-    $handler = new FileUploadHandler($storage, new FileUploadStorage($ws));
+    $handler = new FileUploadHandler($storage, new FileUploadStorage());
 
     return [$handler, $storage, $dbPath, $ws];
 }
@@ -1465,7 +1491,6 @@ $rows = [
     'CORE-36: responses/events are wire-tolerant: consumers MUST NOT reject unknown fields/enums',
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
     'CORE-41: SSE error events carry a code from the closed catalog',
-    'CORE-43: messages carry typed attachments[] of {content_ref, mime_type}',
     'CORE-46: discovery InstanceInfo types auth/limits/api/builtin_toolkits; auth scheme is a closed set',
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
