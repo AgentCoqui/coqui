@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopManager;
@@ -1589,20 +1590,105 @@ it('CORE-41: an SSE error frame carries a code from the closed catalog', functio
     expect($v->isValid('sse-error.json', $bad))->toBeFalse();
 })->group('conformance');
 
+/**
+ * Build a real InstanceInfoBuilder with the knobs the CORE-30/31/35/36/39/46
+ * flips need: persona_count sourced from a live PersonaDiscovery over a temp
+ * workspace (no files ⇒ 0, and nothing is written, so no cleanup), one native
+ * host toolkit, bearer auth, typed limits/api/builtin_toolkits, and optional
+ * mcp / profile_versions / an extra (unknown) profile.
+ *
+ * @param array<string, string> $profileVersions
+ */
+function makeInstanceInfoBuilder(bool $withMcp = false, array $profileVersions = [], ?string $extraProfile = null): InstanceInfoBuilder
+{
+    // Live source for persona_count over a temp workspace (missing ⇒ empty).
+    $personaCount = count(
+        (new PersonaDiscovery(sys_get_temp_dir() . '/coqui-iinfo-' . bin2hex(random_bytes(6))))->discoverAll(),
+    );
+
+    $profiles = ['artifacts', 'questions', 'skills', 'schedules'];
+    if ($withMcp) {
+        $profiles[] = 'mcp';
+    }
+    foreach (array_keys($profileVersions) as $versionedProfile) {
+        $profiles[] = $versionedProfile; // profile_versions keys are profiles too
+    }
+    if ($extraProfile !== null) {
+        $profiles[] = $extraProfile; // OPEN set: never allowlist-filtered
+    }
+
+    return new InstanceInfoBuilder(
+        profiles: array_values($profiles),
+        bindings: ['in-process', 'http-sse'],
+        personaCount: $personaCount,
+        hostToolkits: [
+            ['namespace' => 'images', 'description' => 'native image understanding/generation', 'tools' => ['describe', 'generate']],
+        ],
+        builtinToolkits: ['shell', 'fs', 'web'],
+        mcpTransports: $withMcp ? ['stdio', 'http'] : null,
+        profileVersions: $profileVersions,
+        authRequired: true, // bearer auth
+        limits: ['max_page_size' => 100, 'max_payload_bytes' => 10_485_760, 'max_content_bytes' => 104_857_600],
+        api: ['base_path' => '/api/v1', 'api_major' => '1'],
+    );
+}
+
+it('CORE-30/46: InstanceInfo is typed, declares host_toolkits, and types auth/limits/api/builtin_toolkits', function () {
+    $info = makeInstanceInfoBuilder()->build(); // over a temp workspace with one host toolkit + bearer auth
+    $v = new ConformanceValidator();
+    expect($v->isValid('instance-info.json', $info))->toBeTrue($v->errorText('instance-info.json', $info));
+    expect($info)->toHaveKeys(['protocol_version', 'profiles', 'bindings']);
+    // host_toolkits are declared (native, non-portable), distinct from builtin_toolkits.
+    expect($info['host_toolkits'][0]['namespace'])->toBe('images');
+    expect($info['builtin_toolkits'])->toContain('shell');
+    // api + limits are typed.
+    expect($info['api'])->toHaveKeys(['base_path', 'api_major']);
+    expect($info['limits'])->toHaveKeys(['max_page_size', 'max_payload_bytes', 'max_content_bytes']);
+    expect($info['bindings'])->each->toBeIn(['in-process', 'http-sse']);        // closed set
+    if (isset($info['auth'])) {
+        expect($info['auth']['scheme'])->toBe('bearer'); // closed scheme
+    }
+})->group('conformance');
+
+it('CORE-31: InstanceInfo mcp.transports is a closed set', function () {
+    $info = makeInstanceInfoBuilder(withMcp: true)->build();
+    $v = new ConformanceValidator();
+    expect($v->isValid('instance-info.json', $info))->toBeTrue($v->errorText('instance-info.json', $info));
+    expect($info['mcp']['transports'])->each->toBeIn(['stdio', 'http']);
+})->group('conformance');
+
+it('CORE-35: InstanceInfo profile_versions use semver', function () {
+    $info = makeInstanceInfoBuilder(profileVersions: ['mcp' => '0.3.0'])->build();
+    expect((new ConformanceValidator())->isValid('instance-info.json', $info))->toBeTrue();
+    expect($info['profile_versions']['mcp'])->toBe('0.3.0');
+})->group('conformance');
+
+it('CORE-36/39: profiles is an OPEN set — an unknown profile still validates and is not rejected', function () {
+    // The vendored schema puts no enum on profiles.items; an unknown profile MUST validate (CORE-39),
+    // and coqui's discovery must not reject it (CORE-36 forward tolerance).
+    $info = makeInstanceInfoBuilder(extraProfile: 'telepathy')->build();
+    $v = new ConformanceValidator();
+    expect($v->isValid('instance-info.json', $info))->toBeTrue($v->errorText('instance-info.json', $info));
+    expect($info['profiles'])->toContain('telepathy');
+
+    // The vendored future-profile vector is the same open-set contract, validated directly.
+    $vector = json_decode(
+        (string) file_get_contents(__DIR__ . '/spec/conformance/vectors/valid/instance-info.future-profile.json'),
+        false,
+        512,
+        JSON_THROW_ON_ERROR,
+    );
+    expect($v->isValid('instance-info.json', $vector))->toBeTrue($v->errorText('instance-info.json', $vector));
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
-    'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
-    'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',
     'CORE-32: vision (image understanding) is an access-gated built-in; generation is extension-only',
-    'CORE-35: InstanceInfo MAY carry per-persona versions (semver); docs content is impl-defined',
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
-    'CORE-36: responses/events are wire-tolerant: consumers MUST NOT reject unknown fields/enums',
-    'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
-    'CORE-46: discovery InstanceInfo types auth/limits/api/builtin_toolkits; auth scheme is a closed set',
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
     'CORE-49: question format is rich (multi-select) with a typed option shape',

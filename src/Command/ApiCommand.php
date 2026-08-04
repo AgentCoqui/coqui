@@ -17,6 +17,7 @@ use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\AuditHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
+use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
@@ -331,7 +332,7 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery(), new ObjectVersionStore($storage->getPdo()));
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->personaDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle, $this->buildInstanceInfo($boot, $apiKey));
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -686,6 +687,7 @@ final class ApiCommand extends Command
 
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
+        $router->get($v1 . '/server/instance', [$server, 'instance']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
@@ -722,6 +724,59 @@ final class ApiCommand extends Command
 
         // Loops
         $loop?->register($router);
+    }
+
+    /**
+     * Assemble the aggregated CAP InstanceInfo builder from live runtime sources.
+     *
+     * Required fields are always present; optional fields are omitted when their
+     * source is unavailable. `auth` is emitted only when the surface is network-
+     * bound (an API key is configured) — embedded/no-auth omits it entirely, and
+     * `profiles` is an OPEN set (never allowlist-filtered).
+     */
+    private function buildInstanceInfo(BootManager $boot, ?string $apiKey): InstanceInfoBuilder
+    {
+        $config = $boot->config();
+
+        // Portable built-in profiles this variant implements (open set). `remote`
+        // is advertised only when the surface is network-bound (an API key exists).
+        $profiles = ['artifacts', 'questions', 'skills', 'schedules', 'mcp'];
+        if ($apiKey !== null) {
+            $profiles[] = 'remote';
+        }
+
+        $personaCount = count($boot->personaDiscovery()->discoverAll());
+
+        $modelResolver = new ModelMetadataResolver(
+            $boot->defaultsLoader(),
+            new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
+            $config,
+            $boot->providerFactory(),
+        );
+        $models = array_values($modelResolver->configuredModels());
+
+        $primary = $config->get('agents.defaults.model.primary');
+        $defaultModel = is_string($primary) && $primary !== '' ? $primary : null;
+
+        return new InstanceInfoBuilder(
+            profiles: $profiles,
+            bindings: ['in-process', 'http-sse'],
+            personaCount: $personaCount,
+            defaultModel: $defaultModel,
+            models: $models,
+            // Portable built-in toolkits; native host toolkits are absent (⇒ none).
+            builtinToolkits: ['shell', 'fs', 'web'],
+            // Only the stdio transport class exists today.
+            mcpTransports: ['stdio'],
+            // Omit auth entirely when embedded/no-key; require it when a key is set.
+            authRequired: $apiKey !== null ? true : null,
+            limits: [
+                'max_page_size' => \CoquiBot\Coqui\Api\CursorPage::MAX_LIMIT,
+                'max_payload_bytes' => CoquiDefaults::MAX_UPLOAD_FILE_SIZE,
+                'max_content_bytes' => CoquiDefaults::MAX_UPLOAD_FILE_SIZE,
+            ],
+            api: ['base_path' => '/api/v1', 'api_major' => '1'],
+        );
     }
 
     /**
