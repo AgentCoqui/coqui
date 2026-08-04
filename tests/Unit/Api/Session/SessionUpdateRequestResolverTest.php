@@ -6,27 +6,11 @@ use CoquiBot\Coqui\Api\Session\SessionUpdateRequest;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequestResolver;
 use React\Http\Message\Response;
 
-test('resolver rejects an empty patch body with a 422 validation error', function () {
-    $result = (new SessionUpdateRequestResolver())->resolve([]);
-
-    expect($result)->toBeInstanceOf(Response::class);
-    /** @var Response $result */
-    expect($result->getStatusCode())->toBe(422);
-    $body = json_decode((string) $result->getBody(), true);
-    expect($body['code'])->toBe('validation_error');
-    expect($body['details'])->toBeArray();
-});
-
-test('resolver rejects an old model_role field as an unknown key', function () {
-    $result = (new SessionUpdateRequestResolver())->resolve(['model_role' => 'coder']);
-
-    expect($result)->toBeInstanceOf(Response::class);
-    /** @var Response $result */
-    expect($result->getStatusCode())->toBe(422);
-    $body = json_decode((string) $result->getBody(), true);
-    expect($body['code'])->toBe('validation_error');
-    expect($body['details']['unexpected_fields'] ?? null)->toBe(['model_role']);
-});
+// The allow-set (unknown-key) and empty-`{}` rejections moved to the shared
+// DecodesRequestBody::decodePatchBody() helper, exercised end-to-end by
+// SessionHandlerTest + the CORE-54 conformance row. The resolver now assumes a
+// pre-validated body and only coerces field values, so those two rejection
+// tests no longer belong here.
 
 test('resolver treats model:null as a clear (updatesModel true, model null)', function () {
     $result = (new SessionUpdateRequestResolver())->resolve(['model' => null]);

@@ -9,18 +9,22 @@ use CoquiBot\Coqui\Api\Router;
 use React\Http\Message\Response;
 
 /**
- * Resolves a raw session PATCH body into a {@see SessionUpdateRequest}.
+ * Coerces an already-validated session PATCH body into a {@see SessionUpdateRequest}.
  *
- * Enforces the CAP 0.5.0 `session-patch.json` contract: the allow-set is exactly
- * `title, pinned, status, model, workspace`; unknown keys and an empty `{}` are
- * rejected 422. `model` and `workspace` are nullable — an explicit null clears
- * the field (model ⇒ inherit; workspace ⇒ no rooted workspace) while an omitted
- * key leaves it untouched, a distinction preserved via `array_key_exists`.
+ * The CAP 0.5.0 `session-patch.json` allow-set (`title, pinned, status, model,
+ * workspace`) and the empty-`{}` rejection are enforced upstream by
+ * {@see \CoquiBot\Coqui\Api\Handler\DecodesRequestBody::decodePatchBody()}; this
+ * resolver assumes that contract holds and only coerces/validates field values.
+ * `model` and `workspace` are nullable — an explicit null clears the field
+ * (model ⇒ inherit; workspace ⇒ no rooted workspace) while an omitted key leaves
+ * it untouched, a distinction preserved via `array_key_exists`.
  */
 final class SessionUpdateRequestResolver
 {
-    private const ALLOWED_FIELDS = ['title', 'pinned', 'status', 'model', 'workspace'];
-
+    /**
+     * Mirrors `schema/session.json#/properties/status`. The vendored schema is not
+     * readable at runtime, so this literal must be kept in sync with it by hand.
+     */
     private const STATUS_ENUM = ['active', 'archived', 'closed'];
 
     /**
@@ -28,18 +32,6 @@ final class SessionUpdateRequestResolver
      */
     public function resolve(array $body): SessionUpdateRequest|Response
     {
-        $unexpected = array_values(array_diff(array_keys($body), self::ALLOWED_FIELDS));
-        if ($unexpected !== []) {
-            return $this->reject(
-                sprintf('Unexpected field(s): %s', implode(', ', $unexpected)),
-                ['unexpected_fields' => $unexpected],
-            );
-        }
-
-        if ($body === []) {
-            return $this->reject('at least one field required', ['reason' => 'empty_patch']);
-        }
-
         $title = null;
         if (array_key_exists('title', $body)) {
             $title = trim((string) $body['title']);

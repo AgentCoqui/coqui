@@ -17,6 +17,7 @@ use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SessionType;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Exception\SessionTypeException;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -193,9 +194,10 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $body = $this->decodeJsonObjectOrNull($request);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body', ['reason' => 'invalid_json'], 422);
+        try {
+            $body = $this->decodePatchBody($request, ['title', 'pinned', 'status', 'model', 'workspace']);
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
         $updateRequest = $this->sessionUpdateRequestResolver()->resolve($body);
