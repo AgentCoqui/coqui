@@ -181,7 +181,7 @@ test('session handler create rejects roles disallowed by the active persona', fu
     }
 });
 
-test('session handler update rejects unknown role instead of silently resolving fallback model', function () {
+test('session handler update rejects an unknown patch field with 422', function () {
     $fixture = createApiSessionHandlerFixture();
 
     try {
@@ -200,86 +200,141 @@ test('session handler update rejects unknown role instead of silently resolving 
         $body = json_decode((string) $response->getBody(), true);
         $session = $fixture['storage']->getSession($sessionId);
 
-        expect($response->getStatusCode())->toBe(400);
+        expect($response->getStatusCode())->toBe(422);
         expect($body['code'])->toBe('validation_error');
-        expect($session['model_role'])->toBe('orchestrator');
+        expect($body['details']['unexpected_fields'])->toBe(['model_role']);
+        // No mutation: the model is untouched and the version does not advance.
+        expect($session['model'])->toBe('ollama/qwen3:latest');
+        expect($session['version'])->toBe(1);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler update accepts clearing or setting a persona', function () {
+test('session handler update sets a model directly and bumps the version', function () {
     $fixture = createApiSessionHandlerFixture();
 
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
 
-        $setRequest = new ServerRequest(
-            'PATCH',
-            '/api/v1/sessions/' . $sessionId,
-            ['Content-Type' => 'application/json'],
-            json_encode([
-                'model_role' => 'analyst',
-                'persona_id' => 'caelum',
-            ]) ?: '',
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['model' => 'anthropic/claude-sonnet-4']) ?: '',
+            ),
+            $sessionId,
         );
+        $body = json_decode((string) $response->getBody(), true);
 
-        $setResponse = $fixture['handler']->update($setRequest, $sessionId);
-        $setBody = json_decode((string) $setResponse->getBody(), true);
-
-        expect($setResponse->getStatusCode())->toBe(200);
-        expect($setBody['persona_id'])->toBe('caelum');
-        expect($setBody['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-
-        $clearRequest = new ServerRequest(
-            'PATCH',
-            '/api/v1/sessions/' . $sessionId,
-            ['Content-Type' => 'application/json'],
-            json_encode([
-                'persona_id' => '',
-            ]) ?: '',
-        );
-
-        $clearResponse = $fixture['handler']->update($clearRequest, $sessionId);
-        $clearBody = json_decode((string) $clearResponse->getBody(), true);
-
-        expect($clearResponse->getStatusCode())->toBe(200);
-        expect($clearBody['persona_id'])->toBeNull();
-        expect($clearBody['model'])->toBe('openai/gpt-4.1-mini');
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['model'])->toBe('anthropic/claude-sonnet-4');
+        expect($body['version'])->toBe(2);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
 });
 
-test('session handler update rejects persona changes that would disallow the current role', function () {
+test('session handler update clears the model to null (inherit)', function () {
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
-            'prompts' => [
-                'roles' => [
-                    'allow' => ['orchestrator'],
-                ],
-            ],
-        ], JSON_THROW_ON_ERROR));
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
 
-        $sessionId = $fixture['storage']->createSession('analyst', 'openai/gpt-4.1-mini');
-        $request = new ServerRequest(
-            'PATCH',
-            '/api/v1/sessions/' . $sessionId,
-            ['Content-Type' => 'application/json'],
-            json_encode([
-                'persona_id' => 'caelum',
-            ]) ?: '',
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['model' => null]) ?: '',
+            ),
+            $sessionId,
         );
 
-        $response = $fixture['handler']->update($request, $sessionId);
-        $body = json_decode((string) $response->getBody(), true);
-        $session = $fixture['storage']->getSession($sessionId);
+        expect($response->getStatusCode())->toBe(200);
+        expect($fixture['storage']->getSession($sessionId)['model'])->toBeNull();
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
 
-        expect($response->getStatusCode())->toBe(400);
-        expect($body['error'])->toContain('does not allow role "analyst"');
-        expect($session['persona_id'])->toBeNull();
+test('session handler update sets a workspace', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['workspace' => '/work/x']) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['workspace'])->toBe('/work/x');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects an empty patch body with 422', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode([]) ?: '',
+            ),
+            $sessionId,
+        );
+
+        expect($response->getStatusCode())->toBe(422);
+        expect(json_decode((string) $response->getBody(), true)['code'])->toBe('validation_error');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects a stale If-Match with 409 version_conflict', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $fresh = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json', 'If-Match' => '1'],
+                json_encode(['title' => 'first']) ?: '',
+            ),
+            $sessionId,
+        );
+        expect($fresh->getStatusCode())->toBe(200);
+        expect($fixture['storage']->getSession($sessionId)['version'])->toBe(2);
+
+        $stale = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json', 'If-Match' => '1'],
+                json_encode(['title' => 'second']) ?: '',
+            ),
+            $sessionId,
+        );
+        expect($stale->getStatusCode())->toBe(409);
+        expect(json_decode((string) $stale->getBody(), true)['code'])->toBe('version_conflict');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -513,7 +568,7 @@ test('session handler resolve reuses an existing active group session with the s
     }
 });
 
-test('session handler update can change group round cap while preserving group session type', function () {
+test('session handler update patches a group session title and bumps the version', function () {
     $fixture = createApiSessionHandlerFixture();
 
     try {
@@ -524,41 +579,17 @@ test('session handler update can change group round cap while preserving group s
                 'PATCH',
                 '/api/v1/sessions/' . $sessionId,
                 ['Content-Type' => 'application/json'],
-                json_encode(['group_max_rounds' => 5]) ?: '',
+                json_encode(['title' => 'Standup crew']) ?: '',
             ),
             $sessionId,
         );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['group_max_rounds'])->toBe(5);
+        expect($body['title'])->toBe('Standup crew');
         expect($body['session_type'])->toBe('group');
         expect($body['group_enabled'])->toBe(1);
-    } finally {
-        cleanupApiSessionHandlerFixture($fixture);
-    }
-});
-
-test('session handler update rejects assigning a persona to a group session', function () {
-    $fixture = createApiSessionHandlerFixture();
-
-    try {
-        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
-
-        $response = $fixture['handler']->update(
-            new ServerRequest(
-                'PATCH',
-                '/api/v1/sessions/' . $sessionId,
-                ['Content-Type' => 'application/json'],
-                json_encode(['persona_id' => 'caelum']) ?: '',
-            ),
-            $sessionId,
-        );
-        $body = json_decode((string) $response->getBody(), true);
-
-        expect($response->getStatusCode())->toBe(400);
-        expect($body['code'])->toBe('validation_error');
-        expect($body['error'])->toContain('Group sessions do not support a single active persona.');
+        expect($body['version'])->toBe(2);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -749,32 +780,6 @@ test('session handler resolve closes older duplicate active sessions for a perso
         expect($body['closed_session_ids'])->toBe([$olderSessionId]);
         expect($olderSession['is_closed'])->toBe(1);
         expect($olderSession['closure_reason'])->toBe('api_persona_duplicate_cleanup:caelum');
-    } finally {
-        cleanupApiSessionHandlerFixture($fixture);
-    }
-});
-
-test('session handler update requires confirmation before reassigning into an active persona scope', function () {
-    $fixture = createApiSessionHandlerFixture();
-
-    try {
-        $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-
-        $request = new ServerRequest(
-            'PATCH',
-            '/api/v1/sessions/' . $sessionId,
-            ['Content-Type' => 'application/json'],
-            json_encode([
-                'persona_id' => 'caelum',
-            ]) ?: '',
-        );
-
-        $response = $fixture['handler']->update($request, $sessionId);
-        $body = json_decode((string) $response->getBody(), true);
-
-        expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('conflict');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

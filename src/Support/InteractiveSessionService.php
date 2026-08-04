@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Support;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Session\SessionPatchApplier;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequest;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\PersonaPreferences;
@@ -134,75 +135,7 @@ final readonly class InteractiveSessionService
             throw new SessionTypeException(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
-        if ($request->updatesGroupEnabled && $request->groupEnabled !== false) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Use session creation for new group sessions. Existing sessions cannot change group mode via PATCH.',
-            );
-        }
-
-        if ($request->includesMembers) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'members may only be provided when group_enabled is true.',
-            );
-        }
-
-        if ($request->updatesGroupMaxRounds) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'group_max_rounds is only valid for group sessions.',
-            );
-        }
-
-        if ($request->updatesTitle && $request->title !== null) {
-            $this->storage->updateSessionTitle($sessionId, $request->title);
-        }
-
-        $resolvedRole = (string) ($session['model_role'] ?? SystemRole::Orchestrator->value);
-        if ($request->updatesModelRole && $request->modelRole !== null) {
-            if (!$this->roleResolver->hasRole($request->modelRole)) {
-                throw new SessionTypeException(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $request->modelRole),
-                );
-            }
-
-            $resolvedRole = $request->modelRole;
-        }
-
-        $resolvedPersona = $request->updatesPersona
-            ? $request->persona
-            : $this->normalizePersonaValue($session['persona_id'] ?? null);
-
-        $this->assertPersonaRoleAllowed($resolvedPersona, $resolvedRole);
-
-        if ($resolvedPersona !== null && !$this->storage->isSessionClosed($sessionId)) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForPersona($resolvedPersona);
-            $conflicts = array_values(array_filter(
-                $activeSessions,
-                static fn(array $activeSession): bool => (string) ($activeSession['id'] ?? '') !== $sessionId,
-            ));
-
-            if ($conflicts !== [] && !$request->confirmCloseActivePersonaSession) {
-                throw $this->personaSessionActiveConflict($resolvedPersona, $conflicts);
-            }
-
-            if ($conflicts !== []) {
-                $this->lifecycleManager?->finalizeOtherActiveInteractiveSessionsForPersona(
-                    $resolvedPersona,
-                    $sessionId,
-                    sprintf('api_persona_reassignment:%s', $resolvedPersona),
-                );
-            }
-        }
-
-        if ($request->updatesPersona) {
-            $this->storage->updateSessionPersona($sessionId, $resolvedPersona);
-        }
-
-        $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedPersona);
-        $this->storage->updateSessionRole($sessionId, $resolvedRole, $resolvedModel);
+        SessionPatchApplier::apply($this->storage, $sessionId, $request);
 
         return $this->requireSession($sessionId);
     }
@@ -316,16 +249,5 @@ final readonly class InteractiveSessionService
         }
 
         return PersonaPreferences::fromPersonaPath($this->personaDiscovery->getPersonaPath($persona));
-    }
-
-    private function normalizePersonaValue(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
-
-        $persona = strtolower(trim($value));
-
-        return $persona !== '' ? $persona : null;
     }
 }

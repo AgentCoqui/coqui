@@ -180,7 +180,11 @@ final readonly class SessionHandler
     }
 
     /**
-     * PATCH /api/v1/sessions/{id}  { "title": "..." }
+     * PATCH /api/v1/sessions/{id}
+     *
+     * CAP 0.5.0 session-patch body: {title, pinned, status, model?, workspace?}.
+     * An `If-Match: <version>` header guards the write — a stale version is
+     * rejected 409 version_conflict before any mutation is applied.
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
@@ -191,12 +195,23 @@ final readonly class SessionHandler
 
         $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body', ['reason' => 'invalid_json'], 422);
         }
 
         $updateRequest = $this->sessionUpdateRequestResolver()->resolve($body);
         if ($updateRequest instanceof Response) {
             return $updateRequest;
+        }
+
+        $precondition = $this->readPrecondition($request);
+        if ($precondition->expectedVersion !== null
+            && $precondition->expectedVersion !== (int) ($session['version'] ?? 1)) {
+            return Router::errorResponse(
+                ApiErrorCode::VERSION_CONFLICT,
+                'stale session version',
+                ['expected' => $precondition->expectedVersion, 'actual' => (int) ($session['version'] ?? 1)],
+                409,
+            );
         }
 
         try {
@@ -395,7 +410,7 @@ final readonly class SessionHandler
     {
         return new SessionTypeRegistry(
             new InteractiveSessionTypeHandler($this->interactiveSessions()),
-            new GroupSessionTypeHandler($this->groupSessions(), $this->storage, $this->roleResolver),
+            new GroupSessionTypeHandler($this->groupSessions(), $this->storage),
         );
     }
 

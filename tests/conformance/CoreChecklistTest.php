@@ -901,13 +901,87 @@ it('CORE-40: every HTTP status documented in error-coverage.json is produced by 
     }
 })->group('conformance');
 
+/**
+ * Build the real SessionHandler over a temp SQLite db + temp workspace. The CAP
+ * PATCH write path needs no role/persona/group wiring, so a bare RoleResolver +
+ * PersonaDiscovery satisfy the constructor.
+ *
+ * @return array{0: SessionHandler, 1: SessionStorage, 2: string, 3: string}
+ */
+function makeSessionHandler(): array
+{
+    $workspace = sys_get_temp_dir() . '/coqui-session-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspace, 0755, true);
+
+    $dbPath = sys_get_temp_dir() . '/coqui-session-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    $handler = new SessionHandler(
+        $storage,
+        new RoleResolver(OpenClawConfig::fromArray([])),
+        new PersonaDiscovery($workspace),
+    );
+
+    return [$handler, $storage, $dbPath, $workspace];
+}
+
+function sessionPatchRequest(string $id, array $body, ?int $ifMatch = null): \React\Http\Message\ServerRequest
+{
+    $headers = ['Content-Type' => 'application/json'];
+    if ($ifMatch !== null) {
+        $headers['If-Match'] = (string) $ifMatch;
+    }
+
+    return new \React\Http\Message\ServerRequest(
+        'PATCH',
+        '/api/v1/sessions/' . $id,
+        $headers,
+        json_encode($body) ?: '',
+    );
+}
+
+it('CORE-54: session PATCH clears model, sets workspace, and rejects an empty body', function () {
+    [$handler, $storage, $dbPath, $ws] = makeSessionHandler();
+    try {
+        $id = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', null, workspace: '/work/old');
+        $clear = $handler->update(sessionPatchRequest($id, ['model' => null]), $id);       // clear→inherit
+        expect($clear->getStatusCode())->toBe(200);
+        expect($storage->getSession($id)['model'])->toBeNull();
+        $work = $handler->update(sessionPatchRequest($id, ['workspace' => '/work/x']), $id);
+        expect($work->getStatusCode())->toBe(200);
+        expect($storage->getSession($id)['workspace'])->toBe('/work/x');
+        $empty = $handler->update(sessionPatchRequest($id, []), $id);
+        expect($empty->getStatusCode())->toBe(422);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($ws);
+    }
+})->group('conformance');
+
+it('CORE-10: a stale If-Match session write is rejected 409 version_conflict', function () {
+    [$handler, $storage, $dbPath, $ws] = makeSessionHandler();
+    try {
+        $id = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', null);
+        expect($storage->getSession($id)['version'])->toBe(1);
+        $ok = $handler->update(sessionPatchRequest($id, ['title' => 'a'], ifMatch: 1), $id); // fresh
+        expect($ok->getStatusCode())->toBe(200);
+        expect($storage->getSession($id)['version'])->toBe(2);
+        $stale = $handler->update(sessionPatchRequest($id, ['title' => 'b'], ifMatch: 1), $id); // stale
+        expect($stale->getStatusCode())->toBe(409);
+        expect(json_decode((string) $stale->getBody(), true)['code'])->toBe('version_conflict');
+        expect(ApiErrorCode::tryFrom('version_conflict'))->not->toBeNull();
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($ws);
+    }
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
     'CORE-6: the loop live snapshot is fully typed',
     'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
-    'CORE-10: mutable Core objects carry version; stale writes 409',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-18: list operations paginate + declare a default sort',
@@ -933,7 +1007,6 @@ $rows = [
     'CORE-51: SSE frames are typed per channel; unknown event shapes are rejected',
     'CORE-52: SSE frame id is a string cursor; a numeric id is rejected',
     'CORE-53: creators accept an Idempotency-Key request header for dedup',
-    'CORE-54: sessions are authorable via PATCH (clear model->null, set workspace); empty patch is rejected',
     'CORE-55: budget observability is typed (GET /sessions/{id}/budget breakdown)',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',

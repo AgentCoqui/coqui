@@ -1031,6 +1031,114 @@ final class SessionStorage
     }
 
     /**
+     * Set a session's rooted workspace (CAP 0.5.0). Null (or empty) clears it to
+     * no rooted workspace. Does not bump `version`; the PATCH path bumps once.
+     */
+    public function updateSessionWorkspace(string $sessionId, ?string $workspace): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET workspace = :workspace, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'workspace' => ($workspace !== null && $workspace !== '') ? $workspace : null,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's effective model directly (CAP 0.5.0). Null clears the model
+     * to inherit per Personas §5 precedence. Unlike {@see updateSessionRole} this
+     * is a direct write with no role resolution. Does not bump `version`.
+     */
+    public function updateSessionModelDirect(string $sessionId, ?string $model): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET model = :model, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'model' => ($model !== null && $model !== '') ? $model : null,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's pinned flag (CAP 0.5.0). Does not bump `version`.
+     */
+    public function setSessionPinned(string $sessionId, bool $pinned): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET pinned = :pinned, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'pinned' => $pinned ? 1 : 0,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's lifecycle status (CAP 0.5.0). Accepts only the closed
+     * `session.json` status enum (active|archived|closed); the value maps onto the
+     * `is_closed`/`is_archived` lifecycle columns that {@see normalizeSessionRow}
+     * derives `status` back from. Does not bump `version`.
+     */
+    public function setSessionStatus(string $sessionId, string $status): void
+    {
+        [$isClosed, $isArchived, $closedAt, $archivedAt] = match ($status) {
+            'closed' => [1, 0, date('c'), null],
+            'archived' => [0, 1, null, date('c')],
+            default => [0, 0, null, null],
+        };
+
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET is_closed = :is_closed,
+                is_archived = :is_archived,
+                closed_at = :closed_at,
+                archived_at = :archived_at,
+                updated_at = :updated_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'is_closed' => $isClosed,
+            'is_archived' => $isArchived,
+            'closed_at' => $closedAt,
+            'archived_at' => $archivedAt,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Increment a session's optimistic-concurrency `version` token and return the
+     * new value. The CAP session PATCH path calls this exactly once per applied
+     * mutation so a single PATCH advances the version by exactly one.
+     */
+    public function bumpSessionVersion(string $sessionId): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET version = version + 1, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+
+        $read = $this->db->prepare('SELECT version FROM sessions WHERE id = :id');
+        $read->execute(['id' => $sessionId]);
+        $version = $read->fetchColumn();
+
+        return is_scalar($version) ? max(1, (int) $version) : 1;
+    }
+
+    /**
      * Update a session's active role and resolved model.
      */
     public function updateSessionRole(string $sessionId, string $modelRole, string $model): void
