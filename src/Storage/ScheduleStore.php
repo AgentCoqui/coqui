@@ -184,7 +184,7 @@ final class ScheduleStore
 
             // definition_name is a Slug in scheduled-task.json; a strict producer
             // must never persist a value that toWire would later emit as invalid.
-            if (preg_match('/^[a-z0-9][a-z0-9_-]*$/', $definitionName) !== 1) {
+            if (preg_match('/^[a-z0-9][a-z0-9_-]*$/D', $definitionName) !== 1) {
                 throw new RequestBodyException(
                     ApiErrorCode::VALIDATION_ERROR,
                     'A loop action definition_name must be a slug matching ^[a-z0-9][a-z0-9_-]*$.',

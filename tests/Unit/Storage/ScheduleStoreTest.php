@@ -475,6 +475,18 @@ test('create rejects a loop action whose definition_name is not a slug', functio
     ))->toThrow(\CoquiBot\Coqui\Exception\RequestBodyException::class);
 });
 
+test('create rejects a loop action definition_name with a trailing newline', function () {
+    // PCRE `$` matches immediately before a final \n, so without the /D anchor
+    // "research\n" would be accepted here and later emitted by toWire as a
+    // definition_name that an ECMA-262/opis Slug validator rejects.
+    expect(fn () => $this->store->create(
+        name: 'trailing-newline-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => "research\n"],
+        personaId: 'p_1',
+    ))->toThrow(\CoquiBot\Coqui\Exception\RequestBodyException::class);
+});
+
 test('create accepts a loop action with a slug definition_name', function () {
     $id = $this->store->create(
         name: 'slug-loop',

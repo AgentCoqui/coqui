@@ -1250,6 +1250,12 @@ it('CORE-50: scheduled_task.action is a kind-discriminated union; a loop action 
         $store = new ScheduleStore(new \PDO('sqlite:' . $dbPath));
         expect(fn () => $store->create(name: 'x', scheduleExpression: '0 * * * *', action: ['kind' => 'loop'], personaId: 'p_1'))
             ->toThrow(RequestBodyException::class);
+        // A trailing newline must be rejected at the store boundary: PCRE `$` matches
+        // before a final \n, so without the /D anchor "research\n" would persist yet
+        // emit a definition_name an ECMA-262/opis Slug validator rejects. The strict
+        // producer must never persist a value it would later emit as schema-invalid.
+        expect(fn () => $store->create(name: 'y', scheduleExpression: '0 * * * *', action: ['kind' => 'loop', 'definition_name' => "research\n"], personaId: 'p_1'))
+            ->toThrow(RequestBodyException::class);
     } finally {
         cleanupSqliteTestDb($dbPath);
     }
