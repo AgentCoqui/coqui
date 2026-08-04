@@ -724,6 +724,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
         $router->post($v1 . '/sessions/{id}/child-runs', [$childRun, 'spawnChildRun']);
         $router->get($v1 . '/sessions/{id}/child-runs/{childRunId}', [$childRun, 'getChildRun']);
+        $router->get($v1 . '/sessions/{id}/child-runs/{childRunId}/events', [$childRun, 'streamChildRunEvents']);
 
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);

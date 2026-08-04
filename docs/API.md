@@ -2387,6 +2387,38 @@ Fetch a single child run as a `child-run.json` resource.
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | No child run with that id belongs to the session |
 
+#### `GET /api/v1/sessions/{id}/child-runs/{childRunId}/events`
+
+Stream a child run's typed lifecycle as **Server-Sent Events** (`text/event-stream`). Each frame is a `sse-childrun-event.json` record: `{ event, data }` discriminated by the SSE `event:` name, plus the optional `id:` transport cursor. The event name is drawn from the closed set `started`, `token`, `message`, `done` (plus a terminal `error` frame that reuses `sse-error.json`).
+
+Because child runs execute **synchronously** (see the spawn endpoint above), the row is already terminal by the time the stream is opened and there is no per-token/message event store for children. The stream therefore replays **deterministically** from the finalized row:
+
+1. `started` — `{ "child_run_id": "…" }`
+2. `done` (terminal) — the full `child-run.json` resource, then the stream closes.
+
+A `Last-Event-ID` header (or `?since` / `?since_id` query) is accepted for reconnect symmetry with the other SSE streams, but a child run has no incremental frames to resume past, so the deterministic `started` → `done` replay is the whole stream.
+
+**Response `200`** — `Content-Type: text/event-stream`.
+
+```
+id: 00000000000000000001
+event: started
+data: {"child_run_id":"cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"}
+
+id: 00000000000000000002
+event: done
+data: {"id":"cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6","parent_session_id":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","role":"coder","status":"completed", "...": "…"}
+```
+
+This SSE route is never idempotency-recorded: the middleware detects `text/event-stream` and passes the live stream through untouched.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | No child run with that id belongs to the session |
+
 ### Server
 
 Server endpoints provide runtime status, restart-state visibility, and database-level statistics. These are useful for monitoring and debugging the API server.

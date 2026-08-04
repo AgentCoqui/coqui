@@ -942,6 +942,59 @@ it('CORE-29 (part 1): spawnChildRun runs the child, records running→completed,
     }
 })->group('conformance');
 
+/**
+ * A `childRunToWire`-shaped, schema-valid child-run.json fixture, produced by the
+ * SOLE Task-8 wire producer over a seeded row (no live DB needed — childRunToWire
+ * is pure). Reused by the CORE-29 frame + export assertions.
+ *
+ * @return array<string, mixed>
+ */
+function childRunFixture(): array
+{
+    return SessionHandler::childRunToWire([
+        'id' => '01J00000000000000000CHILDRUN',
+        'parent_session_id' => '01J000000000000000000SESSION',
+        'parent_turn_id' => null,
+        'role' => 'coder',
+        'model' => 'anthropic/claude-sonnet-4',
+        'prompt' => 'Implement the fix.',
+        'result' => 'Child result.',
+        'status' => 'completed',
+        'prompt_tokens' => 30,
+        'completion_tokens' => 12,
+        'total_tokens' => 42,
+        'created_at' => '2026-07-28T00:00:00Z',
+        'completed_at' => '2026-07-28T00:00:05Z',
+    ]);
+}
+
+it('CORE-29: child runs are a gated Core op that streams typed events and exports', function () {
+    $v = new ConformanceValidator();
+
+    // (a) The PURE frame builder produces schema-valid `started` and terminal
+    // `done` frames of the sse-childrun-event.json discriminated union.
+    $started = ChildRunHandler::buildChildRunEventFrame('started', ['child_run_id' => 'cr_1'], SseCursor::encode(1));
+    expect($v->isValid('sse-childrun-event.json', $started))->toBeTrue($v->errorText('sse-childrun-event.json', $started));
+
+    $done = ChildRunHandler::buildChildRunEventFrame('done', childRunFixture(), SseCursor::encode(3));
+    expect($v->isValid('sse-childrun-event.json', $done))->toBeTrue($v->errorText('sse-childrun-event.json', $done));
+
+    // (b) `done` is in the closed event set; an event name OUTSIDE the set has no
+    // matching branch and is schema-REJECTED (the closed set has teeth).
+    expect(in_array($done['event'], ['started', 'token', 'message', 'done'], true))->toBeTrue();
+    $unknown = ChildRunHandler::buildChildRunEventFrame('reasoning', ['x' => 1], SseCursor::encode(4));
+    expect($v->isValid('sse-childrun-event.json', $unknown))->toBeFalse();
+
+    // (c) Export types the child_runs collection against child-run.json, and a
+    // childRunToWire fixture validates against that same schema.
+    expect(ExportCollectionMap::schemas()['child_runs'])->toBe('child-run.json');
+    expect($v->isValid('child-run.json', childRunFixture()))->toBeTrue($v->errorText('child-run.json', childRunFixture()));
+
+    // (d) The gated 202 spawn creator exists — proven in depth by CORE-29 (part 1)
+    // above (running→completed, 202, and the 403 gate on non-top-level sessions).
+    expect(method_exists(ChildRunHandler::class, 'spawnChildRun'))->toBeTrue();
+})->group('conformance');
+
 it('CORE-55: budget observability is typed (GET /sessions/{id}/budget breakdown)', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-core55-' . bin2hex(random_bytes(8));
     mkdir($workspacePath . '/data', 0755, true);
@@ -2363,9 +2416,6 @@ it('CORE-49: question wire is rich (multi-select) with a typed {value,label} opt
 })->group('conformance');
 
 $rows = [
-    // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
-    'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
-
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',

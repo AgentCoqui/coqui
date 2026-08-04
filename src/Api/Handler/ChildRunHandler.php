@@ -11,18 +11,22 @@ use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
+use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
+use React\Stream\ThroughStream;
 
 /**
- * Child-run spawn + read endpoints (CAP CORE-29, part 1).
+ * Child-run spawn + read + stream endpoints (CAP CORE-29).
  *
- * POST /api/v1/sessions/{id}/child-runs                 — spawnChildRun (202, gated)
- * GET  /api/v1/sessions/{id}/child-runs/{childRunId}    — getChildRun
+ * POST /api/v1/sessions/{id}/child-runs                        — spawnChildRun (202, gated)
+ * GET  /api/v1/sessions/{id}/child-runs/{childRunId}           — getChildRun
+ * GET  /api/v1/sessions/{id}/child-runs/{childRunId}/events    — streamChildRunEvents (SSE)
  *
  * Execution model — SYNC-EXECUTE-THEN-REPORT: a spawn inserts a `running`
  * child-run row, runs the child SYNCHRONOUSLY via the existing {@see ChildAgent}
@@ -150,6 +154,125 @@ final readonly class ChildRunHandler
         }
 
         return Router::jsonResponse(SessionHandler::childRunToWire($row));
+    }
+
+    /**
+     * GET /api/v1/sessions/{id}/child-runs/{childRunId}/events
+     *
+     * Server-Sent Events stream of a child run's typed lifecycle frames
+     * ({@see sse-childrun-event.json}). Mirrors {@see TaskHandler::events}: a
+     * ThroughStream, a first `started` frame, the terminal `done` frame carrying
+     * the finalized `child-run.json` record, and `on('close')` timer cleanup.
+     *
+     * Children execute SYNCHRONOUSLY (spawn-execute-then-report), so the row is
+     * already terminal by stream time and there is NO per-token/message recorded
+     * event store for children. The stream therefore replays DETERMINISTICALLY
+     * from the finalized row: `started` ({child_run_id}) → terminal `done`
+     * (the full child-run resource). There are no incremental `token`/`message`
+     * frames to resume, so the `Last-Event-ID`/`?since` cursor has nothing to
+     * filter — the deterministic replay is the whole stream.
+     */
+    public function streamChildRunEvents(ServerRequestInterface $request, string $id, string $childRunId): Response
+    {
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
+        $row = $this->storage->getChildRun($childRunId);
+        if ($row === null || (string) ($row['parent_session_id'] ?? '') !== $id) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Child run not found');
+        }
+
+        $stream = new ThroughStream();
+
+        // First frame: the child run began.
+        $started = self::buildChildRunEventFrame('started', ['child_run_id' => $childRunId], SseCursor::encode(1));
+        $stream->write(SseStream::format($started['event'], $started['data'], $started['id']));
+
+        // Deterministic terminal replay: emit `done` (or an `error` frame) once the
+        // row is terminal. A one-shot poll mirrors the task stream's timer + close
+        // cleanup; the sync execution model means the very first tick is terminal.
+        $timer = \React\EventLoop\Loop::addPeriodicTimer(1.0, function () use ($stream, $childRunId, &$timer): void {
+            $cancel = static function () use (&$timer): void {
+                if ($timer instanceof \React\EventLoop\TimerInterface) {
+                    \React\EventLoop\Loop::cancelTimer($timer);
+                }
+            };
+
+            try {
+                $row = $this->storage->getChildRun($childRunId);
+
+                // Not terminal yet ⇒ keep polling (unreachable under the sync model).
+                if ($row !== null && !in_array((string) ($row['status'] ?? ''), ['completed', 'failed', 'cancelled'], true)) {
+                    return;
+                }
+
+                if ($row === null) {
+                    throw new \RuntimeException('Child run vanished mid-stream');
+                }
+
+                $done = self::buildChildRunEventFrame('done', SessionHandler::childRunToWire($row), SseCursor::encode(2));
+                $stream->write(SseStream::format($done['event'], $done['data'], $done['id']));
+                $stream->end();
+                $cancel();
+            } catch (\Throwable) {
+                try {
+                    if ($stream->isWritable()) {
+                        $error = MessageHandler::buildErrorFrame(
+                            ApiErrorCode::INTERNAL_ERROR,
+                            'The child-run event stream failed',
+                            SseCursor::encode(2),
+                        );
+                        $stream->write(SseStream::format($error['event'], $error['data'], $error['id']));
+                    }
+                    $stream->end();
+                    $cancel();
+                } catch (\Throwable) {
+                    // Already closed.
+                }
+            }
+        });
+
+        // Clean up the timer if the client disconnects first.
+        $stream->on('close', function () use (&$timer): void {
+            /** @phpstan-ignore instanceof.alwaysTrue */
+            if ($timer instanceof \React\EventLoop\TimerInterface) {
+                \React\EventLoop\Loop::cancelTimer($timer);
+            }
+        });
+
+        return new Response(
+            200,
+            [
+                'Content-Type' => 'text/event-stream',
+                'Cache-Control' => 'no-cache',
+                'Connection' => 'keep-alive',
+                'X-Accel-Buffering' => 'no',
+            ],
+            $stream,
+        );
+    }
+
+    /**
+     * Build a single child-run SSE event frame — the PURE producer of the
+     * {@see sse-childrun-event.json} discriminated union.
+     *
+     * The `event` name is the union discriminator; only the closed set
+     * `started|token|message|done` (plus the reserved terminal `error`) has a
+     * matching `oneOf` branch. Any other name produces a frame with NO matching
+     * branch, so the schema REJECTS it — the closed set is enforced by the
+     * contract, not by a throw (callers validate the frame, they do not catch).
+     *
+     * `started.data` is `{child_run_id}`; the terminal `done.data` is the full
+     * `child-run.json` record produced by {@see SessionHandler::childRunToWire}.
+     *
+     * @param array<string, mixed> $data payload for this event.
+     * @return array{id: string, event: string, data: array<string, mixed>}
+     */
+    public static function buildChildRunEventFrame(string $event, array $data, string $id): array
+    {
+        return ['id' => $id, 'event' => $event, 'data' => $data];
     }
 
     /**
