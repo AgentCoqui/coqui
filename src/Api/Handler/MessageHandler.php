@@ -11,7 +11,9 @@ use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Content\ContentStore;
+use CoquiBot\Coqui\Contract\QuestionRequest;
 use CoquiBot\Coqui\Export\WireFormat;
+use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use Psr\Http\Message\ServerRequestInterface;
@@ -442,14 +444,16 @@ final readonly class MessageHandler
      *                             { tool_call_id, result }); dropped when the
      *                             observer captured no tool_call_id, since the
      *                             schema requires it
+     *   question    → question    (data { id, prompt, format, options, suggested }
+     *                             → { question_id, prompt?, options?, suggested? },
+     *                             projected via {@see projectQuestionData})
      *   complete    → done        (data replaced with the full turn.json record,
      *                             projected via TurnHandler::toWire)
      *
      * DROPPED (no conformant CAP mapping in this task): agent_start, iteration,
      * batch_start, batch_end, reasoning, `done` (the observer's mid-run
      * agent.done nudge — the terminal CAP `done` is derived from `complete`),
-     * question (its question_id shaping is CORE-48), error
-     * (its sse-error.json Error-record shaping is Task 13), warning,
+     * error (its sse-error.json Error-record shaping is Task 13), warning,
      * budget_warning, summary, memory_extraction, notification, child_start,
      * child_end, review_start, review_end, loop_* and title.
      *
@@ -512,6 +516,7 @@ final readonly class MessageHandler
             'text_delta' => ['token', ['text' => (string) ($data['content'] ?? '')]],
             'tool_call' => ['tool_call', $this->shapeToolCall($data)],
             'tool_result' => $this->mapToolResult($data),
+            'question' => ['question', self::projectQuestionData($data)],
             'complete' => ['done', $this->turnRecord($turnProcessId, $sessionId)],
             default => null,
         };
@@ -553,6 +558,55 @@ final readonly class MessageHandler
     public static function buildTurnEventFrame(string $event, array $data, string $id): array
     {
         return ['id' => $id, 'event' => $event, 'data' => $data];
+    }
+
+    /**
+     * Build a typed `question` turn-stream frame (schema/sse-question.json) from a
+     * recorded `question` turn event. Pure — the single place the frame is
+     * assembled, so it is unit-testable and shared by the stream path (mapTurnEvent
+     * projects the same `data` via {@see projectQuestionData}). The `$id` is the
+     * already-encoded string cursor.
+     *
+     * @param array<string, mixed> $questionEventData A QuestionRequest::toArray payload.
+     * @return array{id: string, event: string, data: array<string, mixed>}
+     */
+    public static function buildQuestionFrame(array $questionEventData, string $id): array
+    {
+        return self::buildTurnEventFrame('question', self::projectQuestionData($questionEventData), $id);
+    }
+
+    /**
+     * Project a recorded `question` turn event onto the sse-question.json `data`
+     * shape: the REQUIRED `question_id` (from the request id — never null, since a
+     * QuestionRequest id is non-empty), the optional `prompt`, the typed
+     * `{value, label?}` `options`, and a scalar `suggested`. Reuses the Task-5
+     * option/suggested projection ({@see QuestionPersistence::wireOptions} /
+     * {@see QuestionPersistence::wireSuggested}) rather than re-deriving it.
+     *
+     * @param array<string, mixed> $questionEventData A QuestionRequest::toArray payload.
+     * @return array<string, mixed>
+     */
+    private static function projectQuestionData(array $questionEventData): array
+    {
+        $request = QuestionRequest::fromArray($questionEventData);
+
+        $data = ['question_id' => $request->id];
+
+        if ($request->prompt !== '') {
+            $data['prompt'] = $request->prompt;
+        }
+
+        $options = QuestionPersistence::wireOptions($request->options);
+        if ($options !== null) {
+            $data['options'] = $options;
+        }
+
+        $suggested = QuestionPersistence::wireSuggested($request->suggested);
+        if ($suggested !== null) {
+            $data['suggested'] = $suggested;
+        }
+
+        return $data;
     }
 
     /**

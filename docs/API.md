@@ -15,6 +15,7 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 
 ## Changelog
 
+- Added the Core turn-scoped answer path `POST /api/v1/sessions/{id}/turns/{turnId}/answer` (`submitTurnAnswer`): a client answers a turn's blocking `ask_user` question here after the `question` SSE frame (which now carries `data.question_id`), without the optional `questions` profile.
 - Added structured questions: `GET /api/v1/sessions/{id}/questions`, `POST /api/v1/sessions/{id}/questions/{questionId}/answer`, and the `question` SSE turn-event (see [Questions](#questions) and [QUESTIONS.md](QUESTIONS.md)).
 - Session objects no longer include `channel`/`channel_bound`; `session_origin` is never `channel`.
 
@@ -970,7 +971,7 @@ Session title generation is now queued after the interactive turn completes. The
 | `summary` | Auto-summarization completed | `{"messages_summarized": 18, "tokens_saved": 5400, "auto": true}` |
 | `memory_extraction` | Memory extraction completed | `{"memories_saved": 3, "source": "turn", "auto": true}` |
 | `notification` | Pending workflow notification surfaced to the model | `{"kind": "task.completed", "title": "Build finished"}` |
-| `question` | Agent asked the user a structured question (see [Questions](#questions)); the turn suspends until it is answered | The full `QuestionRequest`: `{"id": "q_ab12cd", "prompt": "...", "format": "single_select", "options": [...], "allow_other": false, "suggested": {...}, "header": null}` |
+| `question` | Agent asked the user a structured question (see [Questions](#questions)); the turn suspends until it is answered | The projected question frame carrying the required correlation id: `{"question_id": "q_ab12cd", "prompt": "...", "options": [{"value": "staging"}], "suggested": "staging"}`. Answer it via `POST /sessions/{id}/turns/{turnId}/answer`. |
 | `loop_start` | Loop execution started | `{"loop_id": "loop-123"}` |
 | `loop_iteration_start` | Loop iteration started | `{"loop_id": "loop-123", "iteration": 2}` |
 | `loop_stage_start` | Loop stage started | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
@@ -2908,7 +2909,7 @@ Delete an artifact (and its canonical file, if filesystem-backed).
 
 ### Questions
 
-Structured questions let an agent ask the user one validated question via the `ask_user` tool. On an interactive API turn the question is streamed as a `question` SSE event (see the [message-send endpoint](#post-apiv1sessionsidmessages) SSE event table) and the turn suspends until it is answered over these endpoints; in a `block`-mode loop the question escalates the loop to `blocked` (see [LOOPS.md](LOOPS.md)). Both routes are **CORE authenticated** (never public). See [QUESTIONS.md](QUESTIONS.md) for the full feature guide.
+Structured questions let an agent ask the user one validated question via the `ask_user` tool. On an interactive API turn the question is streamed as a `question` SSE event (see the [message-send endpoint](#post-apiv1sessionsidmessages) SSE event table) and the turn suspends until it is answered over these endpoints; in a `block`-mode loop the question escalates the loop to `blocked` (see [LOOPS.md](LOOPS.md)). These routes are **CORE authenticated** (never public) and never behind the optional `questions` profile. See [QUESTIONS.md](QUESTIONS.md) for the full feature guide.
 
 #### `GET /api/v1/sessions/{id}/questions`
 
@@ -2974,6 +2975,35 @@ Answering a `block`-mode loop question reopens the blocked loop stage (the escal
 | `404` | `question_not_found` | Question not found in this session. |
 | `409` | `conflict` | Question already answered (no longer pending). |
 | `422` | `question_invalid_answer` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
+
+#### `POST /api/v1/sessions/{id}/turns/{turnId}/answer`
+
+Answer the pending question raised by an interactive turn — the **Core answer path** a client reaches after receiving a `question` SSE event. The event's `data.question_id` correlates the frame to the pending question; the client answers by posting the answer body to the turn. This route is CORE (never behind the optional `questions` profile), so answering a turn's blocking question never requires that capability.
+
+The request body is identical to the question-id answer endpoint above (`selected` / `text`), and both endpoints share a single validate-and-record path.
+
+**Request Body**
+
+```json
+{
+  "selected": ["No"],
+  "text": null
+}
+```
+
+**Response `200`**
+
+```json
+{ "answered": true }
+```
+
+**Error responses**
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| `404` | `not_found` | No question is pending for this turn. |
+| `409` | `conflict` | The turn's question is already answered. |
+| `422` | `validation_error` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
 
 ### Schedules
 
@@ -4627,6 +4657,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
 | `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 | `GET` | `/api/v1/sessions/{id}/questions` | Yes | List pending structured questions |
-| `POST` | `/api/v1/sessions/{id}/questions/{questionId}/answer` | Yes | Answer a structured question |
+| `POST` | `/api/v1/sessions/{id}/questions/{questionId}/answer` | Yes | Answer a structured question by id |
+| `POST` | `/api/v1/sessions/{id}/turns/{turnId}/answer` | Yes | Answer a turn's pending question (Core answer path) |
 
 Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart now exposes explicit restart-state metadata over HTTP for app clients.

@@ -655,6 +655,9 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
+        // Core answer path — a client answers a turn's blocking `ask_user` question
+        // here after an SSE `question` frame. Core (never behind the `questions` profile).
+        $router->post($v1 . '/sessions/{id}/turns/{turnId}/answer', [$question, 'submitTurnAnswer']);
 
         // Audit log — authenticated routes only (API-key middleware). Registers
         // both the global GET /audit and the session-scoped GET

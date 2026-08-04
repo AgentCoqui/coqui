@@ -87,6 +87,19 @@ final class QuestionPersistence
     }
 
     /**
+     * Resolve the most recent question raised for a `(session, turn)` pair,
+     * regardless of status — the turn-scoped answer path (submitTurnAnswer)
+     * uses it to distinguish "no question for this turn" (null) from an
+     * already-answered one.
+     */
+    public function findByTurn(string $sessionId, string $turnId): ?QuestionRecord
+    {
+        $row = $this->storage->getQuestionByTurn($sessionId, $turnId);
+
+        return $row === null ? null : QuestionRecord::fromRow($row);
+    }
+
+    /**
      * Project a persisted `questions` row into a CAP 0.5.0 `question.json` wire
      * object.
      *
@@ -137,7 +150,7 @@ final class QuestionPersistence
      * @param list<QuestionOption> $options
      * @return list<array<string, string>>|null  Typed {value, label?} options, or null for free-form.
      */
-    private static function wireOptions(array $options): ?array
+    public static function wireOptions(array $options): ?array
     {
         if ($options === []) {
             return null;
@@ -188,7 +201,7 @@ final class QuestionPersistence
      * The CAP `suggested` is a single best-guess string; a multi-select suggestion
      * with several selections is projected to its first value.
      */
-    private static function wireSuggested(QuestionResponse $suggested): ?string
+    public static function wireSuggested(QuestionResponse $suggested): ?string
     {
         if ($suggested->selected !== []) {
             return $suggested->selected[0];

@@ -18,6 +18,7 @@ use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Handler\QuestionHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Sse\SseCursor;
@@ -1083,6 +1084,103 @@ it('CORE-24: the Question object is typed; status is a closed set', function () 
     }
 })->group('conformance');
 
+/**
+ * Build a JSON answer request for the turn-scoped submitTurnAnswer path.
+ *
+ * @param array<string, mixed> $body
+ */
+function core48AnswerRequest(array $body): \React\Http\Message\ServerRequest
+{
+    return new \React\Http\Message\ServerRequest(
+        'POST',
+        '/api/v1/sessions/x/turns/y/answer',
+        ['Content-Type' => 'application/json'],
+        json_encode($body) ?: '',
+    );
+}
+
+it('CORE-48: turn stream emits question frames carrying question_id; submitTurnAnswer resolves them', function () {
+    $v = new ConformanceValidator();
+
+    // (a) The SSE question frame is built from a recorded `question` turn event
+    // (a QuestionRequest::toArray payload) and carries the required question_id.
+    $eventData = [
+        'id' => 'q_123',
+        'prompt' => 'Deploy where?',
+        'format' => 'single_select',
+        'options' => [['label' => 'staging'], ['label' => 'production']],
+        'allow_other' => false,
+        'suggested' => ['selected' => ['staging']],
+    ];
+    $frame = MessageHandler::buildQuestionFrame($eventData, SseCursor::encode(9));
+    expect($v->isValid('sse-question.json', $frame))->toBeTrue($v->errorText('sse-question.json', $frame));
+    expect($frame['event'])->toBe('question');
+    expect($frame['data']['question_id'])->toBe('q_123');
+    // Options reuse the Task-5 {value,label?} projection; suggested collapses to a scalar.
+    expect($frame['data']['options'])->toBe([['value' => 'staging'], ['value' => 'production']]);
+    expect($frame['data']['suggested'])->toBe('staging');
+
+    // A frame missing question_id is schema-rejected (mirrors
+    // invalid/sse-question.no-question-id.json); question_id is never emitted null.
+    $bad = $frame;
+    unset($bad['data']['question_id']);
+    expect($v->isValid('sse-question.json', $bad))->toBeFalse();
+
+    // (b) submitTurnAnswer over a temp db resolves the pending question for the
+    // turn and records it — a Core path reachable without the `questions` profile.
+    $dbPath = sys_get_temp_dir() . '/coqui-core48-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $storage = new SessionStorage($dbPath);
+        $sessionId = $storage->createSession('orchestrator', 'anthropic/claude-sonnet-4', 'caelum');
+        $turnId = $storage->createTurnProcess($sessionId, 'ask me');
+
+        $request = new QuestionRequest(
+            id: '01J00000000000000000QCORE48',
+            prompt: 'Deploy where?',
+            format: QuestionFormat::SingleSelect,
+            options: [new QuestionOption('staging'), new QuestionOption('production')],
+            allowOther: false,
+            suggested: new QuestionResponse(selected: ['staging']),
+        );
+        $storage->createQuestion($sessionId, $request, 'suspending', $turnId);
+
+        $handler = new QuestionHandler(new QuestionPersistence($storage), $storage);
+
+        // No pending question for an unknown turn ⇒ 404 not_found.
+        $miss = $handler->submitTurnAnswer(core48AnswerRequest(['selected' => ['staging']]), $sessionId, 'no-such-turn');
+        expect($miss->getStatusCode())->toBe(404);
+        expect(json_decode((string) $miss->getBody(), true)['code'])->toBe('not_found');
+
+        // The pending question for this turn resolves and is recorded answered.
+        $resp = $handler->submitTurnAnswer(core48AnswerRequest(['selected' => ['staging'], 'text' => null]), $sessionId, $turnId);
+        expect($resp->getStatusCode())->toBe(200);
+        expect($storage->getQuestion($request->id)['status'])->toBe('answered');
+
+        // Re-answering the now-resolved turn ⇒ 409 conflict.
+        $again = $handler->submitTurnAnswer(core48AnswerRequest(['selected' => ['production']]), $sessionId, $turnId);
+        expect($again->getStatusCode())->toBe(409);
+        expect(json_decode((string) $again->getBody(), true)['code'])->toBe('conflict');
+
+        // An invalid answer to a fresh pending question ⇒ 422 validation_error, stays pending.
+        $turn2 = $storage->createTurnProcess($sessionId, 'ask again');
+        $request2 = new QuestionRequest(
+            id: '01J00000000000000000QCORE482',
+            prompt: 'Deploy where?',
+            format: QuestionFormat::SingleSelect,
+            options: [new QuestionOption('staging'), new QuestionOption('production')],
+            allowOther: false,
+            suggested: new QuestionResponse(selected: ['staging']),
+        );
+        $storage->createQuestion($sessionId, $request2, 'suspending', $turn2);
+        $invalid = $handler->submitTurnAnswer(core48AnswerRequest(['selected' => ['not-an-option']]), $sessionId, $turn2);
+        expect($invalid->getStatusCode())->toBe(422);
+        expect(json_decode((string) $invalid->getBody(), true)['code'])->toBe('validation_error');
+        expect($storage->getQuestion($request2->id)['status'])->toBe('pending');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
 it('CORE-8: a LoopDefinition produces a termination_condition.value shaped by its type', function () {
     $def = new LoopDefinition(
         name: 'code-review-loop',
@@ -2014,7 +2112,6 @@ $rows = [
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
-    'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
     'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',

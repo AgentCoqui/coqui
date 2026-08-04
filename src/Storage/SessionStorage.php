@@ -3299,6 +3299,25 @@ final class SessionStorage
     }
 
     /**
+     * Resolve the most recent question raised for a `(session, turn)` pair,
+     * regardless of status. Backs the turn-scoped answer path (submitTurnAnswer),
+     * which needs to tell "no question for this turn" apart from an already-answered
+     * one.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getQuestionByTurn(string $sessionId, string $turnId): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM questions WHERE session_id = :session_id AND turn_id = :turn_id ORDER BY created_at DESC, rowid DESC LIMIT 1',
+        );
+        $stmt->execute([':session_id' => $sessionId, ':turn_id' => $turnId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
      * Record an answer for a pending question. Returns false if it is not pending.
      */
     public function recordQuestionAnswer(string $questionId, \CoquiBot\Coqui\Contract\QuestionResponse $answer): bool
