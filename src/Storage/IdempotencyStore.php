@@ -21,12 +21,12 @@ final class IdempotencyStore
     /**
      * Return the response recorded for this tuple, or null if none was seen.
      *
-     * @return array{status: int, body: string}|null
+     * @return array{status: int, body: string, content_type: string}|null
      */
     public function lookup(string $key, string $route, string $actor): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT status, body FROM idempotency_keys
+            'SELECT status, body, content_type FROM idempotency_keys
              WHERE "key" = :key AND route = :route AND actor = :actor
              LIMIT 1',
         );
@@ -37,20 +37,27 @@ final class IdempotencyStore
             return null;
         }
 
-        return ['status' => (int) $row['status'], 'body' => (string) $row['body']];
+        return [
+            'status' => (int) $row['status'],
+            'body' => (string) $row['body'],
+            'content_type' => (string) $row['content_type'],
+        ];
     }
 
     /**
      * Record the response produced by a creator for this tuple.
      *
+     * The response `Content-Type` is persisted alongside status+body so a replay
+     * reproduces the original's content type rather than assuming JSON.
+     *
      * INSERT OR IGNORE: the first writer wins under a concurrent-duplicate race,
      * so the recorded response stays stable for later replays.
      */
-    public function record(string $key, string $route, string $actor, int $status, string $body): void
+    public function record(string $key, string $route, string $actor, int $status, string $body, string $contentType): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT OR IGNORE INTO idempotency_keys ("key", route, actor, status, body, created_at)
-             VALUES (:key, :route, :actor, :status, :body, :created_at)',
+            'INSERT OR IGNORE INTO idempotency_keys ("key", route, actor, status, body, content_type, created_at)
+             VALUES (:key, :route, :actor, :status, :body, :content_type, :created_at)',
         );
         $stmt->execute([
             ':key' => $key,
@@ -58,6 +65,7 @@ final class IdempotencyStore
             ':actor' => $actor,
             ':status' => $status,
             ':body' => $body,
+            ':content_type' => $contentType,
             ':created_at' => gmdate('Y-m-d\TH:i:s\Z'),
         ]);
     }

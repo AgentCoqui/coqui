@@ -470,12 +470,13 @@ final class SessionStorage
         // IdempotencyStore is the sole reader/writer. Recreate-from-empty — no ALTER.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS idempotency_keys (
-                "key"      TEXT NOT NULL,
-                route      TEXT NOT NULL,
-                actor      TEXT NOT NULL,
-                status     INTEGER NOT NULL,
-                body       TEXT NOT NULL,
-                created_at TEXT NOT NULL,
+                "key"        TEXT NOT NULL,
+                route        TEXT NOT NULL,
+                actor        TEXT NOT NULL,
+                status       INTEGER NOT NULL,
+                body         TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT '',
+                created_at   TEXT NOT NULL,
                 PRIMARY KEY ("key", route, actor)
             )
         SQL);

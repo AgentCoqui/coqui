@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Storage\IdempotencyStore;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
+use React\Stream\ReadableStreamInterface;
 
 /**
  * CAP 0.5.0 Idempotency-Key dedup for creators (CORE-53).
@@ -77,20 +78,56 @@ final class IdempotencyMiddleware
     /**
      * Record the handler's response under the tuple and return a buffered copy.
      *
-     * The body is read once and re-materialised so it can be both persisted and
-     * returned to the client (the underlying stream may not be seekable). Typed
-     * against the PSR interface so header/body access is contract-level.
+     * A streaming / non-buffered response (SSE token streams, unknown-length
+     * bodies) is passed through UNTOUCHED and recorded NOTHING: buffering it to a
+     * string would collapse the live stream to an empty body and cache that empty
+     * body for every retry. Only a safely-stringifiable buffered response is read
+     * once, re-materialised, and persisted so it can be both stored and replayed.
+     * Typed against the PSR interface so header/body access is contract-level.
      */
     private function recordAndBuffer(string $key, string $route, string $actor, ResponseInterface $response): Response
     {
+        if ($this->isStreaming($response)) {
+            // Live stream: return the original response unchanged, record nothing.
+            return $response instanceof Response
+                ? $response
+                : new Response(
+                    $response->getStatusCode(),
+                    $response->getHeaders(),
+                    $response->getBody(),
+                );
+        }
+
         $body = (string) $response->getBody();
-        $this->store->record($key, $route, $actor, $response->getStatusCode(), $body);
+        $contentType = $response->getHeaderLine('Content-Type');
+        $this->store->record($key, $route, $actor, $response->getStatusCode(), $body, $contentType);
 
         return new Response(
             $response->getStatusCode(),
             $response->getHeaders(),
             $body,
         );
+    }
+
+    /**
+     * A response is streaming / non-buffered — and must never be recorded — when
+     * it is an event stream, has an unknown body length, or its body is a live
+     * React readable stream that would stringify to an empty body.
+     */
+    private function isStreaming(ResponseInterface $response): bool
+    {
+        if (stripos($response->getHeaderLine('Content-Type'), 'text/event-stream') === 0) {
+            return true;
+        }
+
+        $body = $response->getBody();
+        if ($body instanceof ReadableStreamInterface) {
+            return true;
+        }
+
+        // React wraps a ReadableStreamInterface in a ReadableBodyStream whose
+        // getSize() is null (unknown length) and whose __toString() is empty.
+        return $body->getSize() === null;
     }
 
     /**
@@ -126,13 +163,15 @@ final class IdempotencyMiddleware
     }
 
     /**
-     * @param array{status: int, body: string} $stored
+     * @param array{status: int, body: string, content_type: string} $stored
      */
     private function replay(array $stored): Response
     {
+        $contentType = $stored['content_type'] !== '' ? $stored['content_type'] : 'application/json';
+
         return new Response(
             $stored['status'],
-            ['Content-Type' => 'application/json'],
+            ['Content-Type' => $contentType],
             $stored['body'],
         );
     }

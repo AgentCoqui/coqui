@@ -425,13 +425,18 @@ final class ApiCommand extends Command
         // so a repeated request with the same key replays the recorded response
         // without re-invoking the handler. Only POST routes that mint a resource are
         // wired; every other route (and any request without the header) passes through.
+        //
+        // POST /sessions/{id}/messages is deliberately NOT wired: its default mode
+        // returns a live SSE (text/event-stream) body that must never be buffered
+        // or cached. The middleware's streaming-passthrough guard would pass it
+        // through un-recorded anyway, but excluding the route keeps the flagship
+        // streaming endpoint out of the dedup path entirely (belt-and-suspenders).
         $v1Prefix = '/api/v1';
         $middlewareStack[] = new IdempotencyMiddleware(
             new IdempotencyStore($storage->getPdo()),
             [
                 ['method' => 'POST', 'path' => $v1Prefix . '/sessions'],
                 ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/members'],
-                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/messages'],
                 ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/files'],
                 ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/artifacts'],
                 ['method' => 'POST', 'path' => $v1Prefix . '/personas'],
