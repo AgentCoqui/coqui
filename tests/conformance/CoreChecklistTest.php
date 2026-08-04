@@ -8,10 +8,13 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\LoopManager;
+use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -62,6 +65,102 @@ it('CORE-1: persona allowed_roles includes orchestrator', function () {
     $v = new ConformanceValidator();
     expect($v->isValid('persona.json', $wire))->toBeTrue($v->errorText('persona.json', $wire));
     expect($wire['allowed_roles'])->toContain('orchestrator');
+})->group('conformance');
+
+/**
+ * Build the real ConfigHandler over a temp workspace + temp SQLite db, seeded
+ * with one file-authored persona "caelum". Returns [handler, workspace, dbPath].
+ *
+ * @return array{0: ConfigHandler, 1: string, 2: string}
+ */
+function makePersonaConfigHandler(): array
+{
+    $workspace = sys_get_temp_dir() . '/coqui-persona-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspace . '/personas/caelum', 0755, true);
+    file_put_contents(
+        $workspace . '/personas/caelum/soul.md',
+        "---\nmodel: anthropic/claude-sonnet-4\n---\n\n# Caelum\n\nA warm, precise research companion.\n",
+    );
+
+    $dbPath = sys_get_temp_dir() . '/coqui-persona-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    $handler = new ConfigHandler(
+        OpenClawConfig::fromArray([]),
+        new ConfigValidator(),
+        new PersonaDiscovery($workspace),
+        null,
+        null,
+        null,
+        null,
+        null,
+        new ObjectVersionStore($storage->getPdo()),
+    );
+
+    return [$handler, $workspace, $dbPath];
+}
+
+function personaCreateRequest(array $body): \React\Http\Message\ServerRequest
+{
+    return new \React\Http\Message\ServerRequest(
+        'POST',
+        '/api/v1/personas',
+        ['Content-Type' => 'application/json'],
+        json_encode($body) ?: '',
+    );
+}
+
+function personaPatchRequest(string $name, array $body): \React\Http\Message\ServerRequest
+{
+    return new \React\Http\Message\ServerRequest(
+        'PATCH',
+        '/api/v1/personas/' . $name,
+        ['Content-Type' => 'application/json'],
+        json_encode($body) ?: '',
+    );
+}
+
+it('CORE-9: persona PATCH rejects unknown fields and an empty body', function () {
+    [$handler, $workspace, $dbPath] = makePersonaConfigHandler();
+    try {
+        $unknown = $handler->updatePersona(personaPatchRequest('caelum', ['telepathy' => true]));
+        expect($unknown->getStatusCode())->toBe(422);
+        expect(json_decode((string) $unknown->getBody(), true)['code'])->toBe('validation_error');
+
+        $empty = $handler->updatePersona(personaPatchRequest('caelum', []));
+        expect($empty->getStatusCode())->toBe(422);
+    } finally {
+        cleanupTestTree($workspace);
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+it('CORE-37: persona create rejects a server-owned field (422) and accepts the authoring shape', function () {
+    [$handler, $workspace, $dbPath] = makePersonaConfigHandler();
+    try {
+        $bad = $handler->createPersona(personaCreateRequest([
+            'id' => '01J000000000000000000PERSONA', // server-owned ⇒ reject
+            'name' => 'nova', 'avatar' => new \stdClass(),
+            'model' => 'anthropic/claude-sonnet-4', 'allowed_roles' => ['orchestrator'], 'soul' => 'x',
+        ]));
+        expect($bad->getStatusCode())->toBe(422);
+        expect(json_decode((string) $bad->getBody(), true)['code'])->toBe('validation_error');
+
+        $ok = $handler->createPersona(personaCreateRequest([
+            'name' => 'nova', 'avatar' => new \stdClass(),
+            'model' => 'anthropic/claude-sonnet-4', 'allowed_roles' => ['orchestrator'], 'soul' => 'x',
+        ]));
+        expect($ok->getStatusCode())->toBe(201);
+        $body = json_decode((string) $ok->getBody(), true);
+        $v = new ConformanceValidator();
+        // The served persona is a schema-valid persona.json with version 1.
+        expect($v->isValid('persona.json', $handler->servedPersonaWire('nova')))
+            ->toBeTrue($v->errorText('persona.json', $handler->servedPersonaWire('nova')));
+        expect($body['version'] ?? ($handler->servedPersonaWire('nova')['version']))->toBe(1);
+    } finally {
+        cleanupTestTree($workspace);
+        cleanupSqliteTestDb($dbPath);
+    }
 })->group('conformance');
 
 it('CORE-15: session.model is nullable; a stored null passes through as null (inherit)', function () {
@@ -808,7 +907,6 @@ $rows = [
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
     'CORE-6: the loop live snapshot is fully typed',
     'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
-    'CORE-9: PATCH bodies are typed + reject unknown fields',
     'CORE-10: mutable Core objects carry version; stale writes 409',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
@@ -821,7 +919,6 @@ $rows = [
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-36: responses/events are wire-tolerant: consumers MUST NOT reject unknown fields/enums',
-    'CORE-37: create bodies are authoring-shaped; server-owned fields (id/version/timestamps) are rejected 422',
     'CORE-38: role/loop-definition PUT distinguishes create (If-None-Match:*) from update (If-Match:v); persisted rows require version',
     'CORE-39: InstanceInfo.personas is an open string set; discovery MUST NOT reject an unknown persona',
     'CORE-41: SSE error events carry a code from the closed catalog',

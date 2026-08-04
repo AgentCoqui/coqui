@@ -101,6 +101,21 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 optimistic-concurrency counters for file-authored Core objects
+        // (personas, roles, loop definitions). The authoring content lives on disk;
+        // this table holds only the monotonic `version` token the spec requires each
+        // to expose for If-Match guarded writes. Keyed by (object_type, object_name);
+        // ObjectVersionStore is the sole writer. Recreate-from-empty — no ALTER.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS object_versions (
+                object_type TEXT NOT NULL,
+                object_name TEXT NOT NULL,
+                version     INTEGER NOT NULL DEFAULT 1,
+                updated_at  TEXT NOT NULL,
+                PRIMARY KEY (object_type, object_name)
+            )
+        SQL);
+
         // CAP 0.5.0 sessions shape. Recreate-from-empty: every column an earlier
         // release accreted via migrateAddColumn is folded into this base DDL, plus
         // the CAP additions (nullable model ⇒ inherit, kind, pinned, workspace,

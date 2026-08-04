@@ -57,6 +57,7 @@ use CoquiBot\Coqui\Agent\StageGateEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
@@ -324,6 +325,7 @@ final class ApiCommand extends Command
             $boot->configManager(),
             new \CoquiBot\Coqui\Config\ConfigGuard(),
             $lifecycle,
+            new ObjectVersionStore($storage->getPdo()),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery());

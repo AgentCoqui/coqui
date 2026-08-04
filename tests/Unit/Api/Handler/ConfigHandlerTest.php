@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use React\Http\Message\ServerRequest;
 
@@ -80,6 +81,16 @@ MD);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, personaDiscovery: $personaDiscovery);
     $pdo = new PDO('sqlite::memory:');
+    $pdo->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS object_versions (
+            object_type TEXT NOT NULL,
+            object_name TEXT NOT NULL,
+            version     INTEGER NOT NULL DEFAULT 1,
+            updated_at  TEXT NOT NULL,
+            PRIMARY KEY (object_type, object_name)
+        )
+    SQL);
+    $objectVersions = new ObjectVersionStore($pdo);
     $runtimeStateStore = new RuntimeStateStore($pdo);
     $lifecycle = new ApiLifecycleController(
         runtimeStateStore: $runtimeStateStore,
@@ -104,6 +115,7 @@ MD);
             $configManager,
             new ConfigGuard(),
             $lifecycle,
+            $objectVersions,
         ),
     ];
 }
@@ -192,7 +204,7 @@ test('config handler returns persona detail for picker UIs', function () {
     }
 });
 
-test('config handler creates a persona and makes it immediately discoverable', function () {
+test('config handler creates a persona from the CAP authoring shape and serves version 1', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -202,19 +214,11 @@ test('config handler creates a persona and makes it immediately discoverable', f
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'nova',
-                'description' => 'A bold collaborative strategist.',
+                'avatar' => ['tint' => '#2b3a52'],
+                'model' => 'anthropic/claude-sonnet-4',
+                'allowed_roles' => ['orchestrator'],
+                'soul' => "# Nova\n\nA bold collaborative strategist.",
                 'backstory' => "## Origins\n\nBuilt for focused strategic support.",
-                'preferences' => [
-                    'behavior' => [
-                        'planning_mode' => 'structured',
-                    ],
-                    'prompts' => [
-                        'features' => [
-                            'projects' => false,
-                            'loops' => true,
-                        ],
-                    ],
-                ],
             ], JSON_THROW_ON_ERROR),
         ));
         $body = json_decode((string) $response->getBody(), true);
@@ -223,22 +227,24 @@ test('config handler creates a persona and makes it immediately discoverable', f
         $personasBody = json_decode((string) $personasResponse->getBody(), true);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['name'])->toBe('nova');
-        expect($body['description'])->toBe('A bold collaborative strategist.');
-        expect($body['soul'])->toContain('# Nova');
-        expect($body['preferences']['features']['projects'])->toBeFalse();
-        expect($body['preferences']['features']['loops'])->toBeTrue();
+        expect($body['version'])->toBe(1);
+        expect($body['model'])->toBe('anthropic/claude-sonnet-4');
+        expect($body['allowed_roles'])->toBe(['orchestrator']);
+        expect($body['avatar'])->toBe(['tint' => '#2b3a52']);
+        expect($body['soul'])->toContain('A bold collaborative strategist.');
+        expect($body['backstory'])->toContain('## Origins');
         expect($personasBody['count'])->toBe(3);
         expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('A bold collaborative strategist.');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('model: anthropic/claude-sonnet-4');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/backstory.md'))->toContain('## Origins');
-        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/preferences.json'))->toContain('planning_mode');
+        expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/identity.json'))->toContain('#2b3a52');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
 });
 
-test('config handler rejects duplicate or invalid persona creation payloads', function () {
+test('config handler rejects duplicate personas and server-owned create fields', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -248,32 +254,40 @@ test('config handler rejects duplicate or invalid persona creation payloads', fu
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'caelum',
-                'description' => 'Duplicate persona',
+                'avatar' => new stdClass(),
+                'model' => 'anthropic/claude-sonnet-4',
+                'allowed_roles' => ['orchestrator'],
+                'soul' => 'A duplicate.',
             ], JSON_THROW_ON_ERROR),
         ));
         $duplicateBody = json_decode((string) $duplicateResponse->getBody(), true);
 
-        $invalidResponse = $fixture['handler']->createPersona(new ServerRequest(
+        $serverOwnedResponse = $fixture['handler']->createPersona(new ServerRequest(
             'POST',
             '/api/v1/personas',
             ['Content-Type' => 'application/json'],
             json_encode([
-                'name' => 'not valid',
-                'description' => 'Bad name',
+                'id' => '01J000000000000000000PERSONA',
+                'name' => 'nova',
+                'avatar' => new stdClass(),
+                'model' => 'anthropic/claude-sonnet-4',
+                'allowed_roles' => ['orchestrator'],
+                'soul' => 'x',
             ], JSON_THROW_ON_ERROR),
         ));
-        $invalidBody = json_decode((string) $invalidResponse->getBody(), true);
+        $serverOwnedBody = json_decode((string) $serverOwnedResponse->getBody(), true);
 
         expect($duplicateResponse->getStatusCode())->toBe(409);
         expect($duplicateBody['code'])->toBe('conflict');
-        expect($invalidResponse->getStatusCode())->toBe(400);
-        expect($invalidBody['code'])->toBe('validation_error');
+        expect($serverOwnedResponse->getStatusCode())->toBe(422);
+        expect($serverOwnedBody['code'])->toBe('validation_error');
+        expect($serverOwnedBody['details']['unexpected_fields'])->toContain('id');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
 });
 
-test('config handler updates a persona and preserves existing frontmatter', function () {
+test('config handler patches persona soul/backstory, preserves the model, and bumps version', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -282,36 +296,48 @@ test('config handler updates a persona and preserves existing frontmatter', func
             '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
             json_encode([
-                'description' => 'A calmer guide for long-running conversations.',
+                'soul' => "# Caelum\n\nA calmer guide for long-running conversations.",
                 'backstory' => "## Revisions\n\nUpdated during onboarding.",
-                'preferences' => [
-                    'prompts' => [
-                        'features' => [
-                            'projects' => false,
-                            'loops' => true,
-                        ],
-                    ],
-                ],
             ], JSON_THROW_ON_ERROR),
         ), 'caelum');
         $body = json_decode((string) $response->getBody(), true);
         $soulFile = file_get_contents($fixture['workspacePath'] . '/personas/caelum/soul.md');
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['description'])->toBe('A calmer guide for long-running conversations.');
+        expect($body['soul'])->toContain('A calmer guide for long-running conversations.');
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-        expect($body['preferences']['features']['projects'])->toBeFalse();
-        expect($body['preferences']['features']['loops'])->toBeTrue();
+        expect($body['version'])->toBe(2);
+        expect($body['backstory'])->toContain('## Revisions');
         expect($soulFile)->toContain('model: anthropic/claude-sonnet-4-20250514');
         expect($soulFile)->toContain('A calmer guide for long-running conversations.');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/backstory.md'))->toContain('## Revisions');
-        expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json'))->toContain('"projects": false');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
 });
 
-test('config handler can remove optional persona files during update', function () {
+test('config handler rejects a stale If-Match with a version conflict', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        // caelum starts at the implicit version 1; If-Match: 2 is stale.
+        $response = $fixture['handler']->updatePersona(new ServerRequest(
+            'PATCH',
+            '/api/v1/personas/caelum',
+            ['Content-Type' => 'application/json', 'If-Match' => '2'],
+            json_encode(['soul' => "# Caelum\n\nRewritten."], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('version_conflict');
+        expect($body['details']['current_version'])->toBe(1);
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler can clear optional persona files during a patch', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
@@ -322,38 +348,49 @@ test('config handler can remove optional persona files during update', function 
             json_encode([
                 'soul' => "# Caelum\n\nA direct soul rewrite.",
                 'backstory' => null,
-                'preferences' => null,
             ], JSON_THROW_ON_ERROR),
         ), 'caelum');
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['description'])->toBe('A direct soul rewrite.');
+        expect($body['soul'])->toContain('A direct soul rewrite.');
+        expect($body['backstory'])->toBeNull();
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
         expect(is_file($fixture['workspacePath'] . '/personas/caelum/backstory.md'))->toBeFalse();
-        expect(is_file($fixture['workspacePath'] . '/personas/caelum/preferences.json'))->toBeFalse();
         expect(file_get_contents($fixture['workspacePath'] . '/personas/caelum/soul.md'))->toContain('model: anthropic/claude-sonnet-4-20250514');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
 });
 
-test('config handler rejects invalid persona update payloads', function () {
+test('config handler rejects renaming, unknown patch fields, and an empty patch', function () {
     $fixture = createApiConfigHandlerFixture();
 
     try {
-        $response = $fixture['handler']->updatePersona(new ServerRequest(
+        $rename = $fixture['handler']->updatePersona(new ServerRequest(
             'PATCH',
             '/api/v1/personas/caelum',
             ['Content-Type' => 'application/json'],
-            json_encode([
-                'name' => 'renamed-persona',
-            ], JSON_THROW_ON_ERROR),
+            json_encode(['name' => 'renamed-persona'], JSON_THROW_ON_ERROR),
         ), 'caelum');
-        $body = json_decode((string) $response->getBody(), true);
+        expect($rename->getStatusCode())->toBe(422);
+        expect(json_decode((string) $rename->getBody(), true)['code'])->toBe('validation_error');
 
-        expect($response->getStatusCode())->toBe(400);
-        expect($body['code'])->toBe('validation_error');
+        $unknown = $fixture['handler']->updatePersona(new ServerRequest(
+            'PATCH',
+            '/api/v1/personas/caelum',
+            ['Content-Type' => 'application/json'],
+            json_encode(['telepathy' => true], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        expect($unknown->getStatusCode())->toBe(422);
+
+        $empty = $fixture['handler']->updatePersona(new ServerRequest(
+            'PATCH',
+            '/api/v1/personas/caelum',
+            ['Content-Type' => 'application/json'],
+            json_encode([], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        expect($empty->getStatusCode())->toBe(422);
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
