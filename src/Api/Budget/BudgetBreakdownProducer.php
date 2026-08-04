@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Budget;
 
 use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
+use CoquiBot\Coqui\Contract\PromptSectionPriority;
 
 /**
  * Projects a {@see PromptBudgetSnapshot} onto the CAP budget-observability wire
@@ -55,10 +56,11 @@ final readonly class BudgetBreakdownProducer
             $sections[] = [
                 'name' => $name,
                 'included' => $included,
-                'estimated_tokens' => $tokens,
-                // The snapshot carries priority as a closed-set string; the wire
-                // shape is a non-negative integer shed-rank.
-                'priority' => max(0, (int) $section['priority']),
+                // estimated_tokens is 0 when not included (schema §sections);
+                // included sections keep their real estimate so the included sum
+                // (total_estimated_tokens) is unchanged.
+                'estimated_tokens' => $included ? $tokens : 0,
+                'priority' => $this->shedRank($section['priority']),
                 'shed_reason' => $shedReason,
             ];
         }
@@ -75,5 +77,22 @@ final readonly class BudgetBreakdownProducer
             'total_estimated_tokens' => $totalIncludedTokens,
             'model_context_window' => $window,
         ];
+    }
+
+    /**
+     * Maps the snapshot's closed-set priority string ({@see PromptSectionPriority})
+     * onto the wire shed-rank: lower is retained longer, so volatile sheds first.
+     * critical (pinned) ranks first, then workflow (pinned), then volatile
+     * (deferrable). An unknown value ranks last (most sheddable) so a stray
+     * priority can never masquerade as pinned. Kept an int >= 0 per the schema.
+     */
+    private function shedRank(string $priority): int
+    {
+        return match ($priority) {
+            PromptSectionPriority::Critical->value => 0,
+            PromptSectionPriority::Workflow->value => 1,
+            PromptSectionPriority::Volatile->value => 2,
+            default => 3,
+        };
     }
 }
