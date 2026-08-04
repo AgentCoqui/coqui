@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tests\Conformance\Support;
 
 /**
- * Reads the vendored conformance vector manifest and yields the valid/invalid
- * buckets as Pest datasets. Mirrors validate-vectors.mjs (lenient bucket excluded).
+ * Reads the vendored conformance vector manifest and yields the valid/invalid/lenient
+ * buckets as Pest datasets. The lenient bucket carries forward-compatibility vectors
+ * (future fields a 0.5.0 client MUST tolerate, per CORE-36).
  */
 final class VectorManifest
 {
@@ -22,6 +23,12 @@ final class VectorManifest
     public static function invalid(): array
     {
         return self::bucket('invalid');
+    }
+
+    /** @return array<string, array{0: array{file: string, schema: string}}> */
+    public static function lenient(): array
+    {
+        return self::bucket('lenient');
     }
 
     /** @return array<string, array{0: array{file: string, schema: string}}> */
