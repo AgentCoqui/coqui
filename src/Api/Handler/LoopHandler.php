@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\LoopStreamTracker;
 use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Contract\LoopStreamState;
 use CoquiBot\Coqui\Agent\LoopExecutor;
@@ -597,9 +598,11 @@ final readonly class LoopHandler
         }
 
         $sse = new SseStream();
-        $sse->connected(['loop_id' => $id]);
 
         $prev = null;
+        // Every wire `id:` line is the opaque string cursor: the loop stream's
+        // numeric transport cursor is MAX(task_events.id), encoded so it sorts
+        // lexicographically (schema/sse-frame.json).
         $emit = function (LoopStreamState $now) use ($sse, &$prev): bool {
             $event = LoopStreamTracker::diff($prev, $now);
             $prev = $now;
@@ -607,17 +610,19 @@ final readonly class LoopHandler
                 return false;
             }
             if ($event->type === 'done') {
-                $sse->done($event->data);
+                $sse->done($event->data, SseCursor::encode($now->latestActivityId ?? 0));
 
                 return true;
             }
-            $sse->event($event->type, $event->data, $now->latestActivityId);
+            $sse->event($event->type, $event->data, SseCursor::encode($now->latestActivityId ?? 0));
 
             return false;
         };
 
         // Initial emit: current position, or done if already terminal.
-        $closed = $emit($this->readStreamState($id));
+        $initial = $this->readStreamState($id);
+        $sse->connected(['loop_id' => $id], SseCursor::encode($initial->latestActivityId ?? 0));
+        $closed = $emit($initial);
 
         if (!$closed) {
             $timer = \React\EventLoop\Loop::addPeriodicTimer(self::POLL_INTERVAL, function () use (&$timer, $sse, $id, $emit): void {

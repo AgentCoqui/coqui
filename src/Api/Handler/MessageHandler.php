@@ -8,6 +8,8 @@ use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
+use CoquiBot\Coqui\Api\SseStream;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Export\WireFormat;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -215,9 +217,10 @@ final readonly class MessageHandler
 
         $stream = new ThroughStream();
 
-        // Send initial connection event
-        $stream->write("event: connected\ndata: {\"turn_process_id\":\"{$turnProcessId}\"}\n\n");
-
+        // No `connected` handshake: `connected` is not in the closed turn-stream
+        // event set (schema/sse-turn-event.json — token|message|tool_call|
+        // tool_result|question|done|error). A client learns the outcome from the
+        // terminal `done` frame's turn record, not from a transport handshake.
         $lastEventId = null;
         /** @var ?TimerInterface $timer */
         $timer = null;
@@ -232,10 +235,10 @@ final readonly class MessageHandler
             try {
                 $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
 
-                // All turn-event types stream through unchanged (no allowlist);
-                // this includes the `question` event emitted for structured questions.
+                // Each coqui-internal turn event is mapped onto the closed CAP
+                // turn-stream event set (or dropped) before it reaches the wire.
                 foreach ($events as $event) {
-                    $this->writeSseEvent($stream, $event);
+                    $this->writeSseEvent($stream, $event, $turnProcessId);
                     $lastEventId = (int) $event['id'];
                 }
 
@@ -246,7 +249,7 @@ final readonly class MessageHandler
                     // Final poll to ensure all events are flushed
                     $finalEvents = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                     foreach ($finalEvents as $event) {
-                        $this->writeSseEvent($stream, $event);
+                        $this->writeSseEvent($stream, $event, $turnProcessId);
                     }
 
                     if ($stream->isWritable()) {
@@ -407,32 +410,152 @@ final readonly class MessageHandler
     }
 
     /**
-     * Write a single SSE event to the stream.
+     * Map a coqui-internal turn event onto the closed CAP turn-stream event set
+     * and write it as a typed SSE frame (schema/sse-turn-event.json). Events with
+     * no CAP turn-channel equivalent — or whose data cannot yet be shaped
+     * conformantly — are dropped rather than emitted non-conformant.
+     *
+     * Internal event_type → CAP turn event (closed set: token | message |
+     * tool_call | tool_result | question | done | error):
+     *
+     *   text_delta → token      (data { content } → { text })
+     *   tool_call  → tool_call  (data { id, tool, arguments } →
+     *                            { tool_call_id, name, arguments })
+     *   complete   → done       (data replaced with the full turn.json record,
+     *                            projected via TurnHandler::toWire)
+     *
+     * DROPPED (no conformant CAP mapping in this task): agent_start, iteration,
+     * batch_start, batch_end, reasoning, `done` (the observer's mid-run
+     * agent.done nudge — the terminal CAP `done` is derived from `complete`),
+     * tool_result (the observer captures no correlatable tool_call_id, which the
+     * schema requires), question (its question_id shaping is CORE-48), error
+     * (its sse-error.json Error-record shaping is Task 13), warning,
+     * budget_warning, summary, memory_extraction, notification, child_start,
+     * child_end, review_start, review_end, loop_* and title.
      *
      * @param array<string, mixed> $event
      */
-    private function writeSseEvent(ThroughStream $stream, array $event): void
+    private function writeSseEvent(ThroughStream $stream, array $event, string $turnProcessId): void
     {
         if (!$stream->isWritable()) {
             return;
         }
 
-        $data = $event['data'] ?? '{}';
-        if (!is_string($data)) {
-            $data = json_encode($data, JSON_UNESCAPED_SLASHES) ?: '{}';
+        $mapped = $this->mapTurnEvent($event, $turnProcessId);
+        if ($mapped === null) {
+            return;
         }
 
-        $eventType = $event['event_type'] ?? 'message';
-        $id = $event['id'] ?? '';
+        [$capEvent, $data] = $mapped;
 
-        $sse = '';
-        if ($id !== '') {
-            $sse .= "id: {$id}\n";
+        $rawId = $event['id'] ?? null;
+        $id = ($rawId !== null && $rawId !== '') ? SseCursor::encode((int) $rawId) : null;
+
+        $frame = self::buildTurnEventFrame($capEvent, $data, $id ?? SseCursor::encode(0));
+
+        $stream->write(SseStream::format($frame['event'], $frame['data'], $frame['id']));
+    }
+
+    /**
+     * Resolve a coqui-internal turn event to a `[capEvent, data]` pair, or null
+     * to drop it. See {@see writeSseEvent} for the full mapping table.
+     *
+     * @param array<string, mixed> $event
+     * @return array{0: string, 1: array<string, mixed>}|null
+     */
+    private function mapTurnEvent(array $event, string $turnProcessId): ?array
+    {
+        $type = (string) ($event['event_type'] ?? '');
+        $data = $this->decodeEventData($event['data'] ?? null);
+
+        return match ($type) {
+            'text_delta' => ['token', ['text' => (string) ($data['content'] ?? '')]],
+            'tool_call' => ['tool_call', $this->shapeToolCall($data)],
+            'complete' => ['done', $this->turnRecord($turnProcessId)],
+            default => null,
+        };
+    }
+
+    /**
+     * Build a typed turn-stream frame. Pure — the single place the `{id, event,
+     * data}` shape is assembled, so it is unit-testable without a live stream and
+     * shared by the stream path. The `$id` is the already-encoded string cursor.
+     *
+     * @param array<string, mixed> $data
+     * @return array{id: string, event: string, data: array<string, mixed>}
+     */
+    public static function buildTurnEventFrame(string $event, array $data, string $id): array
+    {
+        return ['id' => $id, 'event' => $event, 'data' => $data];
+    }
+
+    /**
+     * Project the terminal turn record for the `done` frame. Prefers the finalized
+     * turns row (already written by {@see \CoquiBot\Coqui\Agent\AgentRunner} before
+     * the `complete` event fires); falls back to a minimal schema-valid record when
+     * no row is bound (e.g. a spawn that failed before the turn row was created).
+     *
+     * @return array<string, mixed>
+     */
+    private function turnRecord(string $turnProcessId): array
+    {
+        $turn = $this->storage->getTurnByProcessId($turnProcessId);
+        if ($turn !== null) {
+            return TurnHandler::toWire($turn);
         }
-        $sse .= "event: {$eventType}\n";
-        $sse .= "data: {$data}\n\n";
 
-        $stream->write($sse);
+        return TurnHandler::toWire([
+            'id' => $turnProcessId,
+            'session_id' => '',
+            'turn_number' => 1,
+            'user_prompt' => '',
+            'status' => 'failed',
+        ]);
+    }
+
+    /**
+     * Shape an observer tool_call payload onto the CAP tool_call data shape
+     * (schema/sse-turn-event.json: required `name`, optional `tool_call_id` and
+     * object `arguments`).
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function shapeToolCall(array $data): array
+    {
+        $shaped = ['name' => (string) ($data['tool'] ?? '')];
+
+        if (isset($data['id']) && is_string($data['id']) && $data['id'] !== '') {
+            $shaped['tool_call_id'] = $data['id'];
+        }
+
+        // Cast to object so an empty or list-shaped arguments array still encodes
+        // as a JSON object (the schema types `arguments` as an object).
+        if (isset($data['arguments']) && is_array($data['arguments'])) {
+            $shaped['arguments'] = (object) $data['arguments'];
+        }
+
+        return $shaped;
+    }
+
+    /**
+     * Decode a stored turn-event `data` column to an associative array.
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeEventData(mixed $data): array
+    {
+        if (is_array($data)) {
+            return $data;
+        }
+
+        if (is_string($data) && $data !== '') {
+            $decoded = json_decode($data, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 
     /**

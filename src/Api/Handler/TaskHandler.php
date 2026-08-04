@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -403,8 +404,15 @@ final readonly class TaskHandler
         }
 
         $eventType = $event['event_type'] ?? 'message';
-        $id = $event['id'] ?? '';
 
-        $stream->write("id: {$id}\nevent: {$eventType}\ndata: {$data}\n\n");
+        // The wire `id:` line is the opaque string cursor: the task stream's
+        // numeric transport cursor is the task_events rowid, encoded so it sorts
+        // lexicographically (schema/sse-frame.json).
+        $rawId = $event['id'] ?? null;
+        $idLine = ($rawId !== null && $rawId !== '')
+            ? 'id: ' . SseCursor::encode((int) $rawId) . "\n"
+            : '';
+
+        $stream->write("{$idLine}event: {$eventType}\ndata: {$data}\n\n");
     }
 }

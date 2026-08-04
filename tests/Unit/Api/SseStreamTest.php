@@ -10,8 +10,9 @@ test('formats an SSE frame without an id', function (): void {
 });
 
 test('formats an SSE frame with an id line', function (): void {
-    expect(SseStream::format('activity', ['cursor' => 42], 42))
-        ->toBe("id: 42\nevent: activity\ndata: {\"cursor\":42}\n\n");
+    // The id is the already-encoded opaque string cursor (SseCursor::encode).
+    expect(SseStream::format('activity', ['cursor' => 42], '00000000000000000042'))
+        ->toBe("id: 00000000000000000042\nevent: activity\ndata: {\"cursor\":42}\n\n");
 });
 
 test('formats a connected frame with a string payload', function (): void {

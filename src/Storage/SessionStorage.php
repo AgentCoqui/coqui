@@ -2454,6 +2454,38 @@ final class SessionStorage
     }
 
     /**
+     * Get the normalized turn row bound to a turn process, or null if none.
+     *
+     * The turns row is finalized by {@see completeTurn()} before the terminal
+     * `complete` turn event fires, so the SSE `done` frame can project it via
+     * {@see \CoquiBot\Coqui\Api\Handler\TurnHandler::toWire()}.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTurnByProcessId(string $turnProcessId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
+                   prompt_tokens, completion_tokens, total_tokens, iterations,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
+            FROM turns
+            WHERE turn_process_id = :turn_process_id
+            ORDER BY turn_number DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['turn_process_id' => $turnProcessId]);
+        $turn = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($turn === false) {
+            return null;
+        }
+
+        return $this->normalizeTurnRow($turn);
+    }
+
+    /**
      * Get a turn with its messages nested under a 'messages' key.
      *
      * @return array<string, mixed>|null

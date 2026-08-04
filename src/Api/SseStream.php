@@ -25,9 +25,13 @@ final class SseStream
     /**
      * Format a single SSE frame. Pure — no side effects.
      *
+     * The `$id` is the wire `id:` line and is already the opaque string cursor
+     * (see {@see \CoquiBot\Coqui\Api\Sse\SseCursor}); callers encode the numeric
+     * rowid before passing it here.
+     *
      * @param array<string, mixed> $data
      */
-    public static function format(string $type, array $data, ?int $id = null): string
+    public static function format(string $type, array $data, ?string $id = null): string
     {
         $json = json_encode($data, JSON_UNESCAPED_SLASHES);
         if ($json === false) {
@@ -41,15 +45,15 @@ final class SseStream
     /**
      * @param array<string, mixed> $data
      */
-    public function connected(array $data): void
+    public function connected(array $data, ?string $id = null): void
     {
-        $this->stream->write(self::format('connected', $data));
+        $this->stream->write(self::format('connected', $data, $id));
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public function event(string $type, array $data, ?int $id = null): void
+    public function event(string $type, array $data, ?string $id = null): void
     {
         $this->stream->write(self::format($type, $data, $id));
     }
@@ -59,9 +63,9 @@ final class SseStream
      *
      * @param array<string, mixed> $data
      */
-    public function done(array $data): void
+    public function done(array $data, ?string $id = null): void
     {
-        $this->stream->write(self::format('done', $data));
+        $this->stream->write(self::format('done', $data, $id));
         $this->stream->end();
     }
 

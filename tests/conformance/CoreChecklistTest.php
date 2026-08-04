@@ -17,6 +17,7 @@ use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\LoopDiscovery;
@@ -1476,6 +1477,45 @@ it('CORE-45: the export envelope types a content collection', function () {
     }
 })->group('conformance');
 
+it('CORE-52: an SSE frame id is an opaque string cursor that sorts lexicographically', function () {
+    // coqui encodes rowids so string order == numeric order.
+    expect(SseCursor::encode(9) < SseCursor::encode(10))->toBeTrue();
+    expect(SseCursor::decode(SseCursor::encode(4242)))->toBe(4242);
+    $v = new ConformanceValidator();
+    // A frame coqui would emit validates; the numeric-id shape is rejected by sse-frame.json.
+    expect($v->isValid('sse-frame.json', ['id' => SseCursor::encode(42), 'text' => 'Hello']))->toBeTrue();
+    expect($v->isValid('sse-frame.json', ['id' => 42, 'text' => 'Hello']))->toBeFalse();
+})->group('conformance');
+
+it('CORE-51: turn SSE frames are emitted only in the closed per-channel event set', function () {
+    $v = new ConformanceValidator();
+    // The turn stream's terminal frame is `done` — a full turn.json record,
+    // projected by the real producer — never the legacy `complete`.
+    $turnRecord = TurnHandler::toWire([
+        'id' => '01J00000000000000000TURN01',
+        'session_id' => '01J0000000000000000SESSION',
+        'turn_number' => 1,
+        'user_prompt' => 'Summarize the conformance vector suite.',
+        'response_text' => 'The suite validates canonical Core objects against their schemas.',
+        'model' => 'anthropic/claude-sonnet-4',
+        'prompt_tokens' => 42,
+        'completion_tokens' => 18,
+        'total_tokens' => 60,
+        'iterations' => 1,
+        'duration_ms' => 1200,
+        'tools_used' => [],
+        'status' => 'completed',
+        'created_at' => '2026-07-28T00:00:00Z',
+        'completed_at' => '2026-07-28T00:00:02Z',
+    ]);
+    $frame = MessageHandler::buildTurnEventFrame('done', $turnRecord, SseCursor::encode(7)); // small pure builder
+    expect($v->isValid('sse-turn-event.json', $frame))->toBeTrue($v->errorText('sse-turn-event.json', $frame));
+    expect(in_array($frame['event'], ['token', 'message', 'tool_call', 'tool_result', 'question', 'done', 'error'], true))->toBeTrue();
+    // An unknown event shape (name outside the closed set) is rejected.
+    $unknown = MessageHandler::buildTurnEventFrame('reasoning', ['content' => 'thinking'], SseCursor::encode(8));
+    expect($v->isValid('sse-turn-event.json', $unknown))->toBeFalse();
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
@@ -1496,8 +1536,6 @@ $rows = [
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
     'CORE-49: question format is rich (multi-select) with a typed option shape',
     'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
-    'CORE-51: SSE frames are typed per channel; unknown event shapes are rejected',
-    'CORE-52: SSE frame id is a string cursor; a numeric id is rejected',
     'CORE-53: creators accept an Idempotency-Key request header for dedup',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',
