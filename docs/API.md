@@ -3017,38 +3017,42 @@ Filesystem-backed schedules synced from `workspace/schedules/*.json` remain read
 
 Create a schedule.
 
+The request body is the strict CAP authoring shape: `name`, `cron`, `persona_id`, and a kind-discriminated `action`. Any other field is rejected `422 validation_error`. `action` is a typed union:
+
+- `{"kind": "turn", "prompt": "..."}` — dispatch a one-shot turn each tick.
+- `{"kind": "loop", "definition_name": "research"}` — dispatch a loop definition each tick.
+
+A `loop` action without `definition_name`, a `turn` action without `prompt`, or an unknown `kind` is rejected `422 validation_error`.
+
 **Request Body**
 
 ```json
 {
   "name": "daily-review",
   "cron": "0 9 * * 1-5",
-  "prompt": "Review recent changes.",
-  "role": "orchestrator",
-  "max_iterations": 12,
-  "timezone": "UTC",
-  "max_failures": 5
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "Review recent changes." }
 }
 ```
 
-**Response `201`**
+**Response `201`** — the created ScheduledTask object.
 
 ```json
 {
-  "schedule": {
-    "id": "a1b2c3d4",
-    "name": "daily-review",
-    "cron": "0 9 * * 1-5",
-    "prompt": "Review recent changes.",
-    "role": "orchestrator",
-    "max_iterations": 12,
-    "enabled": 1,
-    "created_by": "api",
-    "timezone": "UTC",
-    "max_failures": 5
-  }
+  "id": "a1b2c3d4",
+  "name": "daily-review",
+  "cron": "0 9 * * 1-5",
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "Review recent changes." },
+  "status": "enabled",
+  "last_run_at": null,
+  "next_run_at": "2026-02-17T09:00:00Z",
+  "created_at": "2026-02-10T12:00:00Z",
+  "updated_at": "2026-02-10T12:00:00Z"
 }
 ```
+
+The scheduler advertises the cron dialect it parses (a standard 5-field POSIX/Vixie expression) via instance-info `schedules.dialect: "posix-5field"` so a client can judge whether a `cron` string is portable.
 
 #### `GET /api/v1/schedules`
 
@@ -3063,29 +3067,25 @@ List all schedules with optional filters.
 
 **Response `200`**
 
+Each item is a ScheduledTask object. Results are cursor-paginated (`items` / `next_cursor`).
+
 ```json
 {
-  "schedules": [
+  "items": [
     {
       "id": "a1b2c3d4",
       "name": "daily-review",
       "cron": "0 9 * * 1-5",
-      "prompt": "Review recent changes...",
-      "role": "orchestrator",
-      "max_iterations": 48,
-      "enabled": 1,
-      "timezone": "UTC",
-      "next_run_at": "2026-02-17T09:00:00Z",
+      "persona_id": "01J00000000000000000000P01",
+      "action": { "kind": "turn", "prompt": "Review recent changes." },
+      "status": "enabled",
       "last_run_at": "2026-02-16T09:00:00Z",
-      "last_task_id": "t1a2b3c4",
-      "last_status": "completed",
-      "run_count": 5,
-      "failure_count": 0,
-      "max_failures": 3,
+      "next_run_at": "2026-02-17T09:00:00Z",
       "created_at": "2026-02-10T12:00:00Z",
       "updated_at": "2026-02-16T09:01:00Z"
     }
   ],
+  "next_cursor": null,
   "stats": {
     "total": 3,
     "enabled": 2,
@@ -3189,11 +3189,18 @@ List recent background task runs triggered by a schedule.
 
 #### `PATCH /api/v1/schedules/{id}`
 
-Update a mutable schedule.
+Update a mutable schedule (partial). The strict CAP patch shape accepts any subset of `name`, `cron`, `persona_id`, `action`, and `status` (`enabled` | `disabled`); at least one field is required. Any other field is rejected `422 validation_error`. When `action` is supplied it is re-validated as the kind-discriminated union. `status` routes through the same enable/disable path that recomputes `next_run_at` (the dedicated action endpoints below remain available).
 
-Use this endpoint for definition fields such as `name`, `description`, `cron`, `prompt`, `role`, `max_iterations`, `timezone`, and `max_failures`. Use the action endpoints below for enabled state changes.
+**Request Body**
 
-**Response `200`** — updated schedule object.
+```json
+{
+  "cron": "0 10 * * 1-5",
+  "action": { "kind": "loop", "definition_name": "research" }
+}
+```
+
+**Response `200`** — the updated ScheduledTask object.
 
 **Response `409`** — filesystem-backed schedule.
 

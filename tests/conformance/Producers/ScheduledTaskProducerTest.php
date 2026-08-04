@@ -21,7 +21,7 @@ it('CORE-33: builds a persona-bound turn schedule and produces a schema-valid Sc
     $id = $this->store->create(
         name: 'daily-review',
         scheduleExpression: '0 9 * * 1-5',
-        prompt: 'Review recent changes.',
+        action: ['kind' => 'turn', 'prompt' => 'Review recent changes.'],
         personaId: '01J000000000000000000PERSONA',
     );
 
@@ -50,7 +50,7 @@ it('CORE-33: a disabled schedule serializes status=disabled and stays schema-val
     $id = $this->store->create(
         name: 'weekly-retro',
         scheduleExpression: '0 9 * * 1',
-        prompt: 'Summarize the week.',
+        action: ['kind' => 'turn', 'prompt' => 'Summarize the week.'],
         personaId: '01J000000000000000000PERSONA',
     );
     $this->store->disable($id);

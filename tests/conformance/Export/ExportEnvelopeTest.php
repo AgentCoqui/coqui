@@ -207,7 +207,7 @@ it('CORE-14: every produced collection serializes schema-valid and the envelope 
         $scheduleId = $scheduleStore->create(
             name: 'daily-review',
             scheduleExpression: '0 9 * * 1-5',
-            prompt: 'Review recent changes.',
+            action: ['kind' => 'turn', 'prompt' => 'Review recent changes.'],
             personaId: 'caelum',
         );
         $scheduleWire = ScheduleStore::toWire($scheduleStore->get($scheduleId));

@@ -809,6 +809,10 @@ final class ApiCommand extends Command
                 'max_content_bytes' => CoquiDefaults::MAX_UPLOAD_FILE_SIZE,
             ],
             api: ['base_path' => '/api/v1', 'api_major' => '1'],
+            // The scheduler parses a standard 5-field POSIX/Vixie cron expression
+            // (dragonmantank/cron-expression), advertised so a client can judge
+            // whether a `ScheduledTask.cron` string is portable (Schedules.md §2).
+            schedulesDialect: 'posix-5field',
         );
     }
 

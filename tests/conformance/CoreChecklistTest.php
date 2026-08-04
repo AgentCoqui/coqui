@@ -972,7 +972,7 @@ it('CORE-33: the ScheduledTask object is typed; status/action.kind are closed se
         $id = $store->create(
             name: 'daily-review',
             scheduleExpression: '0 9 * * 1-5',
-            prompt: 'Review recent changes.',
+            action: ['kind' => 'turn', 'prompt' => 'Review recent changes.'],
             personaId: 'caelum',
         );
         $wire = ScheduleStore::toWire($store->get($id));
@@ -985,6 +985,59 @@ it('CORE-33: the ScheduledTask object is typed; status/action.kind are closed se
         expect($wire['action']->kind)->toBeIn(['turn', 'loop']);
         // status is a closed set derived from the enabled flag.
         expect($wire['status'])->toBeIn(['enabled', 'disabled']);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
+})->group('conformance');
+
+/**
+ * A persisted `scheduled_tasks` row shaped against the real columns
+ * (`ScheduleStore::createTables`): `action_kind` discriminates the union, with
+ * `prompt` carrying the turn payload and `definition_name` the loop reference.
+ *
+ * @return array<string, mixed>
+ */
+function scheduleRow(
+    string $actionKind = 'turn',
+    ?string $prompt = null,
+    ?string $definitionName = null,
+    ?string $personaId = '01J00000000000000000000P01',
+): array {
+    return [
+        'id' => '01J00000000000000000000S01',
+        'name' => 'nightly-research',
+        'cron' => '0 3 * * *',
+        'persona_id' => $personaId,
+        'action_kind' => $actionKind,
+        'prompt' => $prompt,
+        'definition_name' => $definitionName,
+        'enabled' => 1,
+        'last_run_at' => null,
+        'next_run_at' => '2026-07-29T03:00:00Z',
+        'created_at' => '2026-07-28T12:00:00Z',
+        'updated_at' => '2026-07-28T12:00:00Z',
+    ];
+}
+
+it('CORE-50: scheduled_task.action is a kind-discriminated union; a loop action requires a definition', function () {
+    $v = new ConformanceValidator();
+    // turn action round-trips through the store's producer and validates.
+    $turnWire = ScheduleStore::toWire(scheduleRow(actionKind: 'turn', prompt: 'Summarize inbox', personaId: 'p_1'));
+    expect($v->isValid('scheduled-task.json', $turnWire))->toBeTrue($v->errorText('scheduled-task.json', $turnWire));
+    expect($turnWire['action'])->toMatchArray(['kind' => 'turn', 'prompt' => 'Summarize inbox']);
+    // loop action with a definition validates.
+    $loopWire = ScheduleStore::toWire(scheduleRow(actionKind: 'loop', definitionName: 'research', personaId: 'p_1'));
+    expect($v->isValid('scheduled-task.json', $loopWire))->toBeTrue($v->errorText('scheduled-task.json', $loopWire));
+    expect($loopWire['action'])->toMatchArray(['kind' => 'loop', 'definition_name' => 'research']);
+    // the vendored loop-no-definition vector is rejected.
+    $bad = json_decode((string) file_get_contents(__DIR__ . '/spec/conformance/vectors/invalid/scheduled-task.loop-no-definition.json'), true);
+    expect($v->isValid('scheduled-task.json', $bad))->toBeFalse();
+    // coqui's own store refuses to persist a loop action without a definition.
+    $dbPath = sys_get_temp_dir() . '/coqui-core50-' . bin2hex(random_bytes(8)) . '.db';
+    try {
+        $store = new ScheduleStore(new \PDO('sqlite:' . $dbPath));
+        expect(fn () => $store->create(name: 'x', scheduleExpression: '0 * * * *', action: ['kind' => 'loop'], personaId: 'p_1'))
+            ->toThrow(RequestBodyException::class);
     } finally {
         cleanupSqliteTestDb($dbPath);
     }
@@ -2161,7 +2214,6 @@ $rows = [
 
     // 0.4 binding-interop MUSTs (CORE-36..CORE-59).
     'CORE-47: x-persona operations map cleanly across both bindings (HTTP + in_process)',
-    'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',
 ];

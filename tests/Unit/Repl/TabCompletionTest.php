@@ -95,7 +95,7 @@ function createTabCompletionFixture(): array
 
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
     $projectStore->createProject('Docs Cleanup', 'docs-cleanup');
-    $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', 'Run nightly review');
+    $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', ['kind' => 'turn', 'prompt' => 'Run nightly review']);
     $loopId = $loopStore->createLoop('harness', 'Keep REPL docs aligned', []);
 
     $pendingTaskId = $storage->createTask($sessionId, 'Pending review task');

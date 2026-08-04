@@ -122,7 +122,7 @@ test('deleteRemovedFilesystemSchedules does not remove system schedules', functi
     $this->store->create(
         name: 'system-schedule',
         scheduleExpression: '* * * * *',
-        prompt: 'System prompt',
+        action: ['kind' => 'turn', 'prompt' => 'System prompt'],
     );
 
     // Create a filesystem schedule
@@ -158,7 +158,7 @@ test('isFilesystemSchedule returns false for system schedules', function () {
     $id = $this->store->create(
         name: 'system-test',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
 
     expect($this->store->isFilesystemSchedule($id))->toBeFalse();
@@ -170,7 +170,7 @@ test('deleteAll only deletes system schedules', function () {
     $this->store->create(
         name: 'system-one',
         scheduleExpression: '* * * * *',
-        prompt: 'System',
+        action: ['kind' => 'turn', 'prompt' => 'System'],
     );
 
     $this->store->upsertFilesystem(
@@ -191,7 +191,7 @@ test('enableAll only enables system schedules', function () {
     $sysId = $this->store->create(
         name: 'system-disabled',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
     $this->store->disable($sysId);
 
@@ -212,7 +212,7 @@ test('disableAll only disables system schedules', function () {
     $this->store->create(
         name: 'system-enabled',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
 
     $this->store->upsertFilesystem(

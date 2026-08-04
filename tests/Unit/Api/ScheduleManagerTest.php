@@ -21,7 +21,7 @@ test('tick creates scheduled task session with persisted persona metadata', func
     $scheduleId = $this->scheduleStore->create(
         name: 'caelum-daily',
         scheduleExpression: '@once',
-        prompt: 'Check project continuity',
+        action: ['kind' => 'turn', 'prompt' => 'Check project continuity'],
         role: 'orchestrator',
         metadata: json_encode(['persona' => 'caelum'], JSON_UNESCAPED_SLASHES),
     );

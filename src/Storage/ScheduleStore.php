@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\IdGenerator;
 use Cron\CronExpression;
@@ -46,7 +48,9 @@ final class ScheduleStore
                 description TEXT,
                 cron TEXT NOT NULL,
                 persona_id TEXT,
-                prompt TEXT NOT NULL,
+                action_kind TEXT NOT NULL DEFAULT 'turn',
+                prompt TEXT,
+                definition_name TEXT,
                 role TEXT NOT NULL DEFAULT 'orchestrator',
                 max_iterations INTEGER NOT NULL DEFAULT 48,
                 enabled INTEGER NOT NULL DEFAULT 1,
@@ -80,11 +84,20 @@ final class ScheduleStore
 
     /**
      * Create a new schedule.
+     *
+     * `$action` is the kind-discriminated union that fires each tick:
+     *   - `{kind: 'turn', prompt}`            — dispatch a one-shot turn.
+     *   - `{kind: 'loop', definition_name}`   — dispatch a loop definition.
+     * It is validated at this boundary; an invalid union is a 422 rejection.
+     *
+     * @param array<string, mixed> $action
+     * @throws RequestBodyException on an invalid action union.
      */
     public function create(
         string $name,
         string $scheduleExpression,
-        string $prompt,
+        array $action,
+        ?string $personaId = null,
         string $role = 'orchestrator',
         int $maxIterations = 48,
         ?string $description = null,
@@ -92,8 +105,9 @@ final class ScheduleStore
         string $timezone = 'UTC',
         int $maxFailures = 3,
         ?string $metadata = null,
-        ?string $personaId = null,
     ): string {
+        [$actionKind, $prompt, $definitionName] = $this->normalizeAction($action);
+
         $id = IdGenerator::hex();
         $now = Clock::nowUtc();
 
@@ -101,9 +115,10 @@ final class ScheduleStore
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO scheduled_tasks
-                (id, name, description, cron, persona_id, prompt, role, max_iterations,
-                 enabled, created_by, timezone, next_run_at, max_failures, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                (id, name, description, cron, persona_id, action_kind, prompt, definition_name,
+                 role, max_iterations, enabled, created_by, timezone, next_run_at, max_failures,
+                 metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
         SQL);
 
         $stmt->execute([
@@ -112,7 +127,9 @@ final class ScheduleStore
             $description,
             $scheduleExpression,
             $personaId,
+            $actionKind,
             $prompt,
+            $definitionName,
             $role,
             $maxIterations,
             $createdBy,
@@ -125,6 +142,57 @@ final class ScheduleStore
         ]);
 
         return $id;
+    }
+
+    /**
+     * Validate and decompose an `action` union into its persisted columns.
+     *
+     * The kind set is closed: `{turn, loop}`. A `turn` action MUST carry a
+     * non-empty `prompt`; a `loop` action MUST carry a `definition_name`.
+     * Anything else is a 422 `validation_error`.
+     *
+     * @param array<string, mixed> $action
+     * @return array{0: string, 1: ?string, 2: ?string} [action_kind, prompt, definition_name]
+     * @throws RequestBodyException
+     */
+    private function normalizeAction(array $action): array
+    {
+        $kind = $action['kind'] ?? null;
+
+        if ($kind === 'turn') {
+            $prompt = $action['prompt'] ?? null;
+            if (!is_string($prompt) || trim($prompt) === '') {
+                throw new RequestBodyException(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    'A turn action requires a non-empty prompt.',
+                    ['field' => 'action.prompt'],
+                );
+            }
+
+            return ['turn', $prompt, null];
+        }
+
+        if ($kind === 'loop') {
+            $definitionName = $action['definition_name'] ?? null;
+            if (!is_string($definitionName) || trim($definitionName) === '') {
+                throw new RequestBodyException(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    'A loop action requires a definition_name.',
+                    ['field' => 'action.definition_name'],
+                );
+            }
+
+            return ['loop', null, $definitionName];
+        }
+
+        throw new RequestBodyException(
+            ApiErrorCode::VALIDATION_ERROR,
+            sprintf(
+                'Unknown action kind "%s"; expected one of: turn, loop.',
+                is_string($kind) ? $kind : gettype($kind),
+            ),
+            ['field' => 'action.kind'],
+        );
     }
 
     /**
@@ -285,13 +353,20 @@ final class ScheduleStore
 
     /**
      * Update a schedule's fields. Only non-null parameters are applied.
+     *
+     * When `$action` is provided it is validated as the kind-discriminated
+     * union and rewrites the `action_kind`/`prompt`/`definition_name` columns.
+     *
+     * @param array<string, mixed>|null $action
+     * @throws RequestBodyException on an invalid action union.
      */
     public function update(
         string $id,
         ?string $name = null,
         ?string $description = null,
         ?string $scheduleExpression = null,
-        ?string $prompt = null,
+        ?array $action = null,
+        ?string $personaId = null,
         ?string $role = null,
         ?int $maxIterations = null,
         ?bool $enabled = null,
@@ -323,9 +398,19 @@ final class ScheduleStore
             $params[] = $scheduleExpression;
         }
 
-        if ($prompt !== null) {
+        if ($action !== null) {
+            [$actionKind, $prompt, $definitionName] = $this->normalizeAction($action);
+            $sets[] = 'action_kind = ?';
+            $params[] = $actionKind;
             $sets[] = 'prompt = ?';
             $params[] = $prompt;
+            $sets[] = 'definition_name = ?';
+            $params[] = $definitionName;
+        }
+
+        if ($personaId !== null) {
+            $sets[] = 'persona_id = ?';
+            $params[] = $personaId;
         }
 
         if ($role !== null) {
@@ -751,17 +836,17 @@ final class ScheduleStore
      * Project a persisted `scheduled_tasks` row onto the CAP 0.5.0
      * `scheduled-task.json` wire shape.
      *
-     * `action` is a typed object discriminated by `kind`. Coqui schedules are all
-     * `turn`-kind today: the action is derived as `{kind:'turn', prompt}` from the
-     * stored prompt and emitted as `stdClass` so an object-typed schema slot never
-     * receives a JSON array. The `loop` action kind (with `definition_name`) is a
-     * Phase-5 concern. `status` is derived from the `enabled` flag. Nullable
-     * timestamps pass through as their stored Z-suffixed value or null. Only
-     * schema-declared properties are emitted (`additionalProperties:false`-clean).
+     * `action` is a typed object discriminated by `kind`, built from the persisted
+     * `action_kind` column: a `turn` action carries the stored `prompt`; a `loop`
+     * action carries the stored `definition_name`. It is emitted as `stdClass` so an
+     * object-typed schema slot never receives a JSON array. `status` is derived from
+     * the `enabled` flag. Nullable timestamps pass through as their stored Z-suffixed
+     * value or null. Only schema-declared properties are emitted
+     * (`additionalProperties:false`-clean).
      *
      * A row with a null `persona_id` (runtime rows created before personas are
      * bound) intentionally serializes `persona_id:null`, which the schema rejects;
-     * binding a persona to those rows is a Phase-5 concern.
+     * a schedule authored via the API always binds a persona.
      *
      * @param array<string, mixed> $row
      * @return array<string, mixed>
@@ -769,8 +854,13 @@ final class ScheduleStore
     public static function toWire(array $row): array
     {
         $action = new stdClass();
-        $action->kind = 'turn';
-        $action->prompt = (string) ($row['prompt'] ?? '');
+        if (($row['action_kind'] ?? 'turn') === 'loop') {
+            $action->kind = 'loop';
+            $action->definition_name = (string) ($row['definition_name'] ?? '');
+        } else {
+            $action->kind = 'turn';
+            $action->prompt = (string) ($row['prompt'] ?? '');
+        }
 
         return [
             'id' => (string) $row['id'],

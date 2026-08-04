@@ -324,7 +324,8 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $id = $this->scheduleStore->create(
             name: $name,
             scheduleExpression: $isOneShot ? '@once' : $cron,
-            prompt: $prompt,
+            action: ['kind' => 'turn', 'prompt' => $prompt],
+            personaId: $this->activePersonaId,
             role: $role,
             maxIterations: $maxIterations,
             timezone: $timezone,
@@ -443,7 +444,9 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $this->scheduleStore->update(
             id: $id,
             scheduleExpression: $cron,
-            prompt: isset($args['prompt']) ? trim((string) $args['prompt']) : null,
+            action: isset($args['prompt'])
+                ? ['kind' => 'turn', 'prompt' => trim((string) $args['prompt'])]
+                : null,
             role: $args['role'] ?? null,
             maxIterations: $maxIterations,
             enabled: isset($args['enabled']) ? (bool) $args['enabled'] : null,
