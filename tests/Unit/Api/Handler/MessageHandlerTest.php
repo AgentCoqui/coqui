@@ -4,10 +4,29 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Sse\SseCursor;
 use CoquiBot\Coqui\Content\ContentStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tests\Conformance\Support\ConformanceValidator;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use React\Http\Message\ServerRequest;
+
+/**
+ * Map an internal turn event through MessageHandler's private mapper, returning
+ * the `[capEvent, data]` pair (or null when dropped).
+ *
+ * @param array<string, mixed> $event
+ * @return array{0: string, 1: array<string, mixed>}|null
+ */
+function invokeMapTurnEvent(MessageHandler $handler, array $event, string $turnProcessId, string $sessionId): ?array
+{
+    $method = new ReflectionMethod(MessageHandler::class, 'mapTurnEvent');
+
+    /** @var array{0: string, 1: array<string, mixed>}|null $result */
+    $result = $method->invoke($handler, $event, $turnProcessId, $sessionId);
+
+    return $result;
+}
 
 beforeEach(function () {
     $this->tmpDir = sys_get_temp_dir() . '/coqui-message-handler-' . bin2hex(random_bytes(8));
@@ -263,4 +282,74 @@ test('message handler complete extraction preserves rich turn summary payload', 
     $this->storage->appendTurnEvent($turnProcessId, 'complete', $payload);
 
     expect(extractMessageHandlerCompleteResult($this->handler, $turnProcessId))->toBe($payload);
+});
+
+test('done fallback frame is schema-valid when no turn row exists', function () {
+    // No turn row is bound to this process id, so turnRecord() takes its fallback
+    // branch. The fallback must still be a schema-valid turn.json: `session_id`
+    // is a minLength:1 Id, which the pre-fix empty-string default violated.
+    $turnProcessId = $this->storage->createTurnProcess($this->sessionId, 'Hello');
+
+    $mapped = invokeMapTurnEvent(
+        $this->handler,
+        ['event_type' => 'complete', 'data' => '{}'],
+        $turnProcessId,
+        $this->sessionId,
+    );
+
+    expect($mapped)->not->toBeNull();
+    [$capEvent, $data] = $mapped;
+    expect($capEvent)->toBe('done');
+    // The fallback carries the route's real session id, not an empty string.
+    expect($data['session_id'])->toBe($this->sessionId);
+
+    $frame = MessageHandler::buildTurnEventFrame($capEvent, $data, SseCursor::encode(1));
+
+    $validator = new ConformanceValidator();
+    expect($validator->isValid('sse-turn-event.json', $frame))
+        ->toBeTrue($validator->errorText('sse-turn-event.json', $frame));
+});
+
+test('tool_result event maps to a schema-valid tool_result frame', function () {
+    $turnProcessId = $this->storage->createTurnProcess($this->sessionId, 'Hello');
+
+    $mapped = invokeMapTurnEvent(
+        $this->handler,
+        [
+            'event_type' => 'tool_result',
+            'data' => json_encode(['tool_call_id' => 'call_abc123', 'content' => 'the answer is 4', 'success' => true]),
+        ],
+        $turnProcessId,
+        $this->sessionId,
+    );
+
+    expect($mapped)->not->toBeNull();
+    [$capEvent, $data] = $mapped;
+    expect($capEvent)->toBe('tool_result');
+    expect($data['tool_call_id'])->toBe('call_abc123');
+    expect($data['result'])->toBe('the answer is 4');
+
+    $frame = MessageHandler::buildTurnEventFrame($capEvent, $data, SseCursor::encode(2));
+
+    $validator = new ConformanceValidator();
+    expect($validator->isValid('sse-turn-event.json', $frame))
+        ->toBeTrue($validator->errorText('sse-turn-event.json', $frame));
+});
+
+test('tool_result with no correlating tool_call_id is dropped', function () {
+    // The schema requires data.tool_call_id; a result the observer could not
+    // correlate must be dropped rather than emitted as a malformed frame.
+    $turnProcessId = $this->storage->createTurnProcess($this->sessionId, 'Hello');
+
+    $mapped = invokeMapTurnEvent(
+        $this->handler,
+        [
+            'event_type' => 'tool_result',
+            'data' => json_encode(['tool_call_id' => null, 'content' => 'orphan result']),
+        ],
+        $turnProcessId,
+        $this->sessionId,
+    );
+
+    expect($mapped)->toBeNull();
 });

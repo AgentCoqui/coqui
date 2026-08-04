@@ -229,6 +229,7 @@ final readonly class MessageHandler
         $timer = Loop::addPeriodicTimer(self::POLL_INTERVAL, function () use (
             $stream,
             $turnProcessId,
+            $sessionId,
             &$lastEventId,
             &$timer,
         ): void {
@@ -238,7 +239,7 @@ final readonly class MessageHandler
                 // Each coqui-internal turn event is mapped onto the closed CAP
                 // turn-stream event set (or dropped) before it reaches the wire.
                 foreach ($events as $event) {
-                    $this->writeSseEvent($stream, $event, $turnProcessId);
+                    $this->writeSseEvent($stream, $event, $turnProcessId, $sessionId);
                     $lastEventId = (int) $event['id'];
                 }
 
@@ -249,7 +250,7 @@ final readonly class MessageHandler
                     // Final poll to ensure all events are flushed
                     $finalEvents = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                     foreach ($finalEvents as $event) {
-                        $this->writeSseEvent($stream, $event, $turnProcessId);
+                        $this->writeSseEvent($stream, $event, $turnProcessId, $sessionId);
                     }
 
                     if ($stream->isWritable()) {
@@ -418,30 +419,33 @@ final readonly class MessageHandler
      * Internal event_type → CAP turn event (closed set: token | message |
      * tool_call | tool_result | question | done | error):
      *
-     *   text_delta → token      (data { content } → { text })
-     *   tool_call  → tool_call  (data { id, tool, arguments } →
-     *                            { tool_call_id, name, arguments })
-     *   complete   → done       (data replaced with the full turn.json record,
-     *                            projected via TurnHandler::toWire)
+     *   text_delta  → token       (data { content } → { text })
+     *   tool_call   → tool_call   (data { id, tool, arguments } →
+     *                             { tool_call_id, name, arguments })
+     *   tool_result → tool_result (data { tool_call_id, content } →
+     *                             { tool_call_id, result }); dropped when the
+     *                             observer captured no tool_call_id, since the
+     *                             schema requires it
+     *   complete    → done        (data replaced with the full turn.json record,
+     *                             projected via TurnHandler::toWire)
      *
      * DROPPED (no conformant CAP mapping in this task): agent_start, iteration,
      * batch_start, batch_end, reasoning, `done` (the observer's mid-run
      * agent.done nudge — the terminal CAP `done` is derived from `complete`),
-     * tool_result (the observer captures no correlatable tool_call_id, which the
-     * schema requires), question (its question_id shaping is CORE-48), error
+     * question (its question_id shaping is CORE-48), error
      * (its sse-error.json Error-record shaping is Task 13), warning,
      * budget_warning, summary, memory_extraction, notification, child_start,
      * child_end, review_start, review_end, loop_* and title.
      *
      * @param array<string, mixed> $event
      */
-    private function writeSseEvent(ThroughStream $stream, array $event, string $turnProcessId): void
+    private function writeSseEvent(ThroughStream $stream, array $event, string $turnProcessId, string $sessionId): void
     {
         if (!$stream->isWritable()) {
             return;
         }
 
-        $mapped = $this->mapTurnEvent($event, $turnProcessId);
+        $mapped = $this->mapTurnEvent($event, $turnProcessId, $sessionId);
         if ($mapped === null) {
             return;
         }
@@ -463,7 +467,7 @@ final readonly class MessageHandler
      * @param array<string, mixed> $event
      * @return array{0: string, 1: array<string, mixed>}|null
      */
-    private function mapTurnEvent(array $event, string $turnProcessId): ?array
+    private function mapTurnEvent(array $event, string $turnProcessId, string $sessionId): ?array
     {
         $type = (string) ($event['event_type'] ?? '');
         $data = $this->decodeEventData($event['data'] ?? null);
@@ -471,9 +475,35 @@ final readonly class MessageHandler
         return match ($type) {
             'text_delta' => ['token', ['text' => (string) ($data['content'] ?? '')]],
             'tool_call' => ['tool_call', $this->shapeToolCall($data)],
-            'complete' => ['done', $this->turnRecord($turnProcessId)],
+            'tool_result' => $this->mapToolResult($data),
+            'complete' => ['done', $this->turnRecord($turnProcessId, $sessionId)],
             default => null,
         };
+    }
+
+    /**
+     * Shape an observer tool_result payload onto the CAP tool_result data shape
+     * (schema/sse-turn-event.json: required `tool_call_id`, optional any-typed
+     * `result`). Dropped (null) when the observer captured no correlating
+     * tool_call_id, since a frame without it would violate the schema.
+     *
+     * @param array<string, mixed> $data
+     * @return array{0: string, 1: array<string, mixed>}|null
+     */
+    private function mapToolResult(array $data): ?array
+    {
+        $callId = $data['tool_call_id'] ?? null;
+        if (!is_string($callId) || $callId === '') {
+            return null;
+        }
+
+        $frame = ['tool_call_id' => $callId];
+
+        if (array_key_exists('content', $data)) {
+            $frame['result'] = $data['content'];
+        }
+
+        return ['tool_result', $frame];
     }
 
     /**
@@ -494,10 +524,13 @@ final readonly class MessageHandler
      * turns row (already written by {@see \CoquiBot\Coqui\Agent\AgentRunner} before
      * the `complete` event fires); falls back to a minimal schema-valid record when
      * no row is bound (e.g. a spawn that failed before the turn row was created).
+     * The fallback uses the route's real session id (and the turn-process id as a
+     * stand-in turn id) so the synthesized record still satisfies turn.json's
+     * `minLength:1` Id fields — a `done` frame must never be schema-invalid.
      *
      * @return array<string, mixed>
      */
-    private function turnRecord(string $turnProcessId): array
+    private function turnRecord(string $turnProcessId, string $sessionId): array
     {
         $turn = $this->storage->getTurnByProcessId($turnProcessId);
         if ($turn !== null) {
@@ -506,7 +539,7 @@ final readonly class MessageHandler
 
         return TurnHandler::toWire([
             'id' => $turnProcessId,
-            'session_id' => '',
+            'session_id' => $sessionId,
             'turn_number' => 1,
             'user_prompt' => '',
             'status' => 'failed',
