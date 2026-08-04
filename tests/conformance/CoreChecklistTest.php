@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopManager;
+use CoquiBot\Coqui\Api\Middleware\IdempotencyMiddleware;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
@@ -50,6 +51,7 @@ use CoquiBot\Coqui\Question\QuestionPersistence;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Storage\IdempotencyStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -1288,6 +1290,74 @@ it('CORE-54: session PATCH clears model, sets workspace, and rejects an empty bo
     }
 })->group('conformance');
 
+it('CORE-53: a creator deduplicates on a repeated Idempotency-Key, minting the resource once', function () {
+    $ws = sys_get_temp_dir() . '/coqui-core53-ws-' . bin2hex(random_bytes(8));
+    mkdir($ws, 0755, true);
+    $dbPath = sys_get_temp_dir() . '/coqui-core53-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+    // A role-aware config so the real creator returns 201 (not a role-validation 400).
+    $config = OpenClawConfig::fromArray([
+        'agents' => ['defaults' => [
+            'model' => ['primary' => 'ollama/qwen3:latest'],
+            'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+        ]],
+    ]);
+    $handler = new SessionHandler($storage, new RoleResolver($config), new PersonaDiscovery($ws));
+    try {
+        $middleware = new IdempotencyMiddleware(
+            new IdempotencyStore($storage->getPdo()),
+            [['method' => 'POST', 'path' => '/api/v1/sessions']],
+        );
+
+        $countSessions = static fn (): int
+            => (int) $storage->getPdo()->query('SELECT COUNT(*) FROM sessions')->fetchColumn();
+
+        // A real creator behind the middleware: POST /sessions mints a session row.
+        $create = static fn (\Psr\Http\Message\ServerRequestInterface $req): \React\Http\Message\Response
+            => $handler->create($req);
+
+        $withKey = static fn (): \React\Http\Message\ServerRequest => new \React\Http\Message\ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json', 'Idempotency-Key' => 'k-1'],
+            json_encode(['model_role' => 'orchestrator']) ?: '',
+        );
+
+        $first = $middleware($withKey(), $create);
+        $second = $middleware($withKey(), $create);
+
+        // The side-effect happened exactly once.
+        expect($countSessions())->toBe(1);
+        // The repeated request replays the first response verbatim.
+        expect($first->getStatusCode())->toBe(201);
+        expect($second->getStatusCode())->toBe($first->getStatusCode());
+        expect((string) $second->getBody())->toBe((string) $first->getBody());
+
+        // No header ⇒ the handler runs again and a second resource is minted.
+        $noHeader = new \React\Http\Message\ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode(['model_role' => 'orchestrator']) ?: '',
+        );
+        $middleware($noHeader, $create);
+        expect($countSessions())->toBe(2);
+
+        // A different key ⇒ the handler runs again.
+        $otherKey = new \React\Http\Message\ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json', 'Idempotency-Key' => 'k-2'],
+            json_encode(['model_role' => 'orchestrator']) ?: '',
+        );
+        $middleware($otherKey, $create);
+        expect($countSessions())->toBe(3);
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($ws);
+    }
+})->group('conformance');
+
 it('CORE-10: a stale If-Match session write is rejected 409 version_conflict', function () {
     [$handler, $storage, $dbPath, $ws] = makeSessionHandler();
     try {
@@ -1693,7 +1763,6 @@ $rows = [
     'CORE-48: ask_user answer is a Core path (submitTurnAnswer); SSE question frames carry question_id',
     'CORE-49: question format is rich (multi-select) with a typed option shape',
     'CORE-50: scheduled_task.action is a discriminated union keyed by kind; a loop action requires a definition',
-    'CORE-53: creators accept an Idempotency-Key request header for dedup',
     'CORE-56: import supports mode=preserve|remap; remap atomically rewrites every FK',
     'CORE-57: in-process binding is normatively specified; thrown errors are typed with a catalog code',
     'CORE-58: single-vs-list response cardinality agrees across in_process, operations.yaml, and openapi',

@@ -39,6 +39,7 @@ use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
+use CoquiBot\Coqui\Api\Middleware\IdempotencyMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
@@ -58,6 +59,7 @@ use CoquiBot\Coqui\Agent\StageGateEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Storage\IdempotencyStore;
 use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -418,6 +420,26 @@ final class ApiCommand extends Command
                 static fn (string $path): bool => $router->isPublicPath($path),
             );
         }
+
+        // Idempotency-Key dedup for creators (CORE-53). Runs innermost — after auth —
+        // so a repeated request with the same key replays the recorded response
+        // without re-invoking the handler. Only POST routes that mint a resource are
+        // wired; every other route (and any request without the header) passes through.
+        $v1Prefix = '/api/v1';
+        $middlewareStack[] = new IdempotencyMiddleware(
+            new IdempotencyStore($storage->getPdo()),
+            [
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/members'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/messages'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/files'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/artifacts'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/personas'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/tasks'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/schedules'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/loops'],
+            ],
+        );
 
         foreach ($middlewareStack as $mw) {
             $router->addMiddleware($mw);

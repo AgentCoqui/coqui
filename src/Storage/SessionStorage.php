@@ -463,6 +463,22 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_status ON session_title_jobs(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_session ON session_title_jobs(session_id)');
         $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_title_jobs_active_session ON session_title_jobs(session_id) WHERE status IN ('pending', 'running')");
+
+        // CAP 0.5.0 Idempotency-Key dedup for creators (CORE-53). Records the
+        // response a creator produced under an (key, route, actor) tuple so a
+        // repeated request replays it instead of minting a second resource.
+        // IdempotencyStore is the sole reader/writer. Recreate-from-empty — no ALTER.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                "key"      TEXT NOT NULL,
+                route      TEXT NOT NULL,
+                actor      TEXT NOT NULL,
+                status     INTEGER NOT NULL,
+                body       TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY ("key", route, actor)
+            )
+        SQL);
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
