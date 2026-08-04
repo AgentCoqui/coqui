@@ -262,6 +262,53 @@ function validLoopDefBody(string $name = 'ci'): array
     ];
 }
 
+/**
+ * Build a GET list request carrying optional pagination query params.
+ *
+ * @param array<string, int|string> $query
+ */
+function listRequest(array $query = []): \React\Http\Message\ServerRequest
+{
+    $path = '/api/v1/roles';
+    if ($query !== []) {
+        $path .= '?' . http_build_query($query);
+    }
+
+    return new \React\Http\Message\ServerRequest('GET', $path);
+}
+
+it('CORE-18: list operations return a {data, next_cursor} page with a declared name sort', function () {
+    [$roleHandler, $ws, $db] = makeRoleHandler();
+    try {
+        // Seed several roles out of alpha order, then list.
+        $roleHandler->put(rolePutRequest('zeta', ['name' => 'zeta', 'access_level' => 'readonly'], ifNoneMatch: '*'), 'zeta');
+        $roleHandler->put(rolePutRequest('alpha', ['name' => 'alpha', 'access_level' => 'readonly'], ifNoneMatch: '*'), 'alpha');
+
+        $page = json_decode((string) $roleHandler->list(listRequest(['limit' => 100]))->getBody(), true);
+        expect($page)->toHaveKeys(['data', 'next_cursor']);
+
+        $names = array_column($page['data'], 'name');
+        // The seeded roles appear in ascending name order (declared default sort).
+        // Builtin roles may lead, so assert only the relative order of the two.
+        $seeded = array_values(array_intersect($names, ['alpha', 'zeta']));
+        expect($seeded)->toBe(['alpha', 'zeta']);
+
+        // Teeth on pagination itself: a truncated page yields a resumable
+        // non-null cursor that resumes strictly after the last emitted item.
+        $firstPage = json_decode((string) $roleHandler->list(listRequest(['limit' => 1]))->getBody(), true);
+        expect($firstPage['data'])->toHaveCount(1);
+        expect($firstPage['next_cursor'])->not->toBeNull();
+
+        $secondPage = json_decode((string) $roleHandler->list(listRequest(['limit' => 1, 'cursor' => $firstPage['next_cursor']]))->getBody(), true);
+        expect($secondPage['data'])->toHaveCount(1);
+        expect($secondPage['data'][0]['name'])->not->toBe($firstPage['data'][0]['name']);
+        expect(strcmp((string) $secondPage['data'][0]['name'], (string) $firstPage['data'][0]['name']))->toBeGreaterThan(0);
+    } finally {
+        cleanupTestTree($ws);
+        cleanupSqliteTestDb($db);
+    }
+})->group('conformance');
+
 it('CORE-38: role/loop-definition PUT distinguishes create (If-None-Match:*) from update (If-Match:v); persisted rows require version', function () {
     // --- role ---
     [$roleHandler, $rWs, $rDb] = makeRoleHandler();
@@ -1127,7 +1174,6 @@ $rows = [
     'CORE-7: verdict is typed; approval requires both flags + no Critical/Important',
     'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
-    'CORE-18: list operations paginate + declare a default sort',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',
     'CORE-31: the mcp persona pins the integration contract (namespacing/gating/budget/trust/transports); transports are a closed set',

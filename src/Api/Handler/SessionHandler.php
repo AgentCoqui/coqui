@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Api\Session\SessionScopeResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeOperationResult;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequestResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeRegistry;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
@@ -43,6 +44,13 @@ final readonly class SessionHandler
 {
     use DecodesRequestBody;
 
+    /**
+     * Upper bound on rows fetched from storage before in-memory pagination.
+     * Matches the storage layer's own cap so a page + cursor advances within a
+     * single, stable window.
+     */
+    private const int LIST_FETCH_CAP = 200;
+
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
@@ -58,7 +66,6 @@ final readonly class SessionHandler
     public function list(ServerRequestInterface $request): Response
     {
         $params = $request->getQueryParams();
-        $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
         $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
         $personaFilterSpecified = array_key_exists('persona_id', $params);
@@ -95,14 +102,29 @@ final readonly class SessionHandler
             }
         }
 
+        // Fetch a full window (the storage layer caps at 200), then paginate it
+        // in memory. Declared default sort: updated_at DESC, id ASC — the store
+        // orders by updated_at DESC; id is the stable tiebreak + cursor key.
         $sessions = array_map(
             fn(array $session): array => $this->normalizeSessionForResponse($session),
-            $this->storage->listSessions($limit, true, $status === null, $status, $persona, $unpersonaScopedOnly),
+            $this->storage->listSessions(self::LIST_FETCH_CAP, true, $status === null, $status, $persona, $unpersonaScopedOnly),
+        );
+
+        usort($sessions, static function (array $a, array $b): int {
+            $byUpdated = strcmp((string) ($b['updated_at'] ?? ''), (string) ($a['updated_at'] ?? ''));
+
+            return $byUpdated !== 0 ? $byUpdated : strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+        });
+
+        $page = CursorPage::build(
+            $sessions,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $session): string => (string) ($session['id'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
         );
 
         return Router::jsonResponse([
-            'sessions' => $sessions,
-            'count' => count($sessions),
+            ...$page,
             'status' => $status ?? 'active',
             'persona_id' => $personaFilterSpecified ? ($persona ?? 'none') : null,
             'counts' => $this->storage->getSessionStatusCounts(),

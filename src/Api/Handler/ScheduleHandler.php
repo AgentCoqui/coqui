@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -133,12 +134,37 @@ final readonly class ScheduleHandler
             : null;
 
         $schedules = $this->store->list(enabled: $enabled, createdBy: $createdBy);
-        $stats = $this->store->getStats();
+
+        // Declared default sort: next_run_at ASC (NULLS LAST), id ASC — id is
+        // the stable tiebreak + unique cursor key.
+        usort($schedules, static function (array $a, array $b): int {
+            $aNext = $a['next_run_at'] ?? null;
+            $bNext = $b['next_run_at'] ?? null;
+
+            if ($aNext !== $bNext) {
+                if ($aNext === null) {
+                    return 1;
+                }
+                if ($bNext === null) {
+                    return -1;
+                }
+
+                return strcmp((string) $aNext, (string) $bNext);
+            }
+
+            return strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+        });
+
+        $page = CursorPage::build(
+            $schedules,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $schedule): string => (string) ($schedule['id'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        );
 
         return Router::jsonResponse([
-            'schedules' => $schedules,
-            'count' => count($schedules),
-            'stats' => $stats,
+            ...$page,
+            'stats' => $this->store->getStats(),
         ]);
     }
 

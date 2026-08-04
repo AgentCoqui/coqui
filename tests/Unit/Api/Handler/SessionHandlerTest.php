@@ -797,10 +797,11 @@ test('session handler list filters archived history and returns lifecycle counts
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
         expect($body['status'])->toBe('archived');
-        expect($body['count'])->toBe(1);
-        expect($body['sessions'][0]['id'])->toBe($archivedId);
-        expect($body['sessions'][0]['status'])->toBe('archived');
+        expect($body['data'])->toHaveCount(1);
+        expect($body['data'][0]['id'])->toBe($archivedId);
+        expect($body['data'][0]['status'])->toBe('archived');
         expect($body['counts'])->toBe([
             'active' => 1,
             'closed' => 1,
@@ -844,13 +845,13 @@ test('session handler list filters sessions by persona scope', function () {
 
         expect($personaScopedResponse->getStatusCode())->toBe(200);
         expect($personaScopedBody['persona_id'])->toBe('caelum');
-        expect($personaScopedBody['count'])->toBe(1);
-        expect($personaScopedBody['sessions'][0]['id'])->toBe($personaScopedSessionId);
+        expect($personaScopedBody['data'])->toHaveCount(1);
+        expect($personaScopedBody['data'][0]['id'])->toBe($personaScopedSessionId);
 
         expect($unpersonaScopedResponse->getStatusCode())->toBe(200);
         expect($unpersonaScopedBody['persona_id'])->toBe('none');
-        expect($unpersonaScopedBody['count'])->toBe(1);
-        expect($unpersonaScopedBody['sessions'][0]['id'])->toBe($unpersonaScopedSessionId);
+        expect($unpersonaScopedBody['data'])->toHaveCount(1);
+        expect($unpersonaScopedBody['data'][0]['id'])->toBe($unpersonaScopedSessionId);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

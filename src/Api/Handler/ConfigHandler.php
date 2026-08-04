@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
@@ -411,9 +412,20 @@ final readonly class ConfigHandler
             $this->personaDiscovery->discoverAll(),
         ));
 
+        // Declared default sort: name ascending. The persona name is the stable,
+        // unique cursor key.
+        usort($personas, static fn(array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+
+        $params = $request->getQueryParams();
+        $page = CursorPage::build(
+            $personas,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $persona): string => (string) $persona['name'],
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        );
+
         return Router::jsonResponse([
-            'personas' => $personas,
-            'count' => count($personas),
+            ...$page,
             'default_persona' => $this->currentConfig()->getDefaultPersona(),
         ]);
     }

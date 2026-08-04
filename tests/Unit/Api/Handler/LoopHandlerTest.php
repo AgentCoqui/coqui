@@ -151,8 +151,9 @@ test('loop handler definitions include parameter metadata', function () {
         $response = $fixture['handler']->definitions(new ServerRequest('GET', '/api/v1/loops/definitions'));
         $body = json_decode((string) $response->getBody(), true);
 
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
         $byName = [];
-        foreach ($body['definitions'] as $definition) {
+        foreach ($body['data'] as $definition) {
             $byName[$definition['name']] = $definition;
         }
 
@@ -831,7 +832,7 @@ test('definitions list marks builtin', function (): void {
             new ServerRequest('GET', '/api/v1/loops/definitions')
         )->getBody(), true);
         $byName = [];
-        foreach ($body['definitions'] as $d) { $byName[$d['name']] = $d; }
+        foreach ($body['data'] as $d) { $byName[$d['name']] = $d; }
         // The fixture seeds a 'harness' definition into the workspace; it is a built-in.
         expect($byName['harness']['builtin'])->toBeTrue();
     } finally {

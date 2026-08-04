@@ -153,8 +153,9 @@ test('role handler app picker route defaults to selectable roles and honors pers
         expect($body['persona'])->toBe('caelum');
         expect($body['selectable_only'])->toBeTrue();
 
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
         $rolesByName = [];
-        foreach ($body['roles'] as $role) {
+        foreach ($body['data'] as $role) {
             $rolesByName[$role['name']] = $role;
         }
 
@@ -174,7 +175,7 @@ test('role handler config route keeps non-selectable roles available', function 
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect(array_column($body['roles'], 'name'))->toContain('title-generator');
+        expect(array_column($body['data'], 'name'))->toContain('title-generator');
         expect($body['selectable_only'])->toBeFalse();
     } finally {
         cleanupApiRoleHandlerFixture($fixture);

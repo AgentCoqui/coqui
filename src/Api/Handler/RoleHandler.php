@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\PersonaPreferences;
@@ -87,9 +88,19 @@ final readonly class RoleHandler
             $roles,
         ));
 
+        // Declared default sort: name ascending. The role name is the stable,
+        // unique cursor key.
+        usort($roles, static fn(array $a, array $b): int => strcmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? '')));
+
+        $page = CursorPage::build(
+            $roles,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $role): string => (string) ($role['name'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        );
+
         return Router::jsonResponse([
-            'roles' => $roles,
-            'count' => count($roles),
+            ...$page,
             'persona' => $persona,
             'selectable_only' => $selectableOnly,
         ]);

@@ -134,14 +134,15 @@ test('config handler lists discovered personas and default persona', function ()
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['count'])->toBe(2);
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
+        expect($body['data'])->toHaveCount(2);
         expect($body['default_persona'])->toBe('caelum');
-        expect(array_column($body['personas'], 'name'))->toBe(['caelum', 'trinity']);
-        expect($body['personas'][0])->toHaveKeys(['name', 'display_name', 'description', 'model', 'is_default', 'allowed_roles', 'role_restrictions', 'has_role_restrictions']);
-        expect($body['personas'][0]['model'])->toBe('anthropic/claude-sonnet-4-20250514');
-        expect($body['personas'][0]['is_default'])->toBeTrue();
-        expect($body['personas'][0]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
-        expect($body['personas'][1]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
+        expect(array_column($body['data'], 'name'))->toBe(['caelum', 'trinity']);
+        expect($body['data'][0])->toHaveKeys(['name', 'display_name', 'description', 'model', 'is_default', 'allowed_roles', 'role_restrictions', 'has_role_restrictions']);
+        expect($body['data'][0]['model'])->toBe('anthropic/claude-sonnet-4-20250514');
+        expect($body['data'][0]['is_default'])->toBeTrue();
+        expect($body['data'][0]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
+        expect($body['data'][1]['allowed_roles'])->toBe(['analyst', 'orchestrator']);
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
@@ -233,8 +234,8 @@ test('config handler creates a persona from the CAP authoring shape and serves v
         expect($body['avatar'])->toBe(['tint' => '#2b3a52']);
         expect($body['soul'])->toContain('A bold collaborative strategist.');
         expect($body['backstory'])->toContain('## Origins');
-        expect($personasBody['count'])->toBe(3);
-        expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
+        expect($personasBody['data'])->toHaveCount(3);
+        expect(array_column($personasBody['data'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('A bold collaborative strategist.');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/soul.md'))->toContain('model: anthropic/claude-sonnet-4');
         expect(file_get_contents($fixture['workspacePath'] . '/personas/nova/backstory.md'))->toContain('## Origins');
@@ -440,8 +441,8 @@ test('config handler deletes a non-default persona and invalidates discovery', f
             'deleted' => true,
             'name' => 'trinity',
         ]);
-        expect($personasBody['count'])->toBe(1);
-        expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum']);
+        expect($personasBody['data'])->toHaveCount(1);
+        expect(array_column($personasBody['data'], 'name'))->toBe(['caelum']);
         expect(is_dir($fixture['workspacePath'] . '/personas/trinity'))->toBeFalse();
     } finally {
         cleanupApiConfigHandlerFixture($fixture);

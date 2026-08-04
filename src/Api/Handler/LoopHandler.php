@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\LoopLiveViewBuilder;
 use CoquiBot\Coqui\Api\LoopStreamTracker;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Api\SseStream;
@@ -284,10 +285,18 @@ final readonly class LoopHandler
             ];
         }
 
-        return Router::jsonResponse([
-            'definitions' => $result,
-            'count' => count($result),
-        ]);
+        // Declared default sort: name ascending (scandir order is not
+        // deterministic). The definition name is the stable, unique cursor key.
+        usort($result, static fn(array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+
+        $params = $request->getQueryParams();
+
+        return Router::jsonResponse(CursorPage::build(
+            $result,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $definition): string => (string) $definition['name'],
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        ));
     }
 
     /**
