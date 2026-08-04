@@ -691,6 +691,10 @@ final readonly class ConfigHandler
         $this->deleteDirectory($persona['path']);
         $this->personaDiscovery->invalidateCache();
 
+        // Clear the version-counter row so a later recreate of the same name
+        // seeds cleanly at version 1 instead of colliding with an orphaned row.
+        $this->objectVersions?->delete(self::PERSONA_OBJECT_TYPE, $normalizedName);
+
         return Router::jsonResponse([
             'deleted' => true,
             'name' => $normalizedName,

@@ -287,6 +287,32 @@ test('config handler rejects duplicate personas and server-owned create fields',
     }
 });
 
+test('config handler rejects a create with an invalid persona name format', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->createPersona(new ServerRequest(
+            'POST',
+            '/api/v1/personas',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'name' => 'Nova Prime!',
+                'avatar' => new stdClass(),
+                'model' => 'anthropic/claude-sonnet-4',
+                'allowed_roles' => ['orchestrator'],
+                'soul' => 'An invalid name.',
+            ], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(422);
+        expect($body['code'])->toBe('validation_error');
+        expect(is_dir($fixture['workspacePath'] . '/personas/Nova Prime!'))->toBeFalse();
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
 test('config handler patches persona soul/backstory, preserves the model, and bumps version', function () {
     $fixture = createApiConfigHandlerFixture();
 
@@ -417,6 +443,59 @@ test('config handler deletes a non-default persona and invalidates discovery', f
         expect($personasBody['count'])->toBe(1);
         expect(array_column($personasBody['personas'], 'name'))->toBe(['caelum']);
         expect(is_dir($fixture['workspacePath'] . '/personas/trinity'))->toBeFalse();
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler clears the persona version counter on delete so a recreate seeds fresh', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $createBody = static fn(): string => json_encode([
+            'name' => 'nova',
+            'avatar' => new stdClass(),
+            'model' => 'anthropic/claude-sonnet-4',
+            'allowed_roles' => ['orchestrator'],
+            'soul' => '# Nova\n\nA strategist.',
+        ], JSON_THROW_ON_ERROR);
+
+        $created = $fixture['handler']->createPersona(new ServerRequest(
+            'POST',
+            '/api/v1/personas',
+            ['Content-Type' => 'application/json'],
+            $createBody(),
+        ));
+        expect($created->getStatusCode())->toBe(201);
+        expect(json_decode((string) $created->getBody(), true)['version'])->toBe(1);
+
+        // Advance the counter so a surviving row would collide on recreate.
+        $bumped = $fixture['handler']->updatePersona(new ServerRequest(
+            'PATCH',
+            '/api/v1/personas/nova',
+            ['Content-Type' => 'application/json'],
+            json_encode(['soul' => '# Nova\n\nRevised.'], JSON_THROW_ON_ERROR),
+        ), 'nova');
+        expect(json_decode((string) $bumped->getBody(), true)['version'])->toBe(2);
+
+        $deleted = $fixture['handler']->deletePersona(
+            new ServerRequest('DELETE', '/api/v1/personas/nova'),
+            'nova',
+        );
+        expect($deleted->getStatusCode())->toBe(200);
+
+        // Recreate the same name: the counter row must have been cleared, so
+        // this seeds cleanly at version 1 instead of throwing "already exists".
+        $recreated = $fixture['handler']->createPersona(new ServerRequest(
+            'POST',
+            '/api/v1/personas',
+            ['Content-Type' => 'application/json'],
+            $createBody(),
+        ));
+        $recreatedBody = json_decode((string) $recreated->getBody(), true);
+
+        expect($recreated->getStatusCode())->toBe(201);
+        expect($recreatedBody['version'])->toBe(1);
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }
