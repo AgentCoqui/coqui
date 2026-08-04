@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tests\Conformance;
 
+use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\SessionWorkspaceResolver;
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Loop\LoopLiveProducer;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
@@ -1229,11 +1231,68 @@ it('CORE-7: verdict is typed and approval requires both flags with no Critical/I
     expect(Verdict::fromFindings(true, false, [])->isApproved())->toBeFalse();
 })->group('conformance');
 
+it('CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)', function () {
+    $v = new ConformanceValidator();
+    $hints = ['o200k_base', 'cl100k_base', 'claude', 'heuristic-3.5', 'heuristic-4', 'unknown'];
+    $caps = ['tools', 'vision', 'thinking'];
+
+    // A fully-capable Anthropic model: all three capabilities, claude tokenizer.
+    $opus = new ModelDefinition(
+        id: 'claude-opus-4',
+        name: 'Claude Opus 4',
+        provider: 'anthropic',
+        contextWindow: 200000,
+        maxTokens: 32000,
+        family: 'claude',
+        toolCalls: true,
+        vision: true,
+        thinking: true,
+    );
+    $wire = ModelProducer::toWire($opus);
+
+    expect($v->isValid('model.json', $wire))->toBeTrue($v->errorText('model.json', $wire));
+    expect($wire['id'])->toBe('anthropic/claude-opus-4');
+    expect($wire['context_window'])->toBeInt()->toBeGreaterThanOrEqual(1);
+    expect($hints)->toContain($wire['tokenizer_hint']);
+    expect($wire['tokenizer_hint'])->toBe('claude');
+    expect($wire['capabilities'])->toBe(['tools', 'vision', 'thinking']);
+    foreach ($wire['capabilities'] as $capability) {
+        expect($caps)->toContain($capability);
+    }
+
+    // An OpenAI gpt-4o model: no capabilities, absent max_output → null, o200k hint.
+    $gpt4o = new ModelDefinition(
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        provider: 'openai',
+        contextWindow: 128000,
+        maxTokens: 0,
+        family: 'gpt-4o',
+    );
+    $gpt4oWire = ModelProducer::toWire($gpt4o);
+    expect($v->isValid('model.json', $gpt4oWire))->toBeTrue($v->errorText('model.json', $gpt4oWire));
+    expect($gpt4oWire['tokenizer_hint'])->toBe('o200k_base');
+    expect($gpt4oWire['max_output_tokens'])->toBeNull();
+    expect($gpt4oWire['capabilities'])->toBe([]);
+
+    // Older OpenAI (gpt-4) tokenizes with cl100k_base.
+    $gpt4 = new ModelDefinition(id: 'gpt-4', name: 'GPT-4', provider: 'openai', family: 'gpt-4', toolCalls: true);
+    $gpt4Wire = ModelProducer::toWire($gpt4);
+    expect($v->isValid('model.json', $gpt4Wire))->toBeTrue($v->errorText('model.json', $gpt4Wire));
+    expect($gpt4Wire['tokenizer_hint'])->toBe('cl100k_base');
+    expect($gpt4Wire['capabilities'])->toBe(['tools']);
+
+    // An unrecognized provider/family defaults to the conservative unknown hint.
+    $llama = new ModelDefinition(id: 'llama3', name: 'Llama 3', provider: 'ollama', family: 'llama');
+    $llamaWire = ModelProducer::toWire($llama);
+    expect($v->isValid('model.json', $llamaWire))->toBeTrue($v->errorText('model.json', $llamaWire));
+    expect($llamaWire['tokenizer_hint'])->toBe('unknown');
+})->group('conformance');
+
 $rows = [
     // Spec 0.3 Core MUSTs (CORE-2..CORE-35).
     'CORE-2: enums are closed; out-of-set values rejected',
     'CORE-5: SSE frames carry a resumable id; reconnect replays after it',
-    'CORE-11: instances expose a typed model catalog (id, context_window, tokenizer_hint)',
     'CORE-12: budget tiering + pinned security normative; shed order is SHOULD + inspectable',
     'CORE-29: spawn is a gated Core op (full-access, top-level only); child runs stream + export',
     'CORE-30: extension is a declared gradient; host toolkits are declared in InstanceInfo; personas are a closed set',

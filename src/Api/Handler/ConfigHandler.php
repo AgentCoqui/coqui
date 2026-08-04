@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\CursorPage;
+use CoquiBot\Coqui\Api\Model\ModelProducer;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
@@ -376,22 +377,8 @@ final readonly class ConfigHandler
         $config = $this->currentConfig();
 
         if ($this->modelMetadataResolver !== null) {
-            foreach ($this->modelMetadataResolver->configuredModels() as $fullId => $definition) {
-                $entry = $definition->toArray();
-                $models[] = [
-                    'provider' => $definition->provider,
-                    'id' => $fullId,
-                    'name' => $definition->name,
-                    'reasoning' => $definition->reasoning,
-                    'input' => $entry['input'] ?? ($definition->vision ? ['text', 'image'] : ['text']),
-                    'contextWindow' => $definition->contextWindow,
-                    'maxTokens' => $definition->maxTokens,
-                    'family' => $definition->family,
-                    'toolCalls' => $definition->toolCalls,
-                    'vision' => $definition->vision,
-                    'thinking' => $definition->thinking,
-                    'metadataSource' => $definition->metadataSource,
-                ];
+            foreach ($this->modelMetadataResolver->configuredModels() as $definition) {
+                $models[] = ModelProducer::toWire($definition);
             }
         }
 
