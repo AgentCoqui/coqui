@@ -16,7 +16,9 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\AuditHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
+use CoquiBot\Coqui\Api\Handler\ChildRunHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
+use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
@@ -38,6 +40,7 @@ use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
+use CoquiBot\Coqui\Api\Middleware\IdempotencyMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
@@ -57,12 +60,14 @@ use CoquiBot\Coqui\Agent\StageGateEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Storage\IdempotencyStore;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CoquiBot\Coqui\Mcp\McpRuntime;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
@@ -137,7 +142,7 @@ final class ApiCommand extends Command
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
         $storage = new SessionStorage($dbPath, auditRedactor: $boot->auditRedactor());
-        $uploadStorage = new FileUploadStorage($boot->workspacePath());
+        $uploadStorage = new FileUploadStorage();
 
         // Read API key from config
         $apiKey = $this->resolveApiKey($boot);
@@ -299,7 +304,7 @@ final class ApiCommand extends Command
 
         // Create handlers
         $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $lifecycle);
-        $profileSessionLifecycle = new ProfileSessionLifecycleManager(
+        $personaSessionLifecycle = new PersonaSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
             roleResolver: $boot->roleResolver(),
@@ -307,13 +312,13 @@ final class ApiCommand extends Command
             artifactStore: $boot->artifactStore(),
         );
 
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle, artifactStore: $artifactStore);
-        $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->personaDiscovery(), $personaSessionLifecycle, artifactStore: $artifactStore);
+        $messageHandler = new MessageHandler($storage, $turnManager);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
             new ConfigValidator(),
-            $boot->profileDiscovery(),
+            $boot->personaDiscovery(),
             new ModelMetadataResolver(
                 $boot->defaultsLoader(),
                 new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
@@ -324,12 +329,13 @@ final class ApiCommand extends Command
             $boot->configManager(),
             new \CoquiBot\Coqui\Config\ConfigGuard(),
             $lifecycle,
+            new ObjectVersionStore($storage->getPdo()),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->personaDiscovery(), new ObjectVersionStore($storage->getPdo()));
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->personaDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $lifecycle, $this->buildInstanceInfo($boot, $apiKey));
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -341,7 +347,7 @@ final class ApiCommand extends Command
         $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($promptInspectionService);
-        $budgetHandler = new BudgetHandler($previewRunner);
+        $budgetHandler = new BudgetHandler($previewRunner, $storage);
         $commandCatalogHandler = new CommandCatalogHandler();
         $mcpRuntime = McpRuntime::fromWorkspace(
             $boot->workspacePath(),
@@ -350,12 +356,15 @@ final class ApiCommand extends Command
         $mcpRuntime->connectEnabled();
         $mcpServerHandler = new McpServerHandler($mcpRuntime->managementService());
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
+        $childRunHandler = new ChildRunHandler(
+            $storage,
+            $boot->roleResolver(),
+            $boot->providerFactory(),
+            $boot->roleDiscovery(),
+        );
         $questionHandler = new QuestionHandler(
             new QuestionPersistence($storage),
             $storage,
-            new \CoquiBot\Coqui\Api\LoopQuestionAnswerReopener(
-                $loopStore ?? new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo()),
-            ),
         );
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
@@ -366,16 +375,16 @@ final class ApiCommand extends Command
         );
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
-            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore)
+            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore, $boot->personaDiscovery(), new ObjectVersionStore($storage->getPdo()))
             : null;
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler, $auditHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $childRunHandler, $questionHandler, $scheduleHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler, $auditHandler);
 
         // Discover and register API features from installed mods. Failures are
         // isolated so one faulty third-party mod cannot abort API-server boot.
-        $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->profileDiscovery(), $boot->config());
+        $coreServices = new \CoquiBot\Coqui\Api\CoreServices($storage, $boot->personaDiscovery(), $boot->config());
         $apiFeatureDiscovery = new \CoquiBot\Coqui\Config\ApiFeatureDiscovery();
         $apiFeatureDiscovery->registerAll(
             $apiFeatureDiscovery->discover(),
@@ -418,6 +427,31 @@ final class ApiCommand extends Command
                 static fn (string $path): bool => $router->isPublicPath($path),
             );
         }
+
+        // Idempotency-Key dedup for creators (CORE-53). Runs innermost — after auth —
+        // so a repeated request with the same key replays the recorded response
+        // without re-invoking the handler. Only POST routes that mint a resource are
+        // wired; every other route (and any request without the header) passes through.
+        //
+        // POST /sessions/{id}/messages is deliberately NOT wired: its default mode
+        // returns a live SSE (text/event-stream) body that must never be buffered
+        // or cached. The middleware's streaming-passthrough guard would pass it
+        // through un-recorded anyway, but excluding the route keeps the flagship
+        // streaming endpoint out of the dedup path entirely (belt-and-suspenders).
+        $v1Prefix = '/api/v1';
+        $middlewareStack[] = new IdempotencyMiddleware(
+            new IdempotencyStore($storage->getPdo()),
+            [
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/members'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/files'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/sessions/{id}/artifacts'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/personas'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/tasks'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/schedules'],
+                ['method' => 'POST', 'path' => $v1Prefix . '/loops'],
+            ],
+        );
 
         foreach ($middlewareStack as $mw) {
             $router->addMiddleware($mw);
@@ -582,6 +616,7 @@ final class ApiCommand extends Command
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
+        ChildRunHandler $childRun,
         QuestionHandler $question,
         ScheduleHandler $schedule,
         ?ApiLoopHandler $loop,
@@ -605,7 +640,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/members', [$session, 'members']);
         $router->put($v1 . '/sessions/{id}/members', [$session, 'replaceMembers']);
         $router->post($v1 . '/sessions/{id}/members', [$session, 'addMember']);
-        $router->delete($v1 . '/sessions/{id}/members/{profile}', [$session, 'removeMember']);
+        $router->delete($v1 . '/sessions/{id}/members/{persona}', [$session, 'removeMember']);
         if ($sessionProject !== null) {
             $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
             $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
@@ -622,14 +657,15 @@ final class ApiCommand extends Command
 
         // File uploads
         $router->post($v1 . '/sessions/{id}/files', [$fileUpload, 'upload']);
-        $router->get($v1 . '/sessions/{id}/files', [$fileUpload, 'list']);
         $router->get($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'get']);
-        $router->delete($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'delete']);
 
         // Turns
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
+        // Core answer path — a client answers a turn's blocking `ask_user` question
+        // here after an SSE `question` frame. Core (never behind the `questions` profile).
+        $router->post($v1 . '/sessions/{id}/turns/{turnId}/answer', [$question, 'submitTurnAnswer']);
 
         // Audit log — authenticated routes only (API-key middleware). Registers
         // both the global GET /audit and the session-scoped GET
@@ -645,20 +681,21 @@ final class ApiCommand extends Command
         $router->patch($v1 . '/config/context', [$config, 'updateContext']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
-        $router->get($v1 . '/config/profiles', [$config, 'profiles']);
-        $router->get($v1 . '/config/profile-preferences/schema', [$config, 'profilePreferenceSchema']);
-        $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
+        $router->get($v1 . '/config/personas', [$config, 'personas']);
+        $router->get($v1 . '/config/persona-preferences/schema', [$config, 'personaPreferenceSchema']);
+        $router->get($v1 . '/config/personas/{name}', [$config, 'persona']);
 
-        // Roles (read-only — create/update/delete are REPL-only)
+        // Roles (create/update via PUT; delete is REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
         $router->get($v1 . '/roles', [$role, 'list']);
         $router->get($v1 . '/roles/{name}', [$role, 'get']);
-        $router->get($v1 . '/profiles', [$config, 'profiles']);
-        $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
-        $router->post($v1 . '/profiles', [$config, 'createProfile']);
-        $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
-        $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
+        $router->put($v1 . '/roles/{name}', [$role, 'put']);
+        $router->get($v1 . '/personas', [$config, 'personas']);
+        $router->get($v1 . '/personas/{name}', [$config, 'persona']);
+        $router->post($v1 . '/personas', [$config, 'createPersona']);
+        $router->patch($v1 . '/personas/{name}', [$config, 'updatePersona']);
+        $router->delete($v1 . '/personas/{name}', [$config, 'deletePersona']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
@@ -685,13 +722,18 @@ final class ApiCommand extends Command
 
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
+        $router->post($v1 . '/sessions/{id}/child-runs', [$childRun, 'spawnChildRun']);
+        $router->get($v1 . '/sessions/{id}/child-runs/{childRunId}', [$childRun, 'getChildRun']);
+        $router->get($v1 . '/sessions/{id}/child-runs/{childRunId}/events', [$childRun, 'streamChildRunEvents']);
 
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
+        $router->get($v1 . '/server/instance', [$server, 'instance']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
+        $router->get($v1 . '/sessions/{id}/budget', [$budget, 'session']);
         $router->get($v1 . '/server/commands', [$commands, 'get']);
 
         // Artifacts
@@ -723,6 +765,66 @@ final class ApiCommand extends Command
 
         // Loops
         $loop?->register($router);
+    }
+
+    /**
+     * Assemble the aggregated CAP InstanceInfo builder from live runtime sources.
+     *
+     * Required fields are always present; optional fields are omitted when their
+     * source is unavailable. `auth` is emitted only when the surface is network-
+     * bound (an API key is configured) — embedded/no-auth omits it entirely, and
+     * `profiles` is an OPEN set (never allowlist-filtered).
+     */
+    private function buildInstanceInfo(BootManager $boot, ?string $apiKey): InstanceInfoBuilder
+    {
+        $config = $boot->config();
+
+        // Portable built-in profiles this variant implements (open set). `remote`
+        // is advertised only when the surface is network-bound (an API key exists).
+        $profiles = ['artifacts', 'questions', 'skills', 'schedules', 'mcp'];
+        if ($apiKey !== null) {
+            $profiles[] = 'remote';
+        }
+
+        $personaCount = count($boot->personaDiscovery()->discoverAll());
+
+        $modelResolver = new ModelMetadataResolver(
+            $boot->defaultsLoader(),
+            new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
+            $config,
+            $boot->providerFactory(),
+        );
+        $models = array_values($modelResolver->configuredModels());
+
+        $primary = $config->get('agents.defaults.model.primary');
+        $defaultModel = is_string($primary) && $primary !== '' ? $primary : null;
+
+        return new InstanceInfoBuilder(
+            profiles: $profiles,
+            bindings: ['in-process', 'http-sse'],
+            personaCount: $personaCount,
+            defaultModel: $defaultModel,
+            models: $models,
+            // Portable built-in toolkits; native host toolkits are absent (⇒ none).
+            // `vision` (VisionTool/vision_analyze) is an access-gated built-in:
+            // read-safe, reachable at `readonly`. Image generation stays
+            // extension-only (no generation tool exists in core).
+            builtinToolkits: ['shell', 'fs', 'web', 'vision'],
+            // Only the stdio transport class exists today.
+            mcpTransports: ['stdio'],
+            // Omit auth entirely when embedded/no-key; require it when a key is set.
+            authRequired: $apiKey !== null ? true : null,
+            limits: [
+                'max_page_size' => \CoquiBot\Coqui\Api\CursorPage::MAX_LIMIT,
+                'max_payload_bytes' => CoquiDefaults::MAX_UPLOAD_FILE_SIZE,
+                'max_content_bytes' => CoquiDefaults::MAX_UPLOAD_FILE_SIZE,
+            ],
+            api: ['base_path' => '/api/v1', 'api_major' => '1'],
+            // The scheduler parses a standard 5-field POSIX/Vixie cron expression
+            // (dragonmantank/cron-expression), advertised so a client can judge
+            // whether a `ScheduledTask.cron` string is portable (Schedules.md §2).
+            schedulesDialect: 'posix-5field',
+        );
     }
 
     /**

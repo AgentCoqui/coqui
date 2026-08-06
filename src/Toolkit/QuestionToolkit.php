@@ -52,7 +52,7 @@ final class QuestionToolkit implements ToolkitInterface
         - Provide `options` for selects (objects `{"label": "...", "description": "..."}` or bare strings). Set `allow_other: true` to let the user type a value not in the list.
         - ALWAYS provide `suggested` — your best-guess default — as `{"selected": ["label"]}` for selects or `{"text": "..."}` for free-text. It pre-selects a default and is auto-taken in non-interactive `default` mode.
         - Yes/no is a two-option `single_select`. Ask sequentially if you need multiple answers (one question per call).
-        - In an autonomous loop with `on_question: block`, calling `ask_user` halts the stage until an operator answers; the loop shows as `blocked`. If the result begins with `QUESTION_BLOCKED`, STOP immediately and take no further action.
+        - In an autonomous loop or background task there is no interactive operator: your `suggested` best-guess answer is auto-taken and logged, and the stage continues without interruption. Always provide the answer you would want taken by default.
         </ASK-USER-GUIDELINES>
         GUIDELINES;
     }
@@ -123,20 +123,6 @@ final class QuestionToolkit implements ToolkitInterface
             $answer = $this->responder->ask($request);
         } catch (QuestionUnansweredException $e) {
             return ToolResult::error('ask_user: No answer received (' . $e->getMessage() . ').');
-        }
-
-        // A null return means the question was escalated to an operator and no
-        // synchronous answer is available (loop `block` mode). The stage keeps
-        // running until the turn ends, so the agent must take NO further action:
-        // the stage is re-run from the start once the operator answers, and any
-        // work done now is discarded. Emit a hard STOP sentinel.
-        if ($answer === null) {
-            return ToolResult::success(
-                'QUESTION_BLOCKED: STOP IMMEDIATELY. Your question has been escalated to the operator and this '
-                . 'loop stage is now BLOCKED awaiting their answer. Do NOT call any more tools, write any files, '
-                . 'or take any further action. End your turn now with no further output. This stage will be '
-                . "re-run from the start with the operator's answer once they respond; anything you do now is discarded.",
-            );
         }
 
         return ToolResult::json([

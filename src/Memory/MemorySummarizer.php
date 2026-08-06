@@ -32,7 +32,7 @@ final class MemorySummarizer
      * generates a fresh one from the raw entries. If no provider is
      * available, returns the raw compact summary from MemoryStore.
      */
-    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0, ?string $profileId = null): string
+    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0, ?string $personaId = null): string
     {
         $effectiveMaxTokens = $maxTokens > 0 ? $maxTokens : $this->maxTokens;
         $currentCount = $this->memoryStore->count();
@@ -41,17 +41,17 @@ final class MemorySummarizer
             return '';
         }
 
-        // Check cached summary — include profile in cache key via version + profile hash
+        // Check cached summary — include persona in cache key via version + persona hash
         $cached = $this->getCachedSummary();
         $currentVersion = $this->memoryStore->getCacheVersion();
-        $profileHash = $profileId !== null ? crc32($profileId) : 0;
+        $personaHash = $personaId !== null ? crc32($personaId) : 0;
 
-        if ($cached !== null && $cached['memory_count'] === $currentCount && $cached['cache_version'] === $currentVersion && $cached['profile_hash'] === $profileHash) {
+        if ($cached !== null && $cached['memory_count'] === $currentCount && $cached['cache_version'] === $currentVersion && $cached['persona_hash'] === $personaHash) {
             return $cached['summary'];
         }
 
         // Generate new summary
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit, profileId: $profileId);
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit, personaId: $personaId);
 
         if ($rawSummary === '') {
             return '';
@@ -62,13 +62,13 @@ final class MemorySummarizer
             $compressed = $this->compressWithLlm($provider, $rawSummary, $effectiveMaxTokens);
 
             if ($compressed !== '') {
-                $this->cacheSummary($compressed, $currentCount, $currentVersion, $profileHash);
+                $this->cacheSummary($compressed, $currentCount, $currentVersion, $personaHash);
                 return $compressed;
             }
         }
 
         // Fall back to the raw summary (no LLM compression)
-        $this->cacheSummary($rawSummary, $currentCount, $currentVersion, $profileHash);
+        $this->cacheSummary($rawSummary, $currentCount, $currentVersion, $personaHash);
 
         return $rawSummary;
     }
@@ -113,13 +113,13 @@ final class MemorySummarizer
     }
 
     /**
-     * @return array{summary: string, memory_count: int, cache_version: int, profile_hash: int}|null
+     * @return array{summary: string, memory_count: int, cache_version: int, persona_hash: int}|null
      */
     private function getCachedSummary(): ?array
     {
         try {
             $db = $this->getDb();
-            $stmt = $db->query('SELECT summary, memory_count, cache_version, profile_hash FROM memory_summary WHERE id = 1');
+            $stmt = $db->query('SELECT summary, memory_count, cache_version, persona_hash FROM memory_summary WHERE id = 1');
 
             if ($stmt === false) {
                 return null;
@@ -131,27 +131,27 @@ final class MemorySummarizer
                 'summary' => $row['summary'],
                 'memory_count' => (int) $row['memory_count'],
                 'cache_version' => (int) ($row['cache_version'] ?? 0),
-                'profile_hash' => (int) ($row['profile_hash'] ?? 0),
+                'persona_hash' => (int) ($row['persona_hash'] ?? 0),
             ] : null;
         } catch (\Throwable) {
             return null;
         }
     }
 
-    private function cacheSummary(string $summary, int $memoryCount, int $cacheVersion, int $profileHash = 0): void
+    private function cacheSummary(string $summary, int $memoryCount, int $cacheVersion, int $personaHash = 0): void
     {
         try {
             $db = $this->getDb();
             $now = (new \DateTimeImmutable())->format('Y-m-d\TH:i:s');
 
             $db->prepare(<<<SQL
-                INSERT OR REPLACE INTO memory_summary (id, summary, memory_count, cache_version, profile_hash, generated_at)
-                VALUES (1, :summary, :count, :cache_version, :profile_hash, :generated_at)
+                INSERT OR REPLACE INTO memory_summary (id, summary, memory_count, cache_version, persona_hash, generated_at)
+                VALUES (1, :summary, :count, :cache_version, :persona_hash, :generated_at)
             SQL)->execute([
                 ':summary' => $summary,
                 ':count' => $memoryCount,
                 ':cache_version' => $cacheVersion,
-                ':profile_hash' => $profileHash,
+                ':persona_hash' => $personaHash,
                 ':generated_at' => $now,
             ]);
         } catch (\Throwable) {

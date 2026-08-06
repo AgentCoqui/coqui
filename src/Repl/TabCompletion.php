@@ -94,7 +94,7 @@ final class TabCompletion
             '/role' => $this->completeRole($parts),
             '/roles' => $this->completeRoles($parts),
             '/group' => $this->completeGroup($parts),
-            '/profile' => $this->completeProfile($parts),
+            '/persona' => $this->completePersona($parts),
             default => $this->completeToolkitCommand($spec, $parts),
         };
     }
@@ -326,19 +326,19 @@ final class TabCompletion
      * @param array<string> $parts
      * @return list<string>
      */
-    private function completeProfile(array $parts): array
+    private function completePersona(array $parts): array
     {
         if (count($parts) === 2) {
             $candidates = [
-                ...$this->commandSpec('/profile')->firstArguments,
-                ...$this->boot->profileDiscovery()->availableProfiles(),
+                ...$this->commandSpec('/persona')->firstArguments,
+                ...$this->boot->personaDiscovery()->availablePersonas(),
             ];
 
             return $this->completeChoices($candidates, $parts[1]);
         }
 
         if (count($parts) === 3 && $parts[1] === 'default') {
-            $candidates = ['none', 'reset', 'clear', ...$this->boot->profileDiscovery()->availableProfiles()];
+            $candidates = ['none', 'reset', 'clear', ...$this->boot->personaDiscovery()->availablePersonas()];
 
             return $this->completeChoices($candidates, $parts[2]);
         }
@@ -360,13 +360,13 @@ final class TabCompletion
 
         if (count($parts) === 3 && in_array($action, ['start', 'replace'], true)) {
             return $this->completeChoices([
-                ...$this->boot->profileDiscovery()->availableProfiles(),
+                ...$this->boot->personaDiscovery()->availablePersonas(),
                 '--rounds=3',
             ], $parts[2]);
         }
 
         if (count($parts) === 3 && $action === 'add') {
-            $candidates = $this->boot->profileDiscovery()->availableProfiles();
+            $candidates = $this->boot->personaDiscovery()->availablePersonas();
 
             if ($this->storage->isGroupSession($this->sessionId)) {
                 $existing = array_fill_keys($this->storage->listSessionGroupMemberNames($this->sessionId), true);

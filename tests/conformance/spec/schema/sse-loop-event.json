@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-loop-event.json",
+  "title": "SSE loop-stream event frame",
+  "description": "Discriminated union of the framed events on a loop stream (GET /loops/{id}/events). Each frame is `{ event, data }` discriminated by the SSE `event:` name; `data` is the concrete payload for that event. Event names and payloads MIRROR events.yaml's `loop` channel (connected, stage_changed, activity, done) — the same shapes on the in-process binding. Loop signals are nudges: clients refetch GET /loops/{id}/live on each. The optional `id` mirrors the SSE `id:` transport cursor (see sse-frame.json); it is not part of any `data`.",
+  "oneOf": [
+    { "$ref": "#/$defs/connected" },
+    { "$ref": "#/$defs/stage_changed" },
+    { "$ref": "#/$defs/activity" },
+    { "$ref": "#/$defs/done" }
+  ],
+  "$defs": {
+    "connected": {
+      "title": "connected frame",
+      "description": "Stream established.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "connected" },
+        "data": { "type": "object" }
+      }
+    },
+    "stage_changed": {
+      "title": "stage_changed frame",
+      "description": "A stage advanced or changed status.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "stage_changed" },
+        "data": {
+          "type": "object",
+          "properties": {
+            "iteration": { "type": "integer" },
+            "stage_index": { "type": "integer" },
+            "role": { "type": "string" },
+            "status": { "type": "string" }
+          }
+        }
+      }
+    },
+    "activity": {
+      "title": "activity frame",
+      "description": "Progress within the current stage — a nudge to refetch /live.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "activity" },
+        "data": { "type": "object" }
+      }
+    },
+    "done": {
+      "title": "done frame",
+      "description": "Terminal event — the loop reached a stop state (completed/blocked/failed/cancelled).",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "done" },
+        "data": {
+          "type": "object",
+          "properties": { "status": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

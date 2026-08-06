@@ -10,54 +10,54 @@ use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 beforeEach(function () {
     $this->dbPath = sys_get_temp_dir() . '/coqui-memory-toolkit-' . bin2hex(random_bytes(8)) . '.db';
     $this->store = new MemoryStore($this->dbPath);
-    $this->profileToolkit = new MemoryToolkit($this->store, activeProfileId: 'trinity');
-    $this->orchestratorToolkit = new MemoryToolkit($this->store, activeProfileId: 'trinity', allowCrossProfileMutation: true);
+    $this->personaToolkit = new MemoryToolkit($this->store, activePersonaId: 'trinity');
+    $this->orchestratorToolkit = new MemoryToolkit($this->store, activePersonaId: 'trinity', allowCrossPersonaMutation: true);
 });
 
 afterEach(function () {
     cleanupSqliteTestDb($this->dbPath);
 });
 
-test('memory_delete blocks deleting another profiles memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+test('memory_delete blocks deleting another personas memory', function () {
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
-    $tool = toolFromToolkit($this->profileToolkit, 'memory_delete');
+    $tool = toolFromToolkit($this->personaToolkit, 'memory_delete');
     $result = $tool->execute(['id' => $id]);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
-    expect($result->content)->toContain('belongs to profile "nagog"');
+    expect($result->content)->toContain('belongs to persona "nagog"');
     expect($this->store->getById($id))->not->toBeNull();
 });
 
-test('memory_update blocks updating another profiles memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+test('memory_update blocks updating another personas memory', function () {
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
-    $tool = toolFromToolkit($this->profileToolkit, 'memory_update');
+    $tool = toolFromToolkit($this->personaToolkit, 'memory_update');
     $result = $tool->execute(['id' => $id, 'content' => 'Updated by trinity']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($this->store->getById($id)?->content)->toBe('Nagog memory');
 });
 
-test('memory_restore blocks restoring another profiles archived memory', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog archived', area: 'facts', profileId: 'nagog'));
+test('memory_restore blocks restoring another personas archived memory', function () {
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog archived', area: 'facts', personaId: 'nagog'));
     $this->store->getPdo()->prepare('UPDATE memories SET archived_at = :archived_at WHERE id = :id')->execute([
         ':archived_at' => (new DateTimeImmutable())->format('Y-m-d\TH:i:s'),
         ':id' => $id,
     ]);
 
-    $tool = toolFromToolkit($this->profileToolkit, 'memory_restore');
+    $tool = toolFromToolkit($this->personaToolkit, 'memory_restore');
     $result = $tool->execute(['id' => $id]);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
-test('memory_forget only removes active profile and shared memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', profileId: 'trinity'));
-    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', profileId: 'nagog'));
+test('memory_forget only removes active persona and shared memories', function () {
+    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', personaId: 'trinity'));
+    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', personaId: 'nagog'));
     $this->store->save(new MemoryEntry(content: 'Shared continuity note', area: 'facts'));
 
-    $tool = toolFromToolkit($this->profileToolkit, 'memory_forget');
+    $tool = toolFromToolkit($this->personaToolkit, 'memory_forget');
     $result = $tool->execute(['query' => 'continuity']);
     $remaining = $this->store->search('continuity');
     $contents = array_map(fn(MemoryEntry $e) => $e->content, $remaining);
@@ -69,8 +69,8 @@ test('memory_forget only removes active profile and shared memories', function (
     expect($contents)->not->toContain('Shared continuity note');
 });
 
-test('orchestrator can delete another profiles memory by id', function () {
-    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', profileId: 'nagog'));
+test('orchestrator can delete another personas memory by id', function () {
+    $id = $this->store->save(new MemoryEntry(content: 'Nagog memory', area: 'facts', personaId: 'nagog'));
 
     $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_delete');
     $result = $tool->execute(['id' => $id]);
@@ -79,21 +79,21 @@ test('orchestrator can delete another profiles memory by id', function () {
     expect($this->store->getById($id))->toBeNull();
 });
 
-test('memory_inspect_profile is only exposed to orchestrator-capable toolkits', function () {
-    $profileToolNames = array_map(fn($tool) => $tool->name(), $this->profileToolkit->tools());
+test('memory_inspect_persona is only exposed to orchestrator-capable toolkits', function () {
+    $personaToolNames = array_map(fn($tool) => $tool->name(), $this->personaToolkit->tools());
     $orchestratorToolNames = array_map(fn($tool) => $tool->name(), $this->orchestratorToolkit->tools());
 
-    expect($profileToolNames)->not->toContain('memory_inspect_profile');
-    expect($orchestratorToolNames)->toContain('memory_inspect_profile');
+    expect($personaToolNames)->not->toContain('memory_inspect_persona');
+    expect($orchestratorToolNames)->toContain('memory_inspect_persona');
 });
 
-test('memory_inspect_profile returns only target profile memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', profileId: 'nagog'));
-    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', profileId: 'trinity'));
+test('memory_inspect_persona returns only target persona memories', function () {
+    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', personaId: 'nagog'));
+    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', personaId: 'trinity'));
     $this->store->save(new MemoryEntry(content: 'Shared continuity note', area: 'facts'));
 
-    $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_inspect_profile');
-    $result = $tool->execute(['profile' => 'nagog', 'query' => 'continuity']);
+    $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_inspect_persona');
+    $result = $tool->execute(['persona' => 'nagog', 'query' => 'continuity']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Nagog continuity note');

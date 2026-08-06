@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/memory-patch.json",
+  "title": "MemoryPatch",
+  "description": "Editable fields of a Memory. All optional; at least one required. Identity fields (name, persona_id) are intentionally NOT patchable here — renaming or re-scoping a memory to a different persona is a separate, scoped concern, not a content edit.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "description": { "type": ["string", "null"] },
+    "content": { "type": "string" },
+    "type": { "$ref": "memory.json#/properties/type" },
+    "metadata": { "$ref": "memory.json#/properties/metadata" }
+  }
+}

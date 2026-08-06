@@ -47,7 +47,7 @@ final class MemoryExtractor
         ProviderInterface $provider,
         int $recentTurns = 5,
         bool $bypassCooldown = false,
-        ?string $profileId = null,
+        ?string $personaId = null,
     ): int {
         if (!$bypassCooldown && !$this->shouldExtract()) {
             return 0;
@@ -97,7 +97,7 @@ final class MemoryExtractor
                 ],
                 type: $type,
                 validUntil: $validUntil,
-                profileId: $profileId,
+                personaId: $personaId,
             ));
 
             $saved++;

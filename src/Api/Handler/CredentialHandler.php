@@ -88,7 +88,7 @@ final readonly class CredentialHandler
         $key = strtoupper($key);
 
         if (!$this->credentialResolver->has($key)) {
-            return Router::errorResponse(ApiErrorCode::CREDENTIAL_NOT_FOUND, 'Credential not found');
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Credential not found');
         }
 
         $this->credentialResolver->delete($key);

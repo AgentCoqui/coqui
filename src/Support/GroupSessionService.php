@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Support;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Exception\GroupSessionException;
@@ -18,7 +18,7 @@ final readonly class GroupSessionService
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
+        private PersonaDiscovery $personaDiscovery,
     ) {}
 
     /**
@@ -34,56 +34,56 @@ final readonly class GroupSessionService
         $normalized = [];
         foreach ($members as $member) {
             if (!is_string($member)) {
-                throw new GroupSessionException(ApiErrorCode::VALIDATION_ERROR, 'Each group member must be a profile name string');
+                throw new GroupSessionException(ApiErrorCode::VALIDATION_ERROR, 'Each group member must be a persona name string');
             }
 
-            $profile = strtolower(trim($member));
-            if ($profile === '') {
+            $persona = strtolower(trim($member));
+            if ($persona === '') {
                 throw new GroupSessionException(ApiErrorCode::VALIDATION_ERROR, 'Group member names cannot be empty');
             }
 
-            if (!$this->profileDiscovery->profileExists($profile)) {
+            if (!$this->personaDiscovery->personaExists($persona)) {
                 throw new GroupSessionException(
                     ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
+                    sprintf('Unknown persona "%s". Create personas/{name}/soul.md in the workspace or clear the persona.', $persona),
                 );
             }
 
-            if (isset($normalized[$profile])) {
+            if (isset($normalized[$persona])) {
                 throw new GroupSessionException(
                     ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Duplicate group member "%s" is not allowed.', $profile),
+                    sprintf('Duplicate group member "%s" is not allowed.', $persona),
                 );
             }
 
-            $normalized[$profile] = true;
+            $normalized[$persona] = true;
         }
 
-        $profiles = array_keys($normalized);
-        if (count($profiles) < 2) {
+        $personas = array_keys($normalized);
+        if (count($personas) < 2) {
             throw new GroupSessionException(ApiErrorCode::VALIDATION_ERROR, 'Group sessions must contain at least two members.');
         }
 
-        sort($profiles, SORT_STRING);
+        sort($personas, SORT_STRING);
 
-        return $profiles;
+        return $personas;
     }
 
-    public function normalizeMember(mixed $profile): string
+    public function normalizeMember(mixed $persona): string
     {
-        if (!is_string($profile)) {
-            throw new GroupSessionException(ApiErrorCode::MISSING_FIELD, 'profile is required');
+        if (!is_string($persona)) {
+            throw new GroupSessionException(ApiErrorCode::MISSING_FIELD, 'persona is required');
         }
 
-        $normalized = strtolower(trim($profile));
+        $normalized = strtolower(trim($persona));
         if ($normalized === '') {
-            throw new GroupSessionException(ApiErrorCode::MISSING_FIELD, 'profile is required');
+            throw new GroupSessionException(ApiErrorCode::MISSING_FIELD, 'persona is required');
         }
 
-        if (!$this->profileDiscovery->profileExists($normalized)) {
+        if (!$this->personaDiscovery->personaExists($normalized)) {
             throw new GroupSessionException(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $normalized),
+                sprintf('Unknown persona "%s". Create personas/{name}/soul.md in the workspace or clear the persona.', $normalized),
             );
         }
 
@@ -217,36 +217,36 @@ final readonly class GroupSessionService
 
     public function addSessionMember(
         string $sessionId,
-        string $profile,
+        string $persona,
         bool $confirmCloseActive,
         int $groupMaxRounds,
         string $closureReasonPrefix,
     ): GroupSessionOperationResult {
         $members = $this->storage->listSessionGroupMemberNames($sessionId);
-        if (in_array($profile, $members, true)) {
-            throw new GroupSessionException(ApiErrorCode::CONFLICT, sprintf('Profile "%s" is already a member of this session.', $profile));
+        if (in_array($persona, $members, true)) {
+            throw new GroupSessionException(ApiErrorCode::CONFLICT, sprintf('Persona "%s" is already a member of this session.', $persona));
         }
 
-        $members[] = $profile;
+        $members[] = $persona;
 
         return $this->replaceSessionMembers($sessionId, $this->normalizeMembers($members), $groupMaxRounds, $confirmCloseActive, $closureReasonPrefix);
     }
 
     public function removeSessionMember(
         string $sessionId,
-        string $profile,
+        string $persona,
         bool $confirmCloseActive,
         int $groupMaxRounds,
         string $closureReasonPrefix,
     ): GroupSessionOperationResult {
         $members = $this->storage->listSessionGroupMemberNames($sessionId);
-        if (!in_array($profile, $members, true)) {
-            throw new GroupSessionException(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" is not a member of this session.', $profile));
+        if (!in_array($persona, $members, true)) {
+            throw new GroupSessionException(ApiErrorCode::NOT_FOUND, sprintf('Persona "%s" is not a member of this session.', $persona));
         }
 
         $updatedMembers = array_values(array_filter(
             $members,
-            static fn(string $member): bool => $member !== $profile,
+            static fn(string $member): bool => $member !== $persona,
         ));
 
         if (count($updatedMembers) < 2) {

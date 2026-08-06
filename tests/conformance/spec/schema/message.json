@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/message.json",
+  "title": "Message",
+  "description": "An atomic message in a Session. Carries actor attribution for group sessions. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "session_id", "role", "content", "created_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "session_id": { "$ref": "common.json#/$defs/Id" },
+    "turn_id": { "oneOf": [{ "$ref": "common.json#/$defs/Id" }, { "type": "null" }] },
+    "role": { "type": "string", "enum": ["user", "assistant", "tool", "system"] },
+    "content": { "type": "string" },
+    "tool_calls": { "type": ["array", "null"], "items": { "type": "object" } },
+    "tool_call_id": { "type": ["string", "null"] },
+    "actor_name": { "type": ["string", "null"], "description": "Attributes the speaker in a group session." },
+    "actor_role": { "type": ["string", "null"] },
+    "attachments": { "type": ["array", "null"], "items": { "$ref": "attachment.json" } },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

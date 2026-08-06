@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
@@ -34,6 +35,14 @@ test('getSession returns session data', function () {
     expect($session['session_origin'])->toBe('user');
     expect($session)->not->toHaveKey('channel');
     expect($session['session_origin'] ?? null)->not->toBe('channel');
+});
+
+test('createSession persists workspace and getSession returns it', function () {
+    $rooted = $this->storage->createSession('orchestrator', 'model', workspace: '/srv/agents/ws-9');
+    expect($this->storage->getSession($rooted)['workspace'])->toBe('/srv/agents/ws-9');
+
+    $unrooted = $this->storage->createSession('orchestrator', 'model');
+    expect($this->storage->getSession($unrooted)['workspace'])->toBeNull();
 });
 
 test('group sessions expose explicit session type alongside compatibility fields', function () {
@@ -154,27 +163,30 @@ test('loadConversation rebuilds conversation object', function () {
     expect($messages[2]->role()->value)->toBe('assistant');
 });
 
-test('logChildRun saves child run data', function () {
+test('createChildRun saves child run data', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 
-    $this->storage->logChildRun(
-        sessionId: $sessionId,
-        parentIteration: 3,
-        agentRole: 'coder',
+    $this->storage->createChildRun(
+        parentSessionId: $sessionId,
+        role: 'coder',
         model: 'anthropic/claude',
         prompt: 'Write a function',
+        status: 'completed',
         result: 'function test() {}',
-        tokenCount: 150,
-        metadata: ['workflow_phase' => 'delegation', 'intent' => 'delegated_task'],
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
     );
 
     $runs = $this->storage->getChildRuns($sessionId);
 
     expect($runs)->toHaveCount(1);
-    expect($runs[0]['agent_role'])->toBe('coder');
-    expect($runs[0]['parent_iteration'])->toBe(3);
-    expect($runs[0]['token_count'])->toBe(150);
-    expect(json_decode((string) $runs[0]['metadata'], true)['workflow_phase'])->toBe('delegation');
+    expect($runs[0]['role'])->toBe('coder');
+    expect($runs[0]['parent_session_id'])->toBe($sessionId);
+    expect($runs[0]['status'])->toBe('completed');
+    expect($runs[0]['prompt_tokens'])->toBe(100);
+    expect($runs[0]['completion_tokens'])->toBe(50);
+    expect($runs[0]['total_tokens'])->toBe(150);
 });
 
 test('createTask stores structured metadata', function () {
@@ -255,6 +267,20 @@ test('deleteSession removes session and messages', function () {
 
     expect($this->storage->getSession($sessionId))->toBeNull();
     expect($this->storage->getMessages($sessionId))->toBeEmpty();
+});
+
+test('deleteSession cancels non-terminal loops but leaves terminal ones untouched', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $loopStore = new LoopStore($this->storage->getPdo());
+
+    $runningId = $loopStore->createLoop('harness', 'Keep ticking', [], sessionId: $sessionId);
+    $completedId = $loopStore->createLoop('harness', 'Already done', [], sessionId: $sessionId);
+    $loopStore->updateLoopStatus($completedId, 'completed');
+
+    $this->storage->deleteSession($sessionId);
+
+    expect($loopStore->getLoop($runningId)['status'])->toBe('cancelled');
+    expect($loopStore->getLoop($completedId)['status'])->toBe('completed');
 });
 
 test('getLatestSessionId returns most recent', function () {
@@ -666,13 +692,13 @@ test('listSessions hides closed sessions by default', function () {
     expect(array_column($allSessions, 'id'))->toContain($closedSessionId);
 });
 
-test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function () {
+test('getLatestInteractiveSessionIdForPersona ignores closed sessions', function () {
     $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed', 'caelum');
     $activeSessionId = $this->storage->createSession('orchestrator', 'model-active', 'caelum');
 
     $this->storage->closeSession($closedSessionId, 'test-close');
 
-    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
+    expect($this->storage->getLatestInteractiveSessionIdForPersona('caelum'))->toBe($activeSessionId);
 });
 
 test('listSessions hides hidden worker sessions', function () {

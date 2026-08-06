@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/loop-definition.put.json",
+  "title": "LoopDefinitionPut",
+  "description": "Authoring shape for putLoopDefinition. The server-owned version token is forbidden — it is assigned on create and incremented on each update; concurrency is expressed via If-None-Match/If-Match headers, not the body. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "roles", "termination_condition"],
+  "properties": {
+    "name": { "$ref": "loop-definition.json#/properties/name" },
+    "description": { "$ref": "loop-definition.json#/properties/description" },
+    "roles": { "$ref": "loop-definition.json#/properties/roles" },
+    "termination_condition": { "$ref": "loop-definition.json#/properties/termination_condition" },
+    "parameters": { "$ref": "loop-definition.json#/properties/parameters" },
+    "max_rework_attempts": { "$ref": "loop-definition.json#/properties/max_rework_attempts" }
+  }
+}

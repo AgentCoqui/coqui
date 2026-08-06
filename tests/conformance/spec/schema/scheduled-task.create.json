@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/scheduled-task.create.json",
+  "title": "ScheduledTaskCreate",
+  "description": "Authoring shape for createSchedule. The client supplies only what it owns — name, cron, persona_id, action. Server-owned fields (id, status, created_at, updated_at, last_run_at, next_run_at) are forbidden — the server assigns them (status defaults to enabled; run timestamps start null). Sub-schemas are $ref'd from scheduled-task.json so they cannot drift. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "cron", "persona_id", "action"],
+  "properties": {
+    "name": { "$ref": "scheduled-task.json#/properties/name" },
+    "cron": { "$ref": "scheduled-task.json#/properties/cron" },
+    "persona_id": { "$ref": "scheduled-task.json#/properties/persona_id" },
+    "action": { "$ref": "scheduled-task.json#/properties/action" }
+  }
+}

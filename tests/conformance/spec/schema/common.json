@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/common.json",
+  "title": "Common definitions",
+  "description": "Shared primitive types for coqui-agent-spec. Normative.",
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque, unique, stable identifier. Reference impls SHOULD use ULID/UUIDv7."
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "RFC-3339 UTC, Z-suffixed. The pattern enforces UTC even where format-assertion is off."
+    },
+    "NullableTimestamp": {
+      "oneOf": [ { "$ref": "#/$defs/Timestamp" }, { "type": "null" } ],
+      "description": "A Timestamp or null. Nullable timestamp fields MUST use this so a non-Z offset is rejected uniformly (same UTC-Z rule as Timestamp)."
+    },
+    "Slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "Lowercase kebab/snake identifier used for definition and memory names."
+    },
+    "ModelId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Implementation-defined model identifier, echoed verbatim across the API."
+    },
+    "AccessLevel": {
+      "type": "string",
+      "enum": ["full", "readonly-shell", "readonly", "minimal"]
+    },
+    "TokenizerHint": {
+      "type": "string",
+      "enum": ["o200k_base", "cl100k_base", "claude", "heuristic-3.5", "heuristic-4", "unknown"],
+      "description": "Hint for cross-provider token counting when W is needed (Budgeting.md)."
+    }
+  }
+}

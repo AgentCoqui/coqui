@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/skill.create.json",
+  "title": "SkillCreate",
+  "description": "Authoring shape for installSkill. The client authors name, description, origin, and execution (I7). The server-owned lifecycle field `status` is forbidden — the server sets it (available|disabled) on install. Server timestamps (created_at, updated_at) are also omitted. metadata and source are optional host-defined provenance the client MAY supply. Sub-schemas are $ref'd from skill.json so they cannot drift. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "origin", "execution"],
+  "properties": {
+    "name": { "$ref": "skill.json#/properties/name" },
+    "description": { "$ref": "skill.json#/properties/description" },
+    "metadata": { "$ref": "skill.json#/properties/metadata" },
+    "source": { "$ref": "skill.json#/properties/source" },
+    "origin": { "$ref": "skill.json#/properties/origin" },
+    "execution": { "$ref": "skill.json#/properties/execution" }
+  }
+}

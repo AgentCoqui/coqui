@@ -91,8 +91,8 @@ final class SetupWizard
         // Step 9: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 10: Default profile
-        $defaultProfile = $this->configureDefaultProfile($workspace);
+        // Step 10: Default persona
+        $defaultPersona = $this->configureDefaultPersona($workspace);
 
         // Step 11: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
@@ -104,7 +104,7 @@ final class SetupWizard
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $memoryAutoExtract, $summarizationConfig, $defaultProfile, $imageModelConfig);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $memoryAutoExtract, $summarizationConfig, $defaultPersona, $imageModelConfig);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -176,7 +176,7 @@ final class SetupWizard
             'image_model' => 'Image Generation Defaults (/image and image toolkits)',
             'summarization' => 'Summarization (auto-summarization mode and thresholds)',
             'workspace' => 'Workspace Directory',
-            'profile'   => 'Default Profile',
+            'persona'   => 'Default Persona',
             'updates'   => 'Update Preferences (check/auto-update on startup)',
             'api_key'   => 'API Server Key',
             'mounts'    => 'Directory Mounts',
@@ -250,11 +250,11 @@ final class SetupWizard
             $workspace = is_string($defaults['workspace'] ?? null) ? $defaults['workspace'] : $this->defaults->defaultWorkspace();
         }
 
-        if (in_array('profile', $selectedKeys, true) || in_array('workspace', $selectedKeys, true)) {
-            $currentDefaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
-            $defaultProfile = $this->configureDefaultProfile($workspace, $currentDefaultProfile);
+        if (in_array('persona', $selectedKeys, true) || in_array('workspace', $selectedKeys, true)) {
+            $currentDefaultPersona = is_string($defaults['persona'] ?? null) ? $defaults['persona'] : null;
+            $defaultPersona = $this->configureDefaultPersona($workspace, $currentDefaultPersona);
         } else {
-            $defaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
+            $defaultPersona = is_string($defaults['persona'] ?? null) ? $defaults['persona'] : null;
         }
 
         // --- Updates (ENV-based, no config output) ---
@@ -283,7 +283,7 @@ final class SetupWizard
             $mounts,
             in_array('providers', $selectedKeys, true),
             $summarizationConfig,
-            $defaultProfile,
+            $defaultPersona,
             $imageModelConfig,
         );
 
@@ -321,7 +321,7 @@ final class SetupWizard
         array $mounts,
         bool $providersEdited,
         array $summarizationConfig = [],
-        ?string $defaultProfile = null,
+        ?string $defaultPersona = null,
         array $imageModelConfig = [],
     ): array {
         $config = $existingConfig;
@@ -331,10 +331,10 @@ final class SetupWizard
         $config['agents']['defaults']['model']['primary'] = $primaryModel;
         $config['agents']['defaults']['roles'] = $roles;
 
-        if ($defaultProfile !== null && trim($defaultProfile) !== '') {
-            $config['agents']['defaults']['profile'] = strtolower(trim($defaultProfile));
+        if ($defaultPersona !== null && trim($defaultPersona) !== '') {
+            $config['agents']['defaults']['persona'] = strtolower(trim($defaultPersona));
         } else {
-            unset($config['agents']['defaults']['profile']);
+            unset($config['agents']['defaults']['persona']);
         }
 
         if ($summarizationConfig !== []) {
@@ -915,41 +915,41 @@ final class SetupWizard
     }
 
     /**
-    * Step 10: Configure the default profile for startup.
+    * Step 10: Configure the default persona for startup.
      */
-    private function configureDefaultProfile(string $workspace, ?string $currentDefaultProfile = null): ?string
+    private function configureDefaultPersona(string $workspace, ?string $currentDefaultPersona = null): ?string
     {
-        $profileDiscovery = new ProfileDiscovery($workspace);
-        $profiles = $profileDiscovery->availableProfiles();
+        $personaDiscovery = new PersonaDiscovery($workspace);
+        $personas = $personaDiscovery->availablePersonas();
 
-        if ($profiles === []) {
+        if ($personas === []) {
             return null;
         }
 
-        $normalizedCurrent = is_string($currentDefaultProfile) ? strtolower(trim($currentDefaultProfile)) : null;
-        if ($normalizedCurrent !== null && !in_array($normalizedCurrent, $profiles, true)) {
+        $normalizedCurrent = is_string($currentDefaultPersona) ? strtolower(trim($currentDefaultPersona)) : null;
+        if ($normalizedCurrent !== null && !in_array($normalizedCurrent, $personas, true)) {
             $normalizedCurrent = null;
         }
 
-        if (count($profiles) < 2) {
+        if (count($personas) < 2) {
             return $normalizedCurrent;
         }
 
-        $this->io->section('Step 10: Default Profile');
+        $this->io->section('Step 10: Default Persona');
         $this->io->text([
-            'Multiple profiles were found in the workspace.',
-            'Choose which profile Coqui should attach by default when starting a new attached session.',
+            'Multiple personas were found in the workspace.',
+            'Choose which persona Coqui should attach by default when starting a new attached session.',
         ]);
 
-        $choices = ['No default profile'];
-        foreach ($profiles as $profile) {
-            $choices[] = $profile;
+        $choices = ['No default persona'];
+        foreach ($personas as $persona) {
+            $choices[] = $persona;
         }
 
-        $defaultChoice = $normalizedCurrent ?? 'No default profile';
-        $selected = $this->choice('Default startup profile', $choices, $defaultChoice);
+        $defaultChoice = $normalizedCurrent ?? 'No default persona';
+        $selected = $this->choice('Default startup persona', $choices, $defaultChoice);
 
-        return $selected === 'No default profile' ? null : strtolower(trim($selected));
+        return $selected === 'No default persona' ? null : strtolower(trim($selected));
     }
 
     /**
@@ -1289,7 +1289,7 @@ final class SetupWizard
     * @param array<string, mixed> $imageModelConfig
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null, array $imageModelConfig = []): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultPersona = null, array $imageModelConfig = []): array
     {
         $modelDefinitions = [];
 
@@ -1386,8 +1386,8 @@ final class SetupWizard
             'roles' => $roles,
         ];
 
-        if ($defaultProfile !== null && trim($defaultProfile) !== '') {
-            $defaults['profile'] = strtolower(trim($defaultProfile));
+        if ($defaultPersona !== null && trim($defaultPersona) !== '') {
+            $defaults['persona'] = strtolower(trim($defaultPersona));
         }
 
         if ($memoryAutoExtract) {

@@ -213,7 +213,7 @@ final class CoquiDefaults
     public const string TOOL_PROFILE_FULL = 'full';
 
     /**
-     * Toolkit basenames that stay eager under the lean profile.
+     * Toolkit basenames that stay eager under the lean persona.
      * Everything in SYSTEM_TOOLKITS not listed here is deferred.
      *
      * @var list<string>
@@ -224,7 +224,7 @@ final class CoquiDefaults
     ];
 
     /**
-     * Standalone tool names that stay eager under the lean profile.
+     * Standalone tool names that stay eager under the lean persona.
      * Everything else surfaced by OrchestratorAgent::tools() is deferred
      * (still registered in the tool_search index).
      *

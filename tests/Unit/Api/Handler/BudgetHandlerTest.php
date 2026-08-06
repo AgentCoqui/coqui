@@ -49,10 +49,10 @@ function createBudgetHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-budget-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath . '/data', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
     file_put_contents($workspacePath . '/.env', '');
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
         ],
@@ -90,7 +90,7 @@ function createBudgetHandlerFixture(): array
     return [
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
-        'handler' => new BudgetHandler($runner),
+        'handler' => new BudgetHandler($runner, $storage),
     ];
 }
 
@@ -100,25 +100,25 @@ function cleanupBudgetHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-test('budget handler accepts profile query parameter', function () {
+test('budget handler accepts persona query parameter', function () {
     $fixture = createBudgetHandlerFixture();
 
     try {
         $handler = $fixture['handler'];
 
         $defaultResponse = $handler->get(new ServerRequest('GET', '/api/v1/server/budget'));
-        $profiledResponse = $handler->get(
-            (new ServerRequest('GET', '/api/v1/server/budget'))->withQueryParams(['profile' => 'caelum'])
+        $personaScopedResponse = $handler->get(
+            (new ServerRequest('GET', '/api/v1/server/budget'))->withQueryParams(['persona' => 'caelum'])
         );
 
         $defaultBody = json_decode((string) $defaultResponse->getBody(), true);
-        $profiledBody = json_decode((string) $profiledResponse->getBody(), true);
+        $personaScopedBody = json_decode((string) $personaScopedResponse->getBody(), true);
         $defaultIds = array_column($defaultBody['prompt_sections'] ?? [], 'id');
-        $profiledIds = array_column($profiledBody['prompt_sections'] ?? [], 'id');
+        $personaScopedIds = array_column($personaScopedBody['prompt_sections'] ?? [], 'id');
 
-        expect($profiledResponse->getStatusCode())->toBe(200);
+        expect($personaScopedResponse->getStatusCode())->toBe(200);
         expect($defaultIds)->not->toContain('prompt.preferences');
-        expect($profiledIds)->toContain('prompt.preferences');
+        expect($personaScopedIds)->toContain('prompt.preferences');
     } finally {
         cleanupBudgetHandlerFixture($fixture);
     }
@@ -160,7 +160,7 @@ test('budget handler includes conversation history prompt section when session_i
         providerFactory: new ProviderFactory($config),
     );
 
-    $handler = new BudgetHandler($runner);
+    $handler = new BudgetHandler($runner, $storage);
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
     $storage->addMessage($sessionId, 'user', 'Earlier question');
     $storage->addMessage($sessionId, 'assistant', 'Earlier answer');

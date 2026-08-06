@@ -5,7 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -16,8 +16,8 @@ function createTaskHandlerFixture(): array
 {
     $dbPath = sys_get_temp_dir() . '/coqui-task-handler-' . bin2hex(random_bytes(8)) . '.db';
     $workspacePath = sys_get_temp_dir() . '/coqui-task-handler-ws-' . bin2hex(random_bytes(8));
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     $config = OpenClawConfig::fromArray([
@@ -46,7 +46,7 @@ function createTaskHandlerFixture(): array
         'workspacePath' => $workspacePath,
         'storage' => $storage,
         'projectStore' => $projectStore,
-        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new ProfileDiscovery($workspacePath), $projectStore),
+        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new PersonaDiscovery($workspacePath), $projectStore),
     ];
 }
 
@@ -95,7 +95,7 @@ test('task handler create returns a pending task when concurrency is unavailable
     }
 });
 
-test('task handler create inherits profile from parent session', function () {
+test('task handler create inherits persona from parent session', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
@@ -116,8 +116,8 @@ test('task handler create inherits profile from parent session', function () {
         $session = $fixture['storage']->getSession($body['session_id']);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['profile'])->toBe('caelum');
-        expect($session['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }
@@ -150,7 +150,7 @@ test('task handler create rejects closed parent sessions', function () {
     }
 });
 
-test('task handler create accepts explicit profile without parent session', function () {
+test('task handler create accepts explicit persona without parent session', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
@@ -161,7 +161,7 @@ test('task handler create accepts explicit profile without parent session', func
             json_encode([
                 'prompt' => 'Review the recent changes',
                 'role' => 'coder',
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ]) ?: '',
         );
 
@@ -170,18 +170,18 @@ test('task handler create accepts explicit profile without parent session', func
         $session = $fixture['storage']->getSession($body['session_id']);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['profile'])->toBe('caelum');
-        expect($session['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }
 });
 
-test('task handler create rejects roles disallowed by the resolved profile', function () {
+test('task handler create rejects roles disallowed by the resolved persona', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'roles' => [
                     'allow' => ['orchestrator'],
@@ -196,7 +196,7 @@ test('task handler create rejects roles disallowed by the resolved profile', fun
             json_encode([
                 'prompt' => 'Review the recent changes',
                 'role' => 'coder',
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ]) ?: '',
         );
 

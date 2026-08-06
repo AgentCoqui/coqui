@@ -18,7 +18,7 @@ it('builds context content from the persona context dir', function () {
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $persona,
+        personaPath: $persona,
     );
 
     expect($loader->buildContextContent())->toContain('## Context')->toContain('GitHub');
@@ -31,7 +31,7 @@ it('emits a context section right after backstory in system prompt sections', fu
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $persona,
+        personaPath: $persona,
     );
 
     $ids = array_column($loader->buildSystemPromptSections(), 'id');
@@ -50,7 +50,7 @@ it('omits context when the persona has no context dir', function () {
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $dir,
+        personaPath: $dir,
     );
 
     expect($loader->buildContextContent())->toBeNull();
@@ -64,7 +64,7 @@ it('renders ## Context after backstory and before base in the composed prompt se
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $persona,
+        personaPath: $persona,
     );
 
     $sections = $loader->buildSystemPromptSections();
@@ -97,7 +97,7 @@ it('applies labels.context to the context heading', function () {
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $persona,
+        personaPath: $persona,
     );
 
     expect($loader->buildContextContent())->toStartWith('## Reference');

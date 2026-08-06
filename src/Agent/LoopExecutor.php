@@ -114,6 +114,18 @@ final class LoopExecutor
         // Resolve project: explicit → session active → auto-create
         $resolvedProjectId = $this->resolveProject($definition, $goal, $projectId, $projectSlug, $sessionId);
 
+        // Capture the loop-owning session's rooted workspace before any headless
+        // reassignment overwrites $sessionId, so the auto-provisioned work-scope
+        // session inherits it (D3). No owning session (pure headless) means no
+        // workspace to inherit — the work-scope session stays unrooted.
+        $ownerWorkspace = null;
+        if ($sessionId !== null && $this->sessionStorage !== null) {
+            $ownerSession = $this->sessionStorage->getSession($sessionId);
+            if (is_array($ownerSession) && is_string($ownerSession['workspace'] ?? null) && $ownerSession['workspace'] !== '') {
+                $ownerWorkspace = $ownerSession['workspace'];
+            }
+        }
+
         // Headless start: no conversation session was supplied. Auto-provision a
         // hidden loop-owned work-scope session so LoopManager can propagate the
         // project to stage sessions (cross-stage artifacts are project-scoped) and
@@ -124,6 +136,7 @@ final class LoopExecutor
                 modelRole: 'orchestrator',
                 model: '',
                 visibility: 'hidden',
+                workspace: $ownerWorkspace,
             );
             $this->sessionStorage->setActiveProject($sessionId, $resolvedProjectId);
         }
@@ -135,6 +148,12 @@ final class LoopExecutor
         if ($resolvedParameters !== []) {
             $configuration['resolved_parameters'] = $resolvedParameters;
         }
+
+        // The protocol's Project removal (D3) drops the loops.project_id column.
+        // The resolved project is still needed to scope stage sessions + artifacts
+        // across async dispatches, so it rides along in the configuration snapshot
+        // (an internal, opaque blob) rather than a first-class loop column.
+        $configuration['resolved_project_id'] = $resolvedProjectId;
 
         // Preserve a per-definition circuit-breaker override so it survives the
         // snapshot that maxReworkAttempts() later reads from stored config.
@@ -162,23 +181,32 @@ final class LoopExecutor
             TerminationType::IterationBound => null,
         };
 
+        // Bind the loop to its work-scope session's persona (nullable when the
+        // session carries none, e.g. an auto-provisioned headless session).
+        $personaId = null;
+        if ($sessionId !== null && $this->sessionStorage !== null) {
+            $session = $this->sessionStorage->getSession($sessionId);
+            $sessionPersona = $session['persona_id'] ?? null;
+            $personaId = is_string($sessionPersona) && $sessionPersona !== '' ? $sessionPersona : null;
+        }
+
         $loopId = $this->loopStore->createLoop(
             definitionName: $definition->name,
             goal: $goal,
             configuration: $configuration,
             sessionId: $sessionId,
-            projectId: $resolvedProjectId,
+            personaId: $personaId,
             maxIterations: $maxIterations,
             deadline: $deadline,
             terminationCriteria: $terminationCriteria,
             metadata: [
-                'origin' => $headless ? 'headless' : 'conversation',
                 'dispatch' => [
                     'status' => 'pending',
                     'message' => 'Waiting for the API loop manager to create the first stage background task.',
                     'updated_at' => Clock::nowUtc(),
                 ],
             ],
+            origin: $headless ? 'headless' : 'conversation',
         );
 
         // Create the first iteration
@@ -231,6 +259,20 @@ final class LoopExecutor
         $stageIndex = (int) $nextStage['stage_index'];
         $roleDefinition = $definition->roles[$stageIndex] ?? null;
         if ($roleDefinition === null) {
+            // CORE-23: a stage whose role/definition is undefined at dispatch is a hard
+            // failure, not a silent stall. Escalate to `blocked` with a Critical finding
+            // so the operator is notified instead of the loop re-ticking forever.
+            $this->escalateBlocked(
+                $loop,
+                (string) $iteration['id'],
+                sprintf('Loop definition "%s" has no role at stage index %d.', $definition->name, $stageIndex),
+                [new StageFinding(
+                    StageSeverity::Critical,
+                    sprintf('Stage %d has no role/definition to dispatch.', $stageIndex),
+                )],
+                0,
+            );
+
             return null;
         }
 
@@ -239,18 +281,11 @@ final class LoopExecutor
 
         // Operator guidance from a retry (Tasks 12/13) is injected once into the
         // reopened stage, then cleared below so it does not leak into later stages.
-        // A one-shot operator answer to a blocked ask_user question (Task 9) is
-        // staged in metadata.pending_answer by LoopQuestionAnswerReopener and
-        // injected once into the reopened stage, then cleared below like guidance.
         $pendingGuidance = null;
-        $pendingAnswer = null;
         if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
             $meta = json_decode($loop['metadata'], true);
             if (is_array($meta) && is_string($meta['pending_guidance'] ?? null) && $meta['pending_guidance'] !== '') {
                 $pendingGuidance = (string) $meta['pending_guidance'];
-            }
-            if (is_array($meta) && is_array($meta['pending_answer'] ?? null)) {
-                $pendingAnswer = $meta['pending_answer'];
             }
         }
 
@@ -266,19 +301,13 @@ final class LoopExecutor
             previousOutcomes: $this->loopStore->getPreviousOutcomes($loopId, (int) $iteration['iteration_number']),
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
             pendingGuidance: $pendingGuidance,
-            pendingAnswer: $pendingAnswer,
         );
 
         // Clear the guidance so it injects exactly once, into this reopened stage.
         if ($pendingGuidance !== null) {
             $this->loopStore->updateLoopMetadata($loopId, ['pending_guidance' => null]);
-        }
-
-        // Clear the answer so it injects exactly once, into this reopened stage.
-        if ($pendingAnswer !== null) {
-            $this->loopStore->updateLoopMetadata($loopId, ['pending_answer' => null]);
         }
 
         $handoffMetadata = new LoopStageHandoffMetadata(
@@ -297,7 +326,7 @@ final class LoopExecutor
                 $completedStages,
             ),
             sessionId: $loop['session_id'] ?? null,
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
         );
 
         return new LoopStageResult(
@@ -309,7 +338,7 @@ final class LoopExecutor
             prompt: $prompt,
             maxIterations: $roleDefinition->maxIterations,
             sessionId: $loop['session_id'],
-            projectId: $loop['project_id'] ?? null,
+            projectId: $this->loopProjectId($loop),
             handoffMetadata: $handoffMetadata,
         );
     }
@@ -445,7 +474,7 @@ final class LoopExecutor
         }
 
         if ($outcome === IterationOutcome::Continue) {
-            $this->advanceIteration($loopId, $definition, $loop['project_id'], $loop['goal']);
+            $this->advanceIteration($loopId, $definition, $this->loopProjectId($loop), $loop['goal']);
         }
 
         if ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
@@ -637,7 +666,7 @@ final class LoopExecutor
 
         // Rework: increment the breaker counter, mark the iteration needs_rework.
         $attempts = $this->reworkAttempts($loop) + 1;
-        $this->loopStore->updateLoopMetadata((string) $loop['id'], ['rework_attempts' => $attempts]);
+        $this->loopStore->setReworkAttempts((string) $loop['id'], $attempts);
         $this->loopStore->updateIterationStatus($iterationId, 'needs_rework', $this->buildIterationSummary($stages));
 
         $maxAttempts = $this->maxReworkAttempts($loop);
@@ -654,14 +683,21 @@ final class LoopExecutor
      */
     private function reworkAttempts(array $loop): int
     {
-        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
-            $meta = json_decode($loop['metadata'], true);
-            if (is_array($meta)) {
-                return (int) ($meta['rework_attempts'] ?? 0);
-            }
-        }
+        return max(0, (int) ($loop['rework_attempts'] ?? 0));
+    }
 
-        return 0;
+    /**
+     * The loop's resolved project id, recovered from the configuration snapshot
+     * (the loops.project_id column was dropped with the protocol's Project removal).
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function loopProjectId(array $loop): ?string
+    {
+        $config = json_decode((string) ($loop['configuration'] ?? ''), true);
+        $projectId = is_array($config) ? ($config['resolved_project_id'] ?? null) : null;
+
+        return is_string($projectId) && $projectId !== '' ? $projectId : null;
     }
 
     /**
@@ -835,7 +871,6 @@ final class LoopExecutor
      * @param list<array<string, mixed>> $completedStages
      * @param list<array{iteration_number: int, outcome_summary: string|null, status: string}> $previousOutcomes
      * @param array<string, string> $resolvedParameters
-     * @param array<string, mixed>|null $pendingAnswer One-shot operator answer to a blocked ask_user question
      */
     private function buildStagePrompt(
         LoopDefinition $definition,
@@ -851,7 +886,6 @@ final class LoopExecutor
         array $resolvedParameters = [],
         ?string $projectId = null,
         ?string $pendingGuidance = null,
-        ?array $pendingAnswer = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -946,25 +980,6 @@ final class LoopExecutor
 
         if ($pendingGuidance !== null && $pendingGuidance !== '') {
             $sections[] = "## Operator Guidance\nThe operator retried this loop with the following direction. Follow it:\n{$pendingGuidance}";
-        }
-
-        if ($pendingAnswer !== null) {
-            $question = is_array($pendingAnswer['question'] ?? null) ? $pendingAnswer['question'] : [];
-            $answer = is_array($pendingAnswer['answer'] ?? null) ? $pendingAnswer['answer'] : [];
-            $selected = is_array($answer['selected'] ?? null) ? $answer['selected'] : [];
-            // Include BOTH the selected labels and any free-text "Other" value so a
-            // multi-select answer carrying both keeps its labels (text-preferred
-            // rendering used to drop them). Free-text-only → just text; pure
-            // selects → just labels.
-            $parts = array_map(static fn($label): string => (string) $label, $selected);
-            if (is_string($answer['text'] ?? null) && $answer['text'] !== '') {
-                $parts[] = (string) $answer['text'];
-            }
-            $chosen = implode(', ', $parts);
-            $askedPrompt = (string) ($question['prompt'] ?? '');
-            $sections[] = "## Answer to Your Earlier Question\n"
-                . "You asked: {$askedPrompt}\n"
-                . "The operator answered: {$chosen}";
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";

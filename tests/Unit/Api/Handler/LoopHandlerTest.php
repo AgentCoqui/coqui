@@ -5,10 +5,45 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\LoopHandler;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ObjectVersionStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\Http\Message\ServerRequest;
+
+/**
+ * Build a PUT request for a loop definition, with optional precondition headers.
+ *
+ * @param array<string, mixed> $body
+ */
+function loopDefPutRequest(string $name, array $body, ?string $ifNoneMatch = null, ?int $ifMatch = null): ServerRequest
+{
+    $headers = ['Content-Type' => 'application/json'];
+    if ($ifNoneMatch !== null) {
+        $headers['If-None-Match'] = $ifNoneMatch;
+    }
+    if ($ifMatch !== null) {
+        $headers['If-Match'] = (string) $ifMatch;
+    }
+
+    return new ServerRequest('PUT', '/api/v1/loops/definitions/' . $name, $headers, json_encode($body) ?: '');
+}
+
+/**
+ * A minimal, valid loop-definition authoring body (loop-definition.put.json).
+ *
+ * @return array<string, mixed>
+ */
+function validLoopDefBody(string $name = 'ci'): array
+{
+    return [
+        'name' => $name,
+        'description' => 'CI loop',
+        'roles' => [['role' => 'plan', 'prompt' => 'go']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+    ];
+}
 
 function createLoopHandlerFixture(): array
 {
@@ -47,11 +82,27 @@ function createLoopHandlerFixture(): array
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '',
     );
 
+    // A loop definition whose sole role hard-requires a durable artifact. Used to
+    // exercise the persona artifacts-capability gate at loop creation (CORE-22).
+    file_put_contents(
+        $workspacePath . '/loops/artifact-gated.json',
+        json_encode([
+            'name' => 'artifact-gated',
+            'description' => 'A loop stage that must produce a durable artifact',
+            'roles' => [
+                ['role' => 'plan', 'prompt' => 'Produce a durable artifact.', 'artifact_required' => true],
+            ],
+            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '',
+    );
+
     $storage = new SessionStorage($dbPath);
     $projectStore = new ProjectStore($storage->getPdo());
     $loopStore = new LoopStore($storage->getPdo());
     $discovery = new LoopDiscovery($workspacePath);
     $executor = new LoopExecutor($loopStore, $projectStore, $storage);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
+    $objectVersions = new ObjectVersionStore($storage->getPdo());
 
     return [
         'dbPath' => $dbPath,
@@ -59,8 +110,27 @@ function createLoopHandlerFixture(): array
         'storage' => $storage,
         'projectStore' => $projectStore,
         'loopStore' => $loopStore,
-        'handler' => new LoopHandler($loopStore, $discovery, $executor, $storage, $projectStore),
+        'personaDiscovery' => $personaDiscovery,
+        'objectVersions' => $objectVersions,
+        'handler' => new LoopHandler($loopStore, $discovery, $executor, $storage, $projectStore, $personaDiscovery, $objectVersions),
     ];
+}
+
+/**
+ * Materialize a persona under the fixture workspace with an explicit artifacts
+ * feature flag, returning the persona name (used as a session persona_id).
+ */
+function writeLoopPersona(string $workspacePath, string $name, bool $artifactsEnabled): string
+{
+    $dir = $workspacePath . '/personas/' . $name;
+    mkdir($dir, 0755, true);
+    file_put_contents($dir . '/soul.md', "# {$name}\n\nA test persona.\n");
+    file_put_contents(
+        $dir . '/preferences.json',
+        json_encode(['prompts' => ['features' => ['artifacts' => $artifactsEnabled]]]) ?: '',
+    );
+
+    return $name;
 }
 
 function cleanupLoopHandlerFixture(array $fixture): void
@@ -81,11 +151,16 @@ test('loop handler definitions include parameter metadata', function () {
         $response = $fixture['handler']->definitions(new ServerRequest('GET', '/api/v1/loops/definitions'));
         $body = json_decode((string) $response->getBody(), true);
 
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
+        $byName = [];
+        foreach ($body['data'] as $definition) {
+            $byName[$definition['name']] = $definition;
+        }
+
         expect($response->getStatusCode())->toBe(200);
-        expect($body['count'])->toBe(1);
-        expect($body['definitions'][0]['parameters'])->toHaveCount(2);
-        expect($body['definitions'][0]['parameters'][0]['name'])->toBe('subject');
-        expect($body['definitions'][0]['parameters'][1]['default'])->toBe('php');
+        expect($byName['harness']['parameters'])->toHaveCount(2);
+        expect($byName['harness']['parameters'][0]['name'])->toBe('subject');
+        expect($byName['harness']['parameters'][1]['default'])->toBe('php');
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
@@ -120,12 +195,90 @@ test('loop handler creates loop scoped to project and applies parameters', funct
         $configuration = json_decode((string) $storedLoop['configuration'], true);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['loop']['project_id'])->toBe($projectId);
+        // Project (D3) is no longer a loop column; the resolved project rides in configuration.
+        expect($configuration['resolved_project_id'])->toBe($projectId);
         expect($body['iteration']['status'])->toBe('running');
         expect($body['stages'])->toHaveCount(2);
         expect((int) $storedLoop['max_iterations'])->toBe(2);
         expect($configuration['roles'][0]['prompt'])->toContain('loop lifecycle API');
         expect($configuration['roles'][0]['prompt'])->toContain('php');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler create rejects an artifact_required loop when the session persona disables artifacts', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $persona = writeLoopPersona($fixture['workspacePath'], 'capped', artifactsEnabled: false);
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', $persona);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(422);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['details']['capability'])->toBe('artifacts');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler accepts an artifact_required loop when the session persona enables artifacts', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $persona = writeLoopPersona($fixture['workspacePath'], 'creator', artifactsEnabled: true);
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', $persona);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+
+        expect($response->getStatusCode())->toBe(201);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler accepts an artifact_required loop with no session (ungated headless)', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'artifact-gated',
+                'goal' => 'Produce a durable artifact',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+
+        expect($response->getStatusCode())->toBe(201);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
@@ -517,72 +670,156 @@ test('loop handler retries the latest failed iteration', function () {
     }
 });
 
-test('POST creates a definition and 409s on duplicate', function (): void {
+test('PUT create via If-None-Match:* seeds version 1', function (): void {
     $fixture = createLoopHandlerFixture();
     try {
-        $body = json_encode([
-            'name' => 'api-made',
-            'description' => 'via api',
-            'roles' => [['role' => 'plan', 'prompt' => 'go']],
-            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
-        ]) ?: '';
-
-        $created = $fixture['handler']->createDefinition(
-            new ServerRequest('POST', '/api/v1/loops/definitions', ['Content-Type' => 'application/json'], $body)
+        $created = $fixture['handler']->putDefinition(
+            loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'),
+            'ci',
         );
+
         expect($created->getStatusCode())->toBe(201);
-        expect(json_decode((string) $created->getBody(), true)['name'])->toBe('api-made');
+        $body = json_decode((string) $created->getBody(), true);
+        expect($body['name'])->toBe('ci');
+        expect($body['version'])->toBe(1);
 
-        $dup = $fixture['handler']->createDefinition(
-            new ServerRequest('POST', '/api/v1/loops/definitions', ['Content-Type' => 'application/json'], $body)
-        );
-        expect($dup->getStatusCode())->toBe(409);
-    } finally {
-        cleanupLoopHandlerFixture($fixture);
-    }
-});
-
-test('POST 400s on an invalid name and invalid structure', function (): void {
-    $fixture = createLoopHandlerFixture();
-    try {
-        $badName = $fixture['handler']->createDefinition(new ServerRequest(
-            'POST', '/api/v1/loops/definitions', [], json_encode(['name' => '../evil', 'roles' => []]) ?: ''
-        ));
-        expect($badName->getStatusCode())->toBe(400);
-
-        $badShape = $fixture['handler']->createDefinition(new ServerRequest(
-            'POST', '/api/v1/loops/definitions', [], json_encode(['name' => 'ok', 'roles' => []]) ?: ''
-        ));
-        expect($badShape->getStatusCode())->toBe(400); // empty roles / missing termination
-    } finally {
-        cleanupLoopHandlerFixture($fixture);
-    }
-});
-
-test('PUT upserts and GET/{name} returns raw; DELETE removes', function (): void {
-    $fixture = createLoopHandlerFixture();
-    try {
-        $body = json_encode([
-            'description' => 'upserted',
-            'roles' => [['role' => 'plan', 'prompt' => 'go']],
-            'termination_condition' => ['type' => 'iteration_bound', 'value' => 2],
-        ]) ?: '';
-
-        $put = $fixture['handler']->updateDefinition(
-            new ServerRequest('PUT', '/api/v1/loops/definitions/upsertme', ['Content-Type' => 'application/json'], $body),
-            'upsertme'
-        );
-        expect($put->getStatusCode())->toBe(200);
-
-        $got = $fixture['handler']->getDefinition(new ServerRequest('GET', '/api/v1/loops/definitions/upsertme'), 'upsertme');
+        // The served definition (GET) also carries the version.
+        $got = $fixture['handler']->getDefinition(new ServerRequest('GET', '/api/v1/loops/definitions/ci'), 'ci');
         expect($got->getStatusCode())->toBe(200);
-        expect(json_decode((string) $got->getBody(), true)['name'])->toBe('upsertme');
+        expect(json_decode((string) $got->getBody(), true)['version'])->toBe(1);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
 
-        $del = $fixture['handler']->deleteDefinition(new ServerRequest('DELETE', '/api/v1/loops/definitions/upsertme'), 'upsertme');
+test('PUT create conflicts (409) when the definition already exists', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+
+        $dup = $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+        expect($dup->getStatusCode())->toBe(409);
+        expect(json_decode((string) $dup->getBody(), true)['code'])->toBe('conflict');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT update via If-Match bumps to version 2', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+
+        $updated = $fixture['handler']->putDefinition(
+            loopDefPutRequest('ci', validLoopDefBody('ci') + ['description' => 'updated'], ifMatch: 1),
+            'ci',
+        );
+        expect($updated->getStatusCode())->toBe(200);
+        expect(json_decode((string) $updated->getBody(), true)['version'])->toBe(2);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT update with a stale If-Match returns 409 version_conflict', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifMatch: 1), 'ci');
+
+        $stale = $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifMatch: 1), 'ci');
+        expect($stale->getStatusCode())->toBe(409);
+        $body = json_decode((string) $stale->getBody(), true);
+        expect($body['code'])->toBe('version_conflict');
+        expect($body['details']['current_version'])->toBe(2);
+        expect($body['details']['expected_version'])->toBe(1);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT with a body carrying a server-owned field is a 422', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $response = $fixture['handler']->putDefinition(
+            loopDefPutRequest('ci', validLoopDefBody('ci') + ['version' => 7, 'id' => 'loopdef_ci'], ifNoneMatch: '*'),
+            'ci',
+        );
+        expect($response->getStatusCode())->toBe(422);
+        $body = json_decode((string) $response->getBody(), true);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['details']['unexpected_fields'])->toContain('version');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT without a precondition header is a 409 (precondition required)', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $response = $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci')), 'ci');
+        expect($response->getStatusCode())->toBe(409);
+        $body = json_decode((string) $response->getBody(), true);
+        expect($body['code'])->toBe('conflict');
+        expect($body['details']['reason'])->toBe('precondition_required');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT update If-Match on a missing definition is a 404 content_not_found', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $response = $fixture['handler']->putDefinition(loopDefPutRequest('ghost', validLoopDefBody('ghost'), ifMatch: 1), 'ghost');
+        expect($response->getStatusCode())->toBe(404);
+        expect(json_decode((string) $response->getBody(), true)['code'])->toBe('content_not_found');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('create then delete then recreate seeds a fresh version 1', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $first = $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+        expect(json_decode((string) $first->getBody(), true)['version'])->toBe(1);
+        // Bump it to version 2 so the counter is non-trivial before deletion.
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifMatch: 1), 'ci');
+
+        $del = $fixture['handler']->deleteDefinition(new ServerRequest('DELETE', '/api/v1/loops/definitions/ci'), 'ci');
         expect($del->getStatusCode())->toBe(200);
 
-        $missing = $fixture['handler']->getDefinition(new ServerRequest('GET', '/api/v1/loops/definitions/upsertme'), 'upsertme');
-        expect($missing->getStatusCode())->toBe(404);
+        // Recreate must succeed and seed a fresh counter at version 1 (the
+        // delete cleared the version-counter row).
+        $recreated = $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+        expect($recreated->getStatusCode())->toBe(201);
+        expect(json_decode((string) $recreated->getBody(), true)['version'])->toBe(1);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('the on-disk definition file never persists a version token', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $fixture['handler']->putDefinition(loopDefPutRequest('ci', validLoopDefBody('ci'), ifNoneMatch: '*'), 'ci');
+
+        $onDisk = json_decode((string) file_get_contents($fixture['workspacePath'] . '/loops/ci.json'), true);
+        expect($onDisk)->not->toHaveKey('version');
+        expect($onDisk['name'])->toBe('ci');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('PUT rejects an invalid definition name (path traversal) with 422', function (): void {
+    $fixture = createLoopHandlerFixture();
+    try {
+        $response = $fixture['handler']->putDefinition(
+            loopDefPutRequest('../evil', validLoopDefBody('evil'), ifNoneMatch: '*'),
+            '../evil',
+        );
+        expect($response->getStatusCode())->toBe(422);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
@@ -595,7 +832,7 @@ test('definitions list marks builtin', function (): void {
             new ServerRequest('GET', '/api/v1/loops/definitions')
         )->getBody(), true);
         $byName = [];
-        foreach ($body['definitions'] as $d) { $byName[$d['name']] = $d; }
+        foreach ($body['data'] as $d) { $byName[$d['name']] = $d; }
         // The fixture seeds a 'harness' definition into the workspace; it is a built-in.
         expect($byName['harness']['builtin'])->toBeTrue();
     } finally {
@@ -664,10 +901,11 @@ test('GET /loops/{id}/live returns a snapshot for a known loop', function (): vo
         expect($response->getStatusCode())->toBe(200);
 
         $body = json_decode((string) $response->getBody(), true);
-        expect($body['loop']['id'])->toBe($loopId);
-        expect($body['loop']['goal'])->toBe('do the thing');
-        expect($body['budget']['iterations'])->toBe(['used' => 0, 'max' => 3]);
-        expect($body)->toHaveKeys(['loop', 'position', 'current_stage', 'budget', 'stages', 'recent_events']);
+        // The live endpoint now returns the strictly-typed loop-live.json shape.
+        expect($body['loop_id'])->toBe($loopId);
+        expect($body['status'])->toBe('running');
+        expect($body['budget']['max_iterations'])->toBe(3);
+        expect($body)->toHaveKeys(['loop_id', 'status', 'current_iteration', 'current_stage', 'budget', 'stages']);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }

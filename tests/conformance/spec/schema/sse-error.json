@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-error.json",
+  "title": "SSE error frame",
+  "description": "A terminal `error` frame on a turn or child-run stream. The `data` payload is a full Error record (schema/error.json): the same `{ error, code }` shape and closed `code` catalog an ordinary HTTP error carries, so a stream failure classifies identically to a request failure. The `id` mirrors the SSE `id:` transport cursor (see sse-frame.json); it is not part of `data`.",
+  "type": "object",
+  "required": ["event", "data"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Monotonic stream cursor (the SSE `id:` line)."
+    },
+    "event": {
+      "const": "error",
+      "description": "SSE event name for this frame."
+    },
+    "data": { "$ref": "error.json" }
+  },
+  "additionalProperties": false
+}

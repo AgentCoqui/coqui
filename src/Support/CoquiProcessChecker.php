@@ -59,7 +59,7 @@ final class CoquiProcessChecker
 
         $process = @proc_open([
             'powershell',
-            '-NoProfile',
+            '-NoPersona',
             '-Command',
             sprintf('(Get-CimInstance Win32_Process -Filter "ProcessId = %d" -ErrorAction SilentlyContinue).CommandLine', $pid),
         ], $descriptors, $pipes, null, null);

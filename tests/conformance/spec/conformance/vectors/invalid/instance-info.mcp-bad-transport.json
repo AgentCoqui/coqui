@@ -1,0 +1,1 @@
+{ "protocol_version": "0.5.0", "profiles": ["mcp"], "bindings": ["in-process"], "mcp": { "transports": ["grpc"] } }

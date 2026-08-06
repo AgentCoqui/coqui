@@ -25,9 +25,9 @@ final readonly class ThinkingHandler
         private BootManager $boot,
     ) {}
 
-    public function handle(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile = null): void
+    public function handle(SymfonyStyle $io, string $arg, string $activeRole, ?string $activePersona = null): void
     {
-        $model = $this->boot->roleResolver()->resolve($activeRole, $activeProfile);
+        $model = $this->boot->roleResolver()->resolve($activeRole, $activePersona);
         if ($model === '') {
             $io->error('No model resolved for the active role.');
             return;

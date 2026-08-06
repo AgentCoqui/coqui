@@ -50,10 +50,10 @@ function createPromptHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-prompt-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath . '/data', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
     file_put_contents($workspacePath . '/.env', '');
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($workspacePath . '/profiles/caelum/preferences.json', json_encode([
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($workspacePath . '/personas/caelum/preferences.json', json_encode([
         'prompt_directives' => [
             'Tone' => 'Warm and curious',
         ],
@@ -109,12 +109,12 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
 
     try {
         $response = $fixture['handler']->get(
-            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['persona' => 'caelum'])
         );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile'])->toBe('caelum');
+        expect($body['persona'])->toBe('caelum');
         expect($body['role'])->toBe('orchestrator');
         expect($body['resolved_model'])->toBe('ollama/qwen3:latest');
         expect($body['prompt'])->toContain('Caelum');
@@ -140,20 +140,20 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
             }
         }
 
-        expect($workspaceFilePaths)->toContain('workspace:profiles/caelum/soul.md');
-        expect($workspaceFilePaths)->toContain('workspace:profiles/caelum/preferences.json');
+        expect($workspaceFilePaths)->toContain('workspace:personas/caelum/soul.md');
+        expect($workspaceFilePaths)->toContain('workspace:personas/caelum/preferences.json');
         expect($hasProjectPromptFile)->toBeTrue();
-        expect($workspaceFolderPaths)->toContain('workspace:profiles/caelum');
+        expect($workspaceFolderPaths)->toContain('workspace:personas/caelum');
     } finally {
         cleanupPromptHandlerFixture($fixture);
     }
 });
 
-test('prompt handler exposes effective profile policy summary', function () {
+test('prompt handler exposes effective persona policy summary', function () {
     $fixture = createPromptHandlerFixture();
 
     try {
-        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+        file_put_contents($fixture['workspacePath'] . '/personas/caelum/preferences.json', json_encode([
             'prompts' => [
                 'features' => [
                     'loops' => false,
@@ -168,15 +168,15 @@ test('prompt handler exposes effective profile policy summary', function () {
         ], JSON_THROW_ON_ERROR));
 
         $response = $fixture['handler']->get(
-            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['persona' => 'caelum'])
         );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['profile_policy']['tools_stubbed'])->toBeTrue();
-        expect($body['profile_policy']['features']['loops'])->toBeFalse();
-        expect($body['profile_policy']['roles']['allow'])->toBe(['orchestrator']);
-        expect($body['profile_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
+        expect($body['persona_policy']['tools_stubbed'])->toBeTrue();
+        expect($body['persona_policy']['features']['loops'])->toBeFalse();
+        expect($body['persona_policy']['roles']['allow'])->toBe(['orchestrator']);
+        expect($body['persona_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
     } finally {
         cleanupPromptHandlerFixture($fixture);
     }

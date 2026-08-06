@@ -1,0 +1,7 @@
+{
+  "protocol_version": "0.5.0",
+  "name": "coqui",
+  "profiles": ["artifacts", "questions"],
+  "bindings": ["in-process", "http-sse"],
+  "persona_count": 3
+}

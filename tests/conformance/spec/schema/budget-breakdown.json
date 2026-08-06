@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/budget-breakdown.json",
+  "title": "BudgetBreakdown",
+  "description": "The normative realization of the budget-observability MUST (Budgeting.md §6): which system-prompt sections were included, their token cost, and what was shed. Read-model behind a prompt-inspection surface and the loop live budget. Sensitive content MAY be omitted while this structure is retained. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sections", "total_estimated_tokens", "model_context_window"],
+  "properties": {
+    "sections": {
+      "type": "array",
+      "description": "One entry per named system-prompt section (Budgeting.md §1), in composition order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "included", "estimated_tokens", "priority"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "description": "Section name, e.g. security, soul, workflow, backstory, context, preferences, memory, tools (Budgeting.md §1)." },
+          "included": { "type": "boolean", "description": "Whether the section entered the composed prompt. false means shed/omitted under budget pressure or per-persona policy." },
+          "estimated_tokens": { "type": "integer", "minimum": 0, "description": "Estimated token cost of the section as composed; 0 when not included. Counted with the active model's tokenizer_hint (Budgeting.md §2)." },
+          "priority": { "type": "integer", "minimum": 0, "description": "Shed priority — lower is retained longer; pinned sections rank first. Makes the actual shed order (RECOMMENDED, §3) inspectable." },
+          "shed_reason": { "type": ["string", "null"], "description": "Why the section was shed/reduced, or null when included in full. e.g. over_budget, persona_policy, memory_cap." }
+        }
+      }
+    },
+    "total_estimated_tokens": { "type": "integer", "minimum": 0, "description": "Sum of included sections' estimated_tokens — the system-prompt allotment S actually consumed (Budgeting.md §2)." },
+    "model_context_window": { "type": "integer", "minimum": 1, "description": "The active model's context window W (schema/model.json context_window, Budgeting.md §2), so cost is legible against capacity." }
+  }
+}

@@ -33,7 +33,7 @@ final class ExtractMemoriesTool implements ToolInterface
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
         private readonly ?ProviderFactory $providerFactory = null,
-        private readonly ?string $activeProfileId = null,
+        private readonly ?string $activePersonaId = null,
     ) {}
 
     public function name(): string
@@ -92,7 +92,7 @@ final class ExtractMemoriesTool implements ToolInterface
                 provider: $provider,
                 recentTurns: $recentTurns,
                 bypassCooldown: true,
-                profileId: $this->activeProfileId,
+                personaId: $this->activePersonaId,
             );
         } catch (\Throwable $e) {
             return ToolResult::error('Memory extraction failed: ' . $e->getMessage());

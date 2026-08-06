@@ -58,7 +58,7 @@ final class AgentTurnExecutor
         bool $autoApprove,
         bool $hasSignals,
         ?string &$savedStty,
-        ?string $activeProfile = null,
+        ?string $activePersona = null,
     ): AgentTurnResult {
         $executionPolicy = $this->policyFactory->buildInteractive($sessionId, $io, $autoApprove);
         $cancellationToken = new ProcessCancellationToken();
@@ -127,7 +127,7 @@ final class AgentTurnExecutor
                     $executionPolicy,
                     $cancellationToken,
                     role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
-                    profile: $activeProfile,
+                    persona: $activePersona,
                     questionResponder: $questionResponder,
                 );
             }
@@ -195,9 +195,11 @@ final class AgentTurnExecutor
         $groupMaxRounds = is_int($session['group_max_rounds'] ?? null)
             ? $session['group_max_rounds']
             : 3;
-        $groupModel = is_string($session['model'] ?? null) && $session['model'] !== ''
-            ? $session['model']
-            : $this->boot->roleResolver()->resolve($sessionRole, null);
+        $groupModel = $this->boot->roleResolver()->resolveForSession(
+            is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null,
+            $sessionRole,
+            null,
+        );
         $coordinator = new GroupTurnCoordinator($this->storage);
 
         return $coordinator->run(
@@ -226,7 +228,7 @@ final class AgentTurnExecutor
                     observer: $this->escObserver,
                     filePaths: $actorFilePaths,
                     role: $role,
-                    profile: $actorName,
+                    persona: $actorName,
                     actorName: $actorName,
                     actorRole: $role ?? $sessionRole,
                     questionResponder: new InteractiveQuestionResponder(

@@ -144,6 +144,10 @@ final class TurnProcessObserver implements SplObserver
         }
 
         return [
+            // The correlating tool_call id (nullable on ToolResult) — captured so
+            // the SSE producer can emit a schema-conformant `tool_result` frame
+            // (sse-turn-event.json requires data.tool_call_id).
+            'tool_call_id' => $data->callId,
             'content' => mb_substr($data->content, 0, 2000),
             'success' => $data->status->value === 'success',
         ];

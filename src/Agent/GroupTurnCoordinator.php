@@ -9,10 +9,10 @@ use CoquiBot\Coqui\Contract\DeferredWorkQueue;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
- * Coordinates a single stored turn across multiple profiled responders.
+ * Coordinates a single stored turn across multiple personaScoped responders.
  *
  * Group sessions remain a single session and a single top-level turn. This
- * coordinator chooses which member profiles speak, executes them sequentially,
+ * coordinator chooses which member personas speak, executes them sequentially,
  * and aggregates their results into one durable turn payload.
  */
 final readonly class GroupTurnCoordinator

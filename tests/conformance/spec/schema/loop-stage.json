@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/loop-stage.json",
+  "title": "LoopStage",
+  "description": "One role's execution within an Iteration. Runs on a Job under a Role. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "iteration_id", "stage_index", "role", "status"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "iteration_id": { "$ref": "common.json#/$defs/Id" },
+    "stage_index": { "type": "integer", "minimum": 0 },
+    "role": { "type": "string", "description": "Role name; MUST be within the executing persona's allowed_roles. Missing/undefined at dispatch ⇒ stage blocked + Critical (Loops.md §4). The stage runs rooted in the loop session's workspace (Foundation §4.4)." },
+    "job_id": { "oneOf": [{ "$ref": "common.json#/$defs/Id" }, { "type": "null" }] },
+    "artifact_id": { "oneOf": [{ "$ref": "common.json#/$defs/Id" }, { "type": "null" }] },
+    "status": { "type": "string", "enum": ["pending", "running", "done", "done_with_concerns", "blocked", "needs_context"] },
+    "verdict": { "oneOf": [{ "$ref": "verdict.json" }, { "type": "null" }], "description": "Persisted gate verdict; approval requires both booleans true and no Critical/Important findings." },
+    "result_summary": { "type": ["string", "null"] },
+    "started_at": { "$ref": "common.json#/$defs/NullableTimestamp" },
+    "completed_at": { "$ref": "common.json#/$defs/NullableTimestamp" }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/verdict.json",
+  "title": "Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirements_met", "quality_pass", "findings"],
+  "properties": {
+    "requirements_met": { "type": "boolean" },
+    "quality_pass": { "type": "boolean" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "summary"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["Critical", "Important", "Minor"] },
+          "summary": { "type": "string" },
+          "detail": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

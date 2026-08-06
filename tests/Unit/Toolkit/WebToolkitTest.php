@@ -337,7 +337,7 @@ test('http_download queues a background task when session context is available',
     }
 });
 
-test('http_download inherits profile from parent session for queued task session', function () {
+test('http_download inherits persona from parent session for queued task session', function () {
     $workspacePath = webCreateTempPath('web-toolkit-workspace');
     $dbPath = webCreateTempPath('web-toolkit-db') . '.sqlite';
     mkdir($workspacePath, 0777, true);
@@ -362,7 +362,7 @@ test('http_download inherits profile from parent session for queued task session
 
         expect($result->status)->toBe(ToolResultStatus::Success);
         expect($session)->not->toBeNull();
-        expect($session['profile'])->toBe('caelum');
+        expect($session['persona_id'])->toBe('caelum');
     } finally {
         webDeletePath($workspacePath);
         if (file_exists($dbPath)) {

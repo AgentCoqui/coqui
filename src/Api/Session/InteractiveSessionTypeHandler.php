@@ -22,9 +22,9 @@ final readonly class InteractiveSessionTypeHandler implements SessionTypeHandler
     {
         $result = $this->interactiveSessions->createScopedSession(
             modelRole: $scope->modelRole,
-            profile: $scope->profile,
-            confirmCloseActiveProfileSession: $scope->confirmCloseActiveProfileSession,
-            closureReasonPrefix: 'api_create_profile_session',
+            persona: $scope->persona,
+            confirmCloseActivePersonaSession: $scope->confirmCloseActivePersonaSession,
+            closureReasonPrefix: 'api_create_persona_session',
         );
 
         return new SessionTypeOperationResult($result->session, $result->created, $result->closedSessionIds);
@@ -34,8 +34,8 @@ final readonly class InteractiveSessionTypeHandler implements SessionTypeHandler
     {
         $result = $this->interactiveSessions->resolveScopedSession(
             modelRole: $scope->modelRole,
-            profile: $scope->profile,
-            duplicateCleanupReasonPrefix: 'api_profile_duplicate_cleanup',
+            persona: $scope->persona,
+            duplicateCleanupReasonPrefix: 'api_persona_duplicate_cleanup',
         );
 
         return new SessionTypeOperationResult($result->session, $result->created, $result->closedSessionIds);

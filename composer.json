@@ -20,6 +20,7 @@
     "coquibot/coqui-toolkit-mod-manager": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
+    "opis/json-schema": "^2.3",
     "react/async": "^4",
     "react/child-process": "^0.6",
     "react/http": "^1.11",
@@ -44,7 +45,8 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "CoquiBot\\Coqui\\Tests\\": "tests/"
+      "CoquiBot\\Coqui\\Tests\\": "tests/",
+      "CoquiBot\\Coqui\\Tests\\Conformance\\": "tests/conformance/"
     },
     "exclude-from-classmap": [
       "tests/Unit/Config/ToolkitDiscoveryTest.php"
@@ -63,7 +65,9 @@
   "scripts": {
     "generate:model-defaults": "@php scripts/generate-model-defaults.php --write",
     "regen-docs": "@php scripts/generate-documentation-index.php",
+    "sync-spec": "@php scripts/sync-spec.php",
     "test": "pest",
+    "conformance": "pest tests/conformance",
     "test:coverage": "@php scripts/test-coverage.php",
     "test:profile": "@php scripts/test-profile.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh && bash tests/bash/launcher-default-mode-test.sh && bash tests/bash/mock-install-test.sh",

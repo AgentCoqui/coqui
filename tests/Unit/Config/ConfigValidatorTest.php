@@ -153,12 +153,12 @@ test('role toolkit budget overrides fail validation when invalid', function () {
     expect($errors[1])->toContain('toolkitPromotionBudgetPercent');
 });
 
-test('default profile must be a non-empty string when configured', function () {
+test('default persona must be a non-empty string when configured', function () {
     $data = [
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'openai/gpt-4o'],
-                'profile' => '',
+                'persona' => '',
             ],
         ],
     ];
@@ -166,15 +166,15 @@ test('default profile must be a non-empty string when configured', function () {
     $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
-    expect($errors[0])->toContain('agents.defaults.profile');
+    expect($errors[0])->toContain('agents.defaults.persona');
 });
 
-test('default profile accepts a valid string', function () {
+test('default persona accepts a valid string', function () {
     $data = [
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'openai/gpt-4o'],
-                'profile' => 'caelum',
+                'persona' => 'caelum',
             ],
         ],
     ];

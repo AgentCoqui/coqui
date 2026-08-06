@@ -134,7 +134,8 @@ test('artifact handler ignores a ?stage= list filter', function () {
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['count'])->toBe(2);
+        expect($body)->toHaveKeys(['data', 'next_cursor']);
+        expect($body['data'])->toHaveCount(2);
     } finally {
         cleanupArtifactHandlerFixture($fixture);
     }

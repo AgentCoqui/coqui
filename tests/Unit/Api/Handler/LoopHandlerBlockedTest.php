@@ -32,8 +32,8 @@ test('a blocked loop can be retried with a note via the REST retry path', functi
         $fixture['loopStore']->updateStage($stages[0]['id'], 'completed', taskId: 'task-plan', resultSummary: 'Plan done');
         $fixture['loopStore']->updateStage($stages[1]['id'], 'completed', taskId: 'task-review', resultSummary: 'Reviewer blocked');
         $fixture['loopStore']->recordStageVerdict($stages[1]['id'], json_encode(['verdict' => 'blocked', 'summary' => 'Needs human input']) ?: '');
+        $fixture['loopStore']->setReworkAttempts($loopId, 3);
         $fixture['loopStore']->updateLoopMetadata($loopId, [
-            'rework_attempts' => 3,
             'escalation' => ['reason' => 'Reviewer escalated', 'attempts' => 3],
         ]);
         $fixture['loopStore']->updateIterationStatus($iterationId, 'needs_rework', 'blocked');
@@ -62,13 +62,15 @@ test('a blocked loop can be retried with a note via the REST retry path', functi
         expect($body['iteration']['status'])->toBe('running');
         // HTTP-level: the note is stored as pending_guidance and rework_attempts is cleared.
         expect($body['loop']['metadata']['pending_guidance'])->toBe('Focus on the failing auth path.');
-        expect($body['loop']['metadata']['rework_attempts'])->toBe(0);
+        // rework_attempts is a real column now (CORE-16), surfaced top-level on the loop.
+        expect((int) $body['loop']['rework_attempts'])->toBe(0);
 
-        // Store-level confirmation of the persisted metadata.
-        $storedMeta = json_decode((string) $fixture['loopStore']->getLoop($loopId)['metadata'], true);
+        // Store-level confirmation of the persisted state.
+        $stored = $fixture['loopStore']->getLoop($loopId);
+        $storedMeta = json_decode((string) $stored['metadata'], true);
         expect($storedMeta['pending_guidance'])->toBe('Focus on the failing auth path.');
-        expect($storedMeta['rework_attempts'])->toBe(0);
-        expect($fixture['loopStore']->getLoop($loopId)['status'])->toBe('running');
+        expect((int) $stored['rework_attempts'])->toBe(0);
+        expect($stored['status'])->toBe('running');
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }
@@ -107,7 +109,7 @@ test('a blocked loop retried without a note clears pending guidance', function (
         expect($response->getStatusCode())->toBe(200);
         expect($body['loop']['status'])->toBe('running');
         expect($body['loop']['metadata']['pending_guidance'])->toBeNull();
-        expect($body['loop']['metadata']['rework_attempts'])->toBe(0);
+        expect((int) $body['loop']['rework_attempts'])->toBe(0);
     } finally {
         cleanupLoopHandlerFixture($fixture);
     }

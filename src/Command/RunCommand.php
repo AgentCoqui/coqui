@@ -28,7 +28,7 @@ use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
-use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
+use CoquiBot\Coqui\Repl\Handler\PersonaHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -85,8 +85,8 @@ final class RunCommand extends Command
     private bool $continueMode = false;
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator'; // property default must be string literal
-    private ?string $activeProfile = null;
-    private ?string $configuredDefaultProfile = null;
+    private ?string $activePersona = null;
+    private ?string $configuredDefaultPersona = null;
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
     private bool $multilineMode = false;
@@ -107,7 +107,7 @@ final class RunCommand extends Command
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
             ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt')
-            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (resumes or creates its last active session)');
+            ->addOption('persona', null, InputOption::VALUE_REQUIRED, 'Start with a personality persona (resumes or creates its last active session)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -122,23 +122,23 @@ final class RunCommand extends Command
             || filter_var(getenv('COQUI_AUTO_APPROVE'), FILTER_VALIDATE_BOOLEAN);
         $noTerminal = (bool) $input->getOption('no-terminal');
         $this->continueMode = (bool) $input->getOption('continue');
-        $profileOption = $input->getOption('profile');
-        $requestedProfile = null;
+        $personaOption = $input->getOption('persona');
+        $requestedPersona = null;
 
-        if (is_string($profileOption) && trim($profileOption) !== '') {
+        if (is_string($personaOption) && trim($personaOption) !== '') {
             if ($this->continueMode) {
-                $io->error('Cannot combine --profile with --continue. The --profile flag already resumes or creates the selected profile session.');
+                $io->error('Cannot combine --persona with --continue. The --persona flag already resumes or creates the selected persona session.');
                 return Command::FAILURE;
             }
 
             $sessionOption = $input->getOption('session');
             if (is_string($sessionOption) && trim($sessionOption) !== '') {
-                $io->error('Cannot combine --profile with --session. The --session flag already selects an explicit session.');
+                $io->error('Cannot combine --persona with --session. The --session flag already selects an explicit session.');
                 return Command::FAILURE;
             }
 
-            $requestedProfile = strtolower(trim($profileOption));
-            $this->activeProfile = $requestedProfile;
+            $requestedPersona = strtolower(trim($personaOption));
+            $this->activePersona = $requestedPersona;
         }
 
         // Validate --continue + --no-terminal combination
@@ -167,26 +167,26 @@ final class RunCommand extends Command
             return Command::SUCCESS;
         }
 
-        if ($requestedProfile !== null) {
-            $profileDiscovery = $this->boot->profileDiscovery();
-            if (!$profileDiscovery->profileExists($requestedProfile)) {
+        if ($requestedPersona !== null) {
+            $personaDiscovery = $this->boot->personaDiscovery();
+            if (!$personaDiscovery->personaExists($requestedPersona)) {
                 $io->error(sprintf(
-                    'Profile "%s" not found. Available: %s',
-                    $requestedProfile,
-                    implode(', ', $profileDiscovery->availableProfiles()) ?: '(none)',
+                    'Persona "%s" not found. Available: %s',
+                    $requestedPersona,
+                    implode(', ', $personaDiscovery->availablePersonas()) ?: '(none)',
                 ));
                 return Command::FAILURE;
             }
         } else {
-            $configuredDefault = $this->boot->config()->getDefaultProfile();
+            $configuredDefault = $this->boot->config()->getDefaultPersona();
             if ($configuredDefault !== null) {
-                $profileDiscovery = $this->boot->profileDiscovery();
-                if ($profileDiscovery->profileExists($configuredDefault)) {
-                    $this->configuredDefaultProfile = $configuredDefault;
-                    $this->activeProfile = $configuredDefault;
+                $personaDiscovery = $this->boot->personaDiscovery();
+                if ($personaDiscovery->personaExists($configuredDefault)) {
+                    $this->configuredDefaultPersona = $configuredDefault;
+                    $this->activePersona = $configuredDefault;
                 } elseif (!$noTerminal) {
                     $io->warning(sprintf(
-                        'Configured default profile "%s" was not found in workspace/profiles and will be ignored.',
+                        'Configured default persona "%s" was not found in the workspace personas directory and will be ignored.',
                         $configuredDefault,
                     ));
                 }
@@ -312,7 +312,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /image, /help, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /persona, /prompt, /image, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -347,7 +347,7 @@ final class RunCommand extends Command
         // Tab autocomplete for REPL slash commands
         $toolkitCommandCandidates = $this->boot->commandHandlerCandidates([
             'config' => $this->boot->config(),
-            'activeProfile' => $this->activeProfile,
+            'activePersona' => $this->activePersona,
             'sessionId' => $this->sessionId,
         ]);
         $toolkitCommandRegistration = ReplCommandCatalog::registerToolkitHandlers($toolkitCommandCandidates);
@@ -392,7 +392,7 @@ final class RunCommand extends Command
         $groupSessionService = new GroupSessionService(
             $this->storage,
             $this->boot->roleResolver(),
-            $this->boot->profileDiscovery(),
+            $this->boot->personaDiscovery(),
         );
 
         $router = new SlashCommandRouter(
@@ -403,7 +403,7 @@ final class RunCommand extends Command
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             group: new GroupHandler($groupSessionService, $this->storage),
-            profile: new ProfileHandler($this->boot, $sessionHandler),
+            persona: new PersonaHandler($this->boot, $sessionHandler),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             config: new ConfigHandler($this->boot, $this->workDir),
             thinking: new ThinkingHandler($this->boot),
@@ -640,7 +640,7 @@ final class RunCommand extends Command
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
-                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId, $this->activeProfile);
+                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId, $this->activePersona);
 
                 if (!$routeResult->shouldContinue) {
                     return $routeResult->exitCode ?? Command::SUCCESS;
@@ -661,9 +661,9 @@ final class RunCommand extends Command
                 if ($routeResult->newActiveProjectId !== null) {
                     $this->applyProjectChange($routeResult->newActiveProjectId);
                 }
-                if ($routeResult->newSessionId === null && $routeResult->newActiveProfile !== null) {
-                    // Empty string means "clear profile", non-empty means set
-                    $this->activeProfile = $routeResult->newActiveProfile !== '' ? $routeResult->newActiveProfile : null;
+                if ($routeResult->newSessionId === null && $routeResult->newActivePersona !== null) {
+                    // Empty string means "clear persona", non-empty means set
+                    $this->activePersona = $routeResult->newActivePersona !== '' ? $routeResult->newActivePersona : null;
                 }
 
                 continue;
@@ -678,7 +678,7 @@ final class RunCommand extends Command
                 $this->autoApprove,
                 $hasSignals,
                 $shutdownStty,
-                $this->activeProfile,
+                $this->activePersona,
             );
             $shutdownGuard($shutdownStty);
             $this->restoreActiveProject();
@@ -699,7 +699,7 @@ final class RunCommand extends Command
                     $this->autoApprove,
                     $hasSignals,
                     $shutdownStty,
-                    $this->activeProfile,
+                    $this->activePersona,
                 );
                 $shutdownGuard($shutdownStty);
                 $this->restoreActiveProject();
@@ -776,7 +776,7 @@ final class RunCommand extends Command
             $this->sessionId,
             $executionPolicy,
             role: $this->activeRole !== SystemRole::Orchestrator->value ? $this->activeRole : null,
-            profile: $this->activeProfile,
+            persona: $this->activePersona,
         );
 
         // Choose renderer based on --format
@@ -826,14 +826,14 @@ final class RunCommand extends Command
 
     private function applySessionState(SessionHandler $sessionHandler): void
     {
-        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
+        $this->activePersona = $sessionHandler->restoreActivePersonaFromSession($this->sessionId);
         $this->activeRole = SystemRole::Orchestrator->value;
         $restoredRole = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
         if ($restoredRole !== null) {
             $this->activeRole = $restoredRole;
         }
 
-        $this->activeRole = $sessionHandler->enforceProfileRolePolicy(null, $this->sessionId, $this->activeProfile);
+        $this->activeRole = $sessionHandler->enforcePersonaRolePolicy(null, $this->sessionId, $this->activePersona);
     }
 
     private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string
@@ -865,8 +865,8 @@ final class RunCommand extends Command
         }
 
         $contextParts = [];
-        if ($this->activeProfile !== null) {
-            $contextParts[] = $this->activeProfile;
+        if ($this->activePersona !== null) {
+            $contextParts[] = $this->activePersona;
         }
         if ($this->activeRole !== SystemRole::Orchestrator->value) {
             $contextParts[] = $this->activeRole;
@@ -1087,20 +1087,20 @@ final class RunCommand extends Command
         }
 
         if (!$headless && (bool) $input->getOption('new')) {
-            return $sessionHandler->createNewSession(profile: $this->activeProfile);
+            return $sessionHandler->createNewSession(persona: $this->activePersona);
         }
 
-        $profileOption = $input->getOption('profile');
-        $requestedProfile = is_string($profileOption) && trim($profileOption) !== ''
-            ? strtolower(trim($profileOption))
+        $personaOption = $input->getOption('persona');
+        $requestedPersona = is_string($personaOption) && trim($personaOption) !== ''
+            ? strtolower(trim($personaOption))
             : null;
 
-        if ($requestedProfile !== null) {
-            return $sessionHandler->loadOrCreateProfileSession($io, $requestedProfile);
+        if ($requestedPersona !== null) {
+            return $sessionHandler->loadOrCreatePersonaSession($io, $requestedPersona);
         }
 
-        if ($this->configuredDefaultProfile !== null) {
-            return $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
+        if ($this->configuredDefaultPersona !== null) {
+            return $sessionHandler->loadOrCreatePersonaSession($io, $this->configuredDefaultPersona);
         }
 
         return $sessionHandler->loadOrCreateSession($io);

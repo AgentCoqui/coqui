@@ -12,17 +12,19 @@ use CoquiBot\Coqui\Api\Session\SessionScopeResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeOperationResult;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequestResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeRegistry;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SessionType;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Exception\SessionTypeException;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\InteractiveSessionService;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -42,11 +44,18 @@ final readonly class SessionHandler
 {
     use DecodesRequestBody;
 
+    /**
+     * Upper bound on rows fetched from storage before in-memory pagination.
+     * Matches the storage layer's own cap so a page + cursor advances within a
+     * single, stable window.
+     */
+    private const int LIST_FETCH_CAP = 200;
+
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
-        private ProfileDiscovery $profileDiscovery,
-        private ?ProfileSessionLifecycleManager $lifecycleManager = null,
+        private PersonaDiscovery $personaDiscovery,
+        private ?PersonaSessionLifecycleManager $lifecycleManager = null,
         private ?GroupSessionService $groupSessionService = null,
         private ?ArtifactStore $artifactStore = null,
     ) {}
@@ -57,11 +66,10 @@ final readonly class SessionHandler
     public function list(ServerRequestInterface $request): Response
     {
         $params = $request->getQueryParams();
-        $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
         $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
-        $profileFilterSpecified = array_key_exists('profile', $params);
-        $profileParam = $profileFilterSpecified ? strtolower(trim((string) ($params['profile'] ?? ''))) : null;
+        $personaFilterSpecified = array_key_exists('persona_id', $params);
+        $personaParam = $personaFilterSpecified ? strtolower(trim((string) ($params['persona_id'] ?? ''))) : null;
 
         if ($status === '') {
             $status = null;
@@ -78,32 +86,47 @@ final readonly class SessionHandler
             $status = 'all';
         }
 
-        $profile = null;
-        $unprofiledOnly = false;
-        if ($profileFilterSpecified) {
-            if ($profileParam === null || $profileParam === '' || $profileParam === 'none') {
-                $unprofiledOnly = true;
+        $persona = null;
+        $unpersonaScopedOnly = false;
+        if ($personaFilterSpecified) {
+            if ($personaParam === null || $personaParam === '' || $personaParam === 'none') {
+                $unpersonaScopedOnly = true;
             } else {
-                if (!$this->profileDiscovery->profileExists($profileParam)) {
+                if (!$this->personaDiscovery->personaExists($personaParam)) {
                     return Router::errorResponse(
                         ApiErrorCode::VALIDATION_ERROR,
-                        sprintf('Unknown profile "%s". Use GET /api/v1/profiles to see available profiles.', $profileParam),
+                        sprintf('Unknown persona "%s". Use GET /api/v1/personas to see available personas.', $personaParam),
                     );
                 }
-                $profile = $profileParam;
+                $persona = $personaParam;
             }
         }
 
+        // Fetch a full window (the storage layer caps at 200), then paginate it
+        // in memory. Declared default sort: updated_at DESC, id ASC — the store
+        // orders by updated_at DESC; id is the stable tiebreak + cursor key.
         $sessions = array_map(
             fn(array $session): array => $this->normalizeSessionForResponse($session),
-            $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly),
+            $this->storage->listSessions(self::LIST_FETCH_CAP, true, $status === null, $status, $persona, $unpersonaScopedOnly),
+        );
+
+        usort($sessions, static function (array $a, array $b): int {
+            $byUpdated = strcmp((string) ($b['updated_at'] ?? ''), (string) ($a['updated_at'] ?? ''));
+
+            return $byUpdated !== 0 ? $byUpdated : strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+        });
+
+        $page = CursorPage::build(
+            $sessions,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $session): string => (string) ($session['id'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
         );
 
         return Router::jsonResponse([
-            'sessions' => $sessions,
-            'count' => count($sessions),
+            ...$page,
             'status' => $status ?? 'active',
-            'profile' => $profileFilterSpecified ? ($profile ?? 'none') : null,
+            'persona_id' => $personaFilterSpecified ? ($persona ?? 'none') : null,
             'counts' => $this->storage->getSessionStatusCounts(),
         ]);
     }
@@ -129,7 +152,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * POST /api/v1/sessions/resolve  { "model_role"?: "orchestrator", "profile"?: "caelum" }
+     * POST /api/v1/sessions/resolve  { "model_role"?: "orchestrator", "persona_id"?: "caelum" }
      */
     public function resolve(ServerRequestInterface $request): Response
     {
@@ -180,7 +203,11 @@ final readonly class SessionHandler
     }
 
     /**
-     * PATCH /api/v1/sessions/{id}  { "title": "..." }
+     * PATCH /api/v1/sessions/{id}
+     *
+     * CAP 0.5.0 session-patch body: {title, pinned, status, model?, workspace?}.
+     * An `If-Match: <version>` header guards the write — a stale version is
+     * rejected 409 version_conflict before any mutation is applied.
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
@@ -189,14 +216,26 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $body = $this->decodeJsonObjectOrNull($request);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        try {
+            $body = $this->decodePatchBody($request, ['title', 'pinned', 'status', 'model', 'workspace']);
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
         $updateRequest = $this->sessionUpdateRequestResolver()->resolve($body);
         if ($updateRequest instanceof Response) {
             return $updateRequest;
+        }
+
+        $precondition = $this->readPrecondition($request);
+        if ($precondition->expectedVersion !== null
+            && $precondition->expectedVersion !== (int) ($session['version'] ?? 1)) {
+            return Router::errorResponse(
+                ApiErrorCode::VERSION_CONFLICT,
+                'stale session version',
+                ['expected' => $precondition->expectedVersion, 'actual' => (int) ($session['version'] ?? 1)],
+                409,
+            );
         }
 
         try {
@@ -266,9 +305,9 @@ final readonly class SessionHandler
     }
 
     /**
-     * DELETE /api/v1/sessions/{id}/members/{profile}
+     * DELETE /api/v1/sessions/{id}/members/{persona}
      */
-    public function removeMember(ServerRequestInterface $request, string $id, string $profile): Response
+    public function removeMember(ServerRequestInterface $request, string $id, string $persona): Response
     {
         $session = SessionAccess::requireWritableSession($this->storage, $id);
         if ($session instanceof Response) {
@@ -276,7 +315,7 @@ final readonly class SessionHandler
         }
 
         try {
-            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $profile, $this->decodeJsonObjectOrNull($request));
+            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $persona, $this->decodeJsonObjectOrNull($request));
         } catch (SessionTypeException $e) {
             return $this->sessionTypeErrorResponse($e);
         }
@@ -322,7 +361,10 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $runs = $this->storage->getChildRuns($id);
+        $runs = array_map(
+            static fn(array $run): array => self::childRunToWire($run),
+            $this->storage->getChildRuns($id),
+        );
 
         return Router::jsonResponse([
             'session_id' => $id,
@@ -336,7 +378,7 @@ final readonly class SessionHandler
         return new InteractiveSessionService(
             $this->storage,
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
             $this->lifecycleManager,
         );
     }
@@ -346,7 +388,7 @@ final readonly class SessionHandler
         return $this->groupSessionService ?? new GroupSessionService(
             $this->storage,
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
         );
     }
 
@@ -386,7 +428,7 @@ final readonly class SessionHandler
     {
         return new SessionScopeResolver(
             $this->roleResolver,
-            $this->profileDiscovery,
+            $this->personaDiscovery,
             $this->groupSessions(),
         );
     }
@@ -395,7 +437,7 @@ final readonly class SessionHandler
     {
         return new SessionTypeRegistry(
             new InteractiveSessionTypeHandler($this->interactiveSessions()),
-            new GroupSessionTypeHandler($this->groupSessions(), $this->storage, $this->roleResolver),
+            new GroupSessionTypeHandler($this->groupSessions(), $this->storage),
         );
     }
 
@@ -405,29 +447,160 @@ final readonly class SessionHandler
     }
 
     /**
+     * Layer CAP 0.5.0 session fields onto the rich app-facing row.
+     *
+     * The former role-resolver back-fill is gone: model passes through nullable,
+     * so a stored null (⇒ inherit per Personas §5) survives to the wire — CORE-15.
+     * The opaque workspace, pinned, version, kind and derived members[] surface
+     * here — CORE-19. Rich fields (session_type, group_members, active_project_id,
+     * …) are retained additively for the application layer.
+     *
      * @param array<string, mixed> $session
      * @return array<string, mixed>
      */
     private function normalizeSessionForResponse(array $session): array
     {
-        $model = is_string($session['model'] ?? null) ? trim((string) $session['model']) : '';
-        $role = is_string($session['model_role'] ?? null) ? trim((string) $session['model_role']) : '';
-
-        if ($model !== '') {
-            return $session;
-        }
-
-        if ($role === '') {
-            return $session;
-        }
-
-        $profile = is_string($session['profile'] ?? null) ? trim((string) $session['profile']) : null;
-        if ($profile === '') {
-            $profile = null;
-        }
-
-        $session['model'] = $this->roleResolver->resolve($role, $profile);
+        $session['members'] = self::deriveMembers($session);
+        $session['kind'] = is_string($session['kind'] ?? null) && $session['kind'] !== ''
+            ? (string) $session['kind']
+            : 'chat';
+        $session['pinned'] = (bool) ($session['pinned'] ?? false);
+        $session['version'] = is_scalar($session['version'] ?? null) ? max(1, (int) $session['version']) : 1;
+        $session['workspace'] = is_string($session['workspace'] ?? null) && $session['workspace'] !== ''
+            ? (string) $session['workspace']
+            : null;
+        $session['model'] = is_string($session['model'] ?? null) && $session['model'] !== ''
+            ? (string) $session['model']
+            : null;
 
         return $session;
+    }
+
+    /**
+     * Produce a strict CAP 0.5.0 `session.json` wire object from a normalized
+     * session row (as returned by {@see SessionStorage::getSession()}).
+     *
+     * This is the conformance producer: it emits exactly the schema's property
+     * set (no rich extras), derives `status`/`members`, passes `model`/`workspace`
+     * through nullable, and Z-normalizes the timestamps.
+     *
+     * @param array<string, mixed> $session
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $session): array
+    {
+        $isArchived = (int) ($session['is_archived'] ?? 0) === 1;
+        $isClosed = (int) ($session['is_closed'] ?? 0) === 1;
+        $title = $session['title'] ?? null;
+        // Pin kind to the closed session.json enum — any unknown/absent stored
+        // value collapses to `chat`, so an out-of-set kind can never reach the wire.
+        $kind = in_array($session['kind'] ?? 'chat', ['chat', 'loop_workscope'], true)
+            ? (string) $session['kind']
+            : 'chat';
+
+        return [
+            'id' => (string) ($session['id'] ?? ''),
+            'persona_id' => (string) ($session['persona_id'] ?? ''),
+            'members' => self::deriveMembers($session),
+            'kind' => $kind,
+            'status' => $isArchived ? 'archived' : ($isClosed ? 'closed' : 'active'),
+            'pinned' => (bool) ($session['pinned'] ?? false),
+            'version' => is_scalar($session['version'] ?? null) ? max(1, (int) $session['version']) : 1,
+            'model' => is_string($session['model'] ?? null) && $session['model'] !== ''
+                ? (string) $session['model']
+                : null,
+            'workspace' => is_string($session['workspace'] ?? null) && $session['workspace'] !== ''
+                ? (string) $session['workspace']
+                : null,
+            'title' => is_string($title) ? $title : null,
+            'token_count' => (int) ($session['token_count'] ?? 0),
+            'created_at' => self::toUtcZ($session['created_at'] ?? null),
+            'updated_at' => self::toUtcZ($session['updated_at'] ?? null),
+        ];
+    }
+
+    /**
+     * Produce a strict CAP 0.5.0 `child-run.json` wire object from a child-run row
+     * (as returned by {@see SessionStorage::getChildRuns()}).
+     *
+     * This is the conformance producer: it emits exactly the schema's property set
+     * (no rich extras), so it is `additionalProperties:false`-clean. `model` is
+     * NULLABLE (`oneOf[ModelId,null]`) — unlike turn.json's non-null model it is
+     * emitted as null-or-string (null ⇒ inherit), never omitted or coerced to ''.
+     * `result`, `parent_turn_id` and `completed_at` pass through nullable; `status`
+     * is a closed-set string; the token triad defaults to 0.
+     *
+     * @param array<string, mixed> $run
+     * @return array<string, mixed>
+     */
+    public static function childRunToWire(array $run): array
+    {
+        $model = $run['model'] ?? null;
+        $result = $run['result'] ?? null;
+        $parentTurnId = $run['parent_turn_id'] ?? null;
+        $completedAt = $run['completed_at'] ?? null;
+        $completedAt = is_string($completedAt) && $completedAt !== '' ? $completedAt : null;
+
+        return [
+            'id' => (string) ($run['id'] ?? ''),
+            'parent_session_id' => (string) ($run['parent_session_id'] ?? ''),
+            'parent_turn_id' => is_string($parentTurnId) && $parentTurnId !== '' ? $parentTurnId : null,
+            'role' => (string) ($run['role'] ?? ''),
+            'model' => is_string($model) && $model !== '' ? $model : null,
+            'prompt' => (string) ($run['prompt'] ?? ''),
+            'result' => is_string($result) ? $result : null,
+            'status' => (string) ($run['status'] ?? 'completed'),
+            'prompt_tokens' => max(0, (int) ($run['prompt_tokens'] ?? 0)),
+            'completion_tokens' => max(0, (int) ($run['completion_tokens'] ?? 0)),
+            'total_tokens' => max(0, (int) ($run['total_tokens'] ?? 0)),
+            'created_at' => self::toUtcZ($run['created_at'] ?? null),
+            'completed_at' => $completedAt === null ? null : self::toUtcZ($completedAt),
+        ];
+    }
+
+    /**
+     * Owner persona unioned with any group members, as a unique id list.
+     *
+     * @param array<string, mixed> $session
+     * @return list<string>
+     */
+    private static function deriveMembers(array $session): array
+    {
+        $members = [];
+
+        $owner = $session['persona_id'] ?? null;
+        if (is_string($owner) && $owner !== '') {
+            $members[] = $owner;
+        }
+
+        $groupMembers = $session['group_members'] ?? [];
+        if (is_array($groupMembers)) {
+            foreach ($groupMembers as $member) {
+                $pid = is_array($member) ? ($member['persona_id'] ?? null) : $member;
+                if (is_string($pid) && $pid !== '') {
+                    $members[] = $pid;
+                }
+            }
+        }
+
+        return array_values(array_unique($members));
+    }
+
+    /**
+     * Normalize an RFC-3339 timestamp to UTC with a Z suffix (CAP Timestamp).
+     */
+    private static function toUtcZ(mixed $value): string
+    {
+        if (!is_string($value) || $value === '') {
+            return gmdate('Y-m-d\TH:i:s\Z');
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format('Y-m-d\TH:i:s\Z');
+        } catch (\Throwable) {
+            return $value;
+        }
     }
 }

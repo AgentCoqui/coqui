@@ -50,7 +50,7 @@ afterEach(function () {
 
 test('tick does not advance a blocked loop', function () {
     $projectId = $this->projectStore->createProject(title: 'p', slug: 'd-1', description: 'd');
-    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, projectId: $projectId, maxIterations: 1);
+    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, maxIterations: 1);
     $iterId = $this->loopStore->createIteration($loopId, 1);
     $this->loopStore->createStage($iterId, 0, 'coder');
     $this->loopStore->updateLoopStatus($loopId, 'blocked');
@@ -65,7 +65,7 @@ test('tick does not advance a blocked loop', function () {
 
 test('a running stage whose task is missing is reset to pending for re-dispatch', function () {
     $projectId = $this->projectStore->createProject(title: 'p', slug: 'd-2', description: 'd');
-    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, projectId: $projectId, maxIterations: 1);
+    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, maxIterations: 1);
     $iterId = $this->loopStore->createIteration($loopId, 1);
     $stageId = $this->loopStore->createStage($iterId, 0, 'coder');
     // Simulate a crashed dispatch: stage running, but its task id does not exist.
@@ -84,7 +84,7 @@ test('a running stage whose task is missing is reset to pending for re-dispatch'
 
 test('a stage that orphans on every re-dispatch cycle eventually fails (bound fires)', function () {
     $projectId = $this->projectStore->createProject(title: 'p', slug: 'd-3', description: 'd');
-    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, projectId: $projectId, maxIterations: 1);
+    $loopId = $this->loopStore->createLoop('x', 'goal', $this->config, maxIterations: 1);
     $iterId = $this->loopStore->createIteration($loopId, 1);
     $stageId = $this->loopStore->createStage($iterId, 0, 'coder');
     // First orphan: a crashed dispatch — running with a task id that does not exist.

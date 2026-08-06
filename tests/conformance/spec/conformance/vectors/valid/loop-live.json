@@ -1,0 +1,30 @@
+{
+  "loop_id": "01J9ZLIVE0000000000000000",
+  "status": "running",
+  "current_iteration": 2,
+  "current_stage": 1,
+  "model": "anthropic/claude-opus-4",
+  "budget": {
+    "tokens_used": 48213,
+    "iterations_used": 2,
+    "max_iterations": 10,
+    "elapsed_ms": 91250
+  },
+  "stages": [
+    {
+      "stage_index": 0,
+      "role": "researcher",
+      "status": "done",
+      "result_summary": "Gathered context and prior art for the task."
+    },
+    {
+      "stage_index": 1,
+      "role": "implementer",
+      "status": "running",
+      "result_summary": null
+    }
+  ],
+  "feed": [
+    { "kind": "activity", "text": "implementer began editing" }
+  ]
+}

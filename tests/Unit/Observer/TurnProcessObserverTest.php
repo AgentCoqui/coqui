@@ -7,8 +7,10 @@ use CarmeloSantana\PHPAgents\Contract\AgentInterface;
 use CarmeloSantana\PHPAgents\Contract\MessageInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
+use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Provider\Response;
+use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Observer\TurnProcessObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
@@ -183,6 +185,21 @@ test('turn process observer persists transient loop events', function () {
         'iteration' => 2,
         'role' => 'coder',
     ]);
+});
+
+test('agent.tool_result captures the correlating tool_call_id from the ToolResult', function () {
+    $result = new ToolResult(ToolResultStatus::Success, 'the answer is 4', 'call_abc123');
+
+    $this->observer->update(makeTurnAgentStub('agent.tool_result', $result));
+
+    $events = $this->storage->getTurnEvents($this->turnProcessId);
+    expect($events)->toHaveCount(1);
+    expect($events[0]['event_type'])->toBe('tool_result');
+
+    $data = json_decode((string) $events[0]['data'], true);
+    expect($data['tool_call_id'])->toBe('call_abc123');
+    expect($data['content'])->toBe('the answer is 4');
+    expect($data['success'])->toBeTrue();
 });
 
 test('turn process observer adds actor metadata when configured for a group responder', function () {

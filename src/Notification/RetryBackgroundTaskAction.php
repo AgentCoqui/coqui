@@ -52,14 +52,14 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
             parentSessionId: isset($task['parent_session_id']) ? (string) $task['parent_session_id'] : null,
         );
         $targetSession = $this->storage->getSession($targetSessionId);
-        $profile = is_array($targetSession) && is_string($targetSession['profile'] ?? null) && $targetSession['profile'] !== ''
-            ? $targetSession['profile']
+        $persona = is_array($targetSession) && is_string($targetSession['persona_id'] ?? null) && $targetSession['persona_id'] !== ''
+            ? $targetSession['persona_id']
             : null;
 
         $executionSessionId = $this->storage->createSession(
             modelRole: (string) ($task['role'] ?? SystemRole::Orchestrator->value),
             model: '',
-            profile: $profile,
+            persona: $persona,
         );
 
         $activeProjectId = $this->storage->getActiveProjectId($targetSessionId);

@@ -189,18 +189,35 @@ final class RoleParser
     }
 
     /**
-     * Build a role file content string from properties and instructions.
+     * Whether a value is one of the recognized access levels.
      */
-    public function buildRoleFile(RoleProperties $properties, string $instructions): string
+    public function isValidAccessLevel(string $accessLevel): bool
+    {
+        return in_array($accessLevel, self::VALID_ACCESS_LEVELS, true);
+    }
+
+    /**
+     * Build a role file content string from properties and instructions.
+     *
+     * The version token is server-owned under CAP 0.5.0 (it lives in
+     * ObjectVersionStore, not the file). REPL writers keep persisting it for
+     * backward-visible role files; the API write path passes
+     * `includeVersion: false` so the on-disk authoring source never carries it.
+     */
+    public function buildRoleFile(RoleProperties $properties, string $instructions, bool $includeVersion = true): string
     {
         $lines = [
             '---',
             "name: {$properties->name}",
             "display_name: {$properties->displayName}",
             "description: {$properties->description}",
-            "version: {$properties->version}",
-            "access_level: {$properties->accessLevel}",
         ];
+
+        if ($includeVersion) {
+            $lines[] = "version: {$properties->version}";
+        }
+
+        $lines[] = "access_level: {$properties->accessLevel}";
 
         if ($properties->isBuiltin) {
             $lines[] = 'is_builtin: true';

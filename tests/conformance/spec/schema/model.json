@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/model.json",
+  "title": "Model",
+  "description": "A model available to the instance. Served in full by listModels. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "context_window", "tokenizer_hint", "capabilities"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/ModelId" },
+    "display_name": { "type": ["string", "null"] },
+    "context_window": { "type": "integer", "minimum": 1, "description": "Total context window W in tokens." },
+    "max_output_tokens": { "type": ["integer", "null"], "minimum": 1 },
+    "tokenizer_hint": { "$ref": "common.json#/$defs/TokenizerHint" },
+    "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["tools", "vision", "thinking"] } }
+  }
+}

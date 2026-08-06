@@ -15,6 +15,7 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 
 ## Changelog
 
+- Added the Core turn-scoped answer path `POST /api/v1/sessions/{id}/turns/{turnId}/answer` (`submitTurnAnswer`): a client answers a turn's blocking `ask_user` question here after the `question` SSE frame (which now carries `data.question_id`), without the optional `questions` profile.
 - Added structured questions: `GET /api/v1/sessions/{id}/questions`, `POST /api/v1/sessions/{id}/questions/{questionId}/answer`, and the `question` SSE turn-event (see [Questions](#questions) and [QUESTIONS.md](QUESTIONS.md)).
 - Session objects no longer include `channel`/`channel_bound`; `session_origin` is never `channel`.
 
@@ -162,7 +163,7 @@ http://192.168.1.100:3300
 ## Content Type
 
 Most request bodies must be JSON with `Content-Type: application/json`.
-File upload endpoints accept `Content-Type: multipart/form-data`.
+The content upload endpoint accepts `Content-Type: multipart/form-data` or a raw binary body typed by its own `Content-Type`.
 All responses return `Content-Type: application/json` unless noted otherwise (SSE streams use `text/event-stream`, file downloads use the file's MIME type).
 
 ## Error Format
@@ -194,7 +195,7 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `question_invalid_answer` | 422 | Answer is not valid for this question |
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
-| `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
+| `persona_session_active` | 409 | A personaScoped session is already active and the client must confirm closure before creating or reassigning a fresh one |
 | `group_session_active` | 409 | A group session with the requested composition is already active and the client must confirm closure before forcing a fresh composition session |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
@@ -224,7 +225,7 @@ Use this document as the canonical HTTP API reference. The current API is best s
 
 ### Recommended Integration Flow
 
-1. If your client exposes personalities, call `GET /api/v1/profiles` first.
+1. If your client exposes personalities, call `GET /api/v1/personas` first.
 2. Prefer `POST /api/v1/sessions/resolve` for sticky app sessions, or `POST /api/v1/sessions` when you explicitly need a fresh conversation.
 3. Upload files with `POST /api/v1/sessions/{id}/files` before sending a prompt when the turn needs images or document context.
 4. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
@@ -256,8 +257,8 @@ Client recommendation:
 Use session file uploads when your client needs to attach images or documents to a prompt.
 
 1. Upload via `POST /api/v1/sessions/{id}/files`.
-2. Capture the returned file IDs.
-3. Pass those IDs in the `files` array when sending a message.
+2. Capture the returned `content_ref` from the `content.json` response.
+3. Reference that blob when sending a message (typed `attachments[]` of `{content_ref, mime_type}`).
 
 ## Endpoints
 
@@ -293,7 +294,7 @@ Liveness check. Does **not** require authentication.
 
 A session is a persistent conversation context. Messages and turns are scoped to a session.
 
-Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
+Persona-scoped sessions enforce a single active interactive conversation per persona. `POST /api/v1/sessions/resolve` keeps the newest active personaScoped session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a personaScoped session is already active it returns `409 persona_session_active` until the client explicitly confirms closure of that active personaScoped session.
 
 Group sessions are orchestrator-managed interactive sessions identified by a normalized member composition. Create or resolve them by setting `group_enabled=true` and passing a `members` array. `POST /api/v1/sessions/resolve` reuses the active group session for the same member composition, while `POST /api/v1/sessions` forces a fresh one and returns `409 group_session_active` unless the client explicitly confirms closure of the conflicting active composition.
 
@@ -301,7 +302,7 @@ Session lifecycle fields have distinct meanings:
 
 - `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
 - `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
-- In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
+- In the current persona-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
 
 Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
 
@@ -318,7 +319,7 @@ This endpoint is user-facing and only returns surfaced sessions (`visibility = v
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
 | `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
-| `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
+| `persona` | string | unset | Filter by persona scope. Use a persona name like `caelum` or `none` for unpersonaScoped sessions only |
 
 Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions or `background` for hidden background sessions.
 
@@ -345,7 +346,7 @@ Each returned session also includes `session_origin`, which is `user` for ordina
   ],
   "count": 1,
   "status": "active",
-  "profile": null,
+  "persona": null,
   "counts": {
     "active": 1,
     "closed": 3,
@@ -357,7 +358,7 @@ Each returned session also includes `session_origin`, which is `user` for ordina
 
 Use `GET /api/v1/sessions?status=archived` to browse historical conversations without making them active again. Once you have a session ID, the normal read endpoints such as `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/messages`, and `GET /api/v1/sessions/{id}/turns` continue to work for archived history.
 
-Use `GET /api/v1/sessions?profile=caelum&status=all` to browse a single profile scope, or `GET /api/v1/sessions?profile=none&status=all` to browse only unprofiled sessions.
+Use `GET /api/v1/sessions?persona=caelum&status=all` to browse a single persona scope, or `GET /api/v1/sessions?persona=none&status=all` to browse only unpersonaScoped sessions.
 
 #### `POST /api/v1/sessions`
 
@@ -370,12 +371,12 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum",
-  "confirm_close_active_profile_session": true
+  "persona": "caelum",
+  "confirm_close_active_persona_session": true
 }
 ```
 
-Group-session requests use the same endpoint with a group scope instead of `profile`:
+Group-session requests use the same endpoint with a group scope instead of `persona`:
 
 ```json
 {
@@ -389,11 +390,11 @@ Group-session requests use the same endpoint with a group scope instead of `prof
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
-| `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
-| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-profile or unprofiled session. Group sessions must remain orchestrator-managed. |
-| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Must be unique, known profiles. |
+| `persona` | string | No | `null` | Personality persona name. Must match a `personas/{name}/soul.md` in the workspace. |
+| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-persona or unpersonaScoped session. Group sessions must remain orchestrator-managed. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member persona names. Must be unique, known personas. |
 | `group_max_rounds` | int | No | `3` | Max same-turn coordination rounds for a group session. Minimum `1`. |
-| `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
+| `confirm_close_active_persona_session` | bool | No | `false` | Required when `persona` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 | `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
 Successful session create and resolve responses now include:
@@ -408,7 +409,7 @@ Successful session create and resolve responses now include:
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "active_project_id": null,
   "created": true,
   "closed_session_ids": []
@@ -422,16 +423,16 @@ Successful session create and resolve responses now include:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": null,
+  "persona": null,
   "group_enabled": 1,
   "group_max_rounds": 4,
   "group_members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -441,17 +442,17 @@ Successful session create and resolve responses now include:
 }
 ```
 
-**Response `409`** — active profiled session must be confirmed first:
+**Response `409`** — active personaScoped session must be confirmed first:
 
 ```json
 {
-  "error": "Profile \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
-  "code": "profile_session_active",
+  "error": "Persona \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
+  "code": "persona_session_active",
   "details": {
-    "profile": "caelum",
+    "persona": "caelum",
     "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
     "active_session_count": 1,
-    "confirm_field": "confirm_close_active_profile_session"
+    "confirm_field": "confirm_close_active_persona_session"
   }
 }
 ```
@@ -485,17 +486,17 @@ Resolve the latest interactive session for a scope, or create one if none exists
 
 This mirrors REPL startup behavior:
 
-- Omit `profile` to target the unprofiled interactive session pool.
-- Pass `profile` to target a profile-specific interactive session pool.
+- Omit `persona` to target the unpersonaScoped interactive session pool.
+- Pass `persona` to target a persona-specific interactive session pool.
 - Hidden worker sessions are excluded from ordinary reuse.
-- If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
+- If multiple active interactive sessions exist for the same persona, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
 
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum"
+  "persona": "caelum"
 }
 ```
 
@@ -512,9 +513,9 @@ Group-session resolve requests use the same endpoint:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role used only when a new session must be created. Existing scoped sessions keep their stored role and model. |
-| `profile` | string | No | `null` | Personality profile scope. Omit to resolve the unprofiled session pool. |
+| `persona` | string | No | `null` | Personality persona scope. Omit to resolve the unpersonaScoped session pool. |
 | `group_enabled` | bool | No | `false` | When `true`, resolve the group-session pool for the supplied member composition. |
-| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Order is normalized, so the same set resolves the same active session. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member persona names. Order is normalized, so the same set resolves the same active session. |
 | `group_max_rounds` | int | No | `3` | Used only when a new group session must be created. Existing sessions keep their stored round cap. |
 
 **Response `200`** — existing session reused:
@@ -524,7 +525,7 @@ Group-session resolve requests use the same endpoint:
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "active_project_id": null,
   "created": false,
   "closed_session_ids": ["f0e1d2c3b4a5968778695a4b3c2d1e0f"]
@@ -538,16 +539,16 @@ Group-session resolve requests use the same endpoint:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": null,
+  "persona": null,
   "group_enabled": 1,
   "group_max_rounds": 4,
   "group_members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -570,7 +571,7 @@ Get session details.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "persona": "caelum",
   "status": "active",
   "is_closed": 0,
   "is_archived": 0,
@@ -596,7 +597,7 @@ Return a compact dashboard view for a session without fetching every child colle
 {
   "session": {
     "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-    "profile": "caelum",
+    "persona": "caelum",
     "status": "active"
   },
   "counts": {
@@ -648,7 +649,7 @@ Return a compact dashboard view for a session without fetching every child colle
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Supports renaming the title, updating the role, changing the profile scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
+Update session metadata. Supports renaming the title, updating the role, changing the persona scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
 
 Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
@@ -657,8 +658,8 @@ Closed or archived sessions are read-only. This endpoint returns `409 session_cl
 ```json
 {
   "title": "My refactoring session",
-  "profile": "caelum",
-  "confirm_close_active_profile_session": true
+  "persona": "caelum",
+  "confirm_close_active_persona_session": true
 }
 ```
 
@@ -674,14 +675,14 @@ Group-session patch example:
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
 | `model_role` | string | No | Update the stored role and re-resolve the model |
-| `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `persona` | string | No | Set or clear the session persona (`""` clears it) |
 | `group_max_rounds` | int | No | Update the round cap for an existing group session |
-| `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
+| `confirm_close_active_persona_session` | bool | No | Required when reassigning an active session into a persona that already has another active interactive session |
 
 Group-session constraints:
 
 - `model_role` must remain `orchestrator`.
-- `profile` cannot be assigned to a group session.
+- `persona` cannot be assigned to a group session.
 - `group_enabled` cannot be toggled after session creation.
 - `members` cannot be patched here; use the dedicated member endpoints below.
 
@@ -734,11 +735,11 @@ Return the normalized member list for a group session.
   "group_max_rounds": 4,
   "members": [
     {
-      "profile": "caelum",
+      "persona": "caelum",
       "position": 0
     },
     {
-      "profile": "nova",
+      "persona": "nova",
       "position": 1
     }
   ],
@@ -767,12 +768,12 @@ Add one member to an existing group session.
 
 ```json
 {
-  "profile": "iris",
+  "persona": "iris",
   "confirm_close_active_group_session": true
 }
 ```
 
-#### `DELETE /api/v1/sessions/{id}/members/{profile}`
+#### `DELETE /api/v1/sessions/{id}/members/{persona}`
 
 Remove one member from an existing group session.
 
@@ -915,18 +916,18 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 ```json
 {
   "prompt": "What files are in the src directory?",
-  "files": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]
+  "attachments": [{ "content_ref": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6", "mime_type": "image/png" }]
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `prompt` | string | Yes | The user prompt to send to the agent |
-| `files` | string[] | No | Array of file IDs from prior uploads (see [Files](#files)) |
+| `attachments` | object[] | No | Typed `attachment.json` references (`{content_ref, mime_type}`) to content-addressed blobs from prior uploads (see [Files](#files)) |
 
-When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
+When `attachments` are provided, each `content_ref` is resolved from the content-addressed store and attached to the message. Image blobs (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document blobs are read and injected as context blocks in the prompt. An unknown `content_ref` is rejected with `404 content_not_found`.
 
-Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
+Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a personaScoped conversation has been archived and closed.
 
 **Query Parameters**
 
@@ -970,7 +971,7 @@ Session title generation is now queued after the interactive turn completes. The
 | `summary` | Auto-summarization completed | `{"messages_summarized": 18, "tokens_saved": 5400, "auto": true}` |
 | `memory_extraction` | Memory extraction completed | `{"memories_saved": 3, "source": "turn", "auto": true}` |
 | `notification` | Pending workflow notification surfaced to the model | `{"kind": "task.completed", "title": "Build finished"}` |
-| `question` | Agent asked the user a structured question (see [Questions](#questions)); the turn suspends until it is answered | The full `QuestionRequest`: `{"id": "q_ab12cd", "prompt": "...", "format": "single_select", "options": [...], "allow_other": false, "suggested": {...}, "header": null}` |
+| `question` | Agent asked the user a structured question (see [Questions](#questions)); the turn suspends until it is answered | The projected question frame carrying the required correlation id: `{"question_id": "q_ab12cd", "prompt": "...", "options": [{"value": "staging"}], "suggested": "staging"}`. Answer it via `POST /sessions/{id}/turns/{turnId}/answer`. |
 | `loop_start` | Loop execution started | `{"loop_id": "loop-123"}` |
 | `loop_iteration_start` | Loop iteration started | `{"loop_id": "loop-123", "iteration": 2}` |
 | `loop_stage_start` | Loop stage started | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
@@ -1205,7 +1206,7 @@ Delete a specific message from a session.
 
 ### Files
 
-Files are session-scoped uploads that can be attached to messages for multimodal context. Images are sent to the LLM via vision APIs; text and document files are injected as context in the prompt.
+Files are content-addressed blobs. An upload persists the bytes once (deduplicated by SHA-256) and returns a `content_ref`; a message references them by typed `attachments[]` of `{content_ref, mime_type}` for multimodal context. Images are sent to the LLM via vision APIs; text and document blobs are injected as context in the prompt. Content is immutable and shared — there is no per-session mutable file list, so the collection is create-and-read only (no list or delete endpoint).
 
 **Supported MIME types:**
 
@@ -1217,66 +1218,44 @@ Files are session-scoped uploads that can be attached to messages for multimodal
 
 **Limits:**
 
-- Maximum file size: **50 MiB** per file
-- Maximum files per request: **20**
+- Maximum blob size: **50 MiB** per upload (one blob per request)
 
 #### `POST /api/v1/sessions/{id}/files`
 
-Upload one or more files to a session. Uses `multipart/form-data` encoding.
+Upload a single content blob to a session. Accepts either `multipart/form-data` (the first uploaded file is stored) or a raw binary request body (the bytes are the body, the MIME type is the request `Content-Type`).
 
-Closed or archived sessions are read-only. `POST` and `DELETE` file endpoints return `409 session_closed` when clients try to mutate historical sessions.
+The blob is stored content-addressed: the response is a CAP `content.json` object keyed by the SHA-256 of the bytes. Re-uploading identical bytes returns the existing object (the same `content_ref`).
+
+Closed or archived sessions are read-only: the upload endpoint returns `409 session_closed` when clients try to add content to a historical session.
 
 **Request**
 
-Send files as form fields named `files[]`. Multiple files can be uploaded in a single request.
+Multipart:
 
 ```bash
 curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "files[]=@screenshot.png" \
-  -F "files[]=@notes.txt"
+  -F "files[]=@screenshot.png"
+```
+
+Raw binary:
+
+```bash
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: text/markdown" \
+  --data-binary @notes.md
 ```
 
 **Response `201`**
 
 ```json
 {
-  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "files": [
-    {
-      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "screenshot.png",
-      "mime_type": "image/png",
-      "size": 245760,
-      "is_image": true,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    },
-    {
-      "id": "f2a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "notes.txt",
-      "mime_type": "text/plain",
-      "size": 1024,
-      "is_image": false,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    }
-  ],
-  "count": 2
-}
-```
-
-If some files succeed and others fail, the response includes both:
-
-```json
-{
-  "session_id": "...",
-  "files": [{ "id": "...", "..." : "..." }],
-  "count": 1,
-  "errors": [
-    {
-      "file": "malware.exe",
-      "error": "File type \"application/x-msdownload\" is not allowed"
-    }
-  ]
+  "content_ref": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+  "mime_type": "image/png",
+  "size": 245760,
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "created_at": "2026-02-16T14:30:05Z"
 }
 ```
 
@@ -1284,69 +1263,37 @@ If some files succeed and others fail, the response includes both:
 
 | Status | Code | Condition |
 |--------|------|-----------|
-| `400` | `missing_field` | No files in the request |
+| `400` | `missing_field` | No multipart file and an empty request body |
+| `400` | `validation_error` | Disallowed MIME type, or a failed multipart part |
 | `404` | `session_not_found` | Session does not exist |
-| `413` | `payload_too_large` | More than 20 files in a single request |
+| `413` | `payload_too_large` | Blob exceeds the 50 MiB maximum |
 
-#### `GET /api/v1/sessions/{id}/files`
+#### `GET /api/v1/sessions/{id}/files/{ref}`
 
-List all uploaded files for a session.
-
-**Response `200`**
-
-```json
-{
-  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "files": [
-    {
-      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
-      "original_name": "screenshot.png",
-      "mime_type": "image/png",
-      "size": 245760,
-      "is_image": true,
-      "created_at": "2026-02-16T14:30:05+00:00"
-    }
-  ],
-  "count": 1
-}
-```
-
-#### `GET /api/v1/sessions/{id}/files/{fileId}`
-
-Download a specific file. Returns the raw file content with appropriate headers.
+Download a content blob by its `content_ref`. Returns the stored bytes with appropriate headers.
 
 **Response `200`**
 
-Returns the file binary with:
-- `Content-Type`: the file's MIME type
-- `Content-Length`: file size in bytes
-- `Content-Disposition`: `inline; filename="original_name.ext"`
+Returns the full blob with:
+- `Content-Type`: the blob's MIME type
+- `Content-Length`: byte length
+- `Accept-Ranges`: `bytes`
+
+**Response `206` (partial)**
+
+When the request carries a single `Range: bytes=a-b` header (`b` optional, defaults to the last byte), the response is the requested slice with:
+- `Content-Range`: `bytes a-b/total`
+- `Content-Length`: slice length
+- `Accept-Ranges`: `bytes`
+
+A malformed, multi-range, or unsatisfiable `Range` is ignored and the full blob is returned with `200`.
 
 **Error Responses**
 
 | Status | Code | Condition |
 |--------|------|-----------|
 | `404` | `session_not_found` | Session does not exist |
-| `404` | `not_found` | File not found |
-
-#### `DELETE /api/v1/sessions/{id}/files/{fileId}`
-
-Delete a specific uploaded file.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Error Responses**
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| `404` | `session_not_found` | Session does not exist |
-| `404` | `not_found` | File not found |
+| `404` | `content_not_found` | No blob for that `content_ref` |
 
 ### Turns
 
@@ -1791,7 +1738,7 @@ Returns all roles with full metadata. The response merges three layers:
 
 Supports two optional picker-oriented query parameters:
 
-- `profile={name}` resolves models and role overrides for a specific profile and filters out roles disallowed by that profile's `preferences.json` role policy.
+- `persona={name}` resolves models and role overrides for a specific persona and filters out roles disallowed by that persona's `preferences.json` role policy.
 - `selectable=true` excludes template-only roles such as internal utility roles.
 
 **Response `200`**
@@ -1821,7 +1768,7 @@ Supports two optional picker-oriented query parameters:
     }
   ],
   "count": 2,
-  "profile": null,
+  "persona": null,
   "selectable_only": false
 }
 ```
@@ -1836,7 +1783,7 @@ Unlike the config route, this alias defaults to `selectable=true` so picker UIs 
 
 Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
 
-Supports `?profile={name}` to resolve profile-specific role overrides and effective models.
+Supports `?persona={name}` to resolve persona-specific role overrides and effective models.
 
 **Response `200`** (custom role):
 
@@ -1852,8 +1799,8 @@ Supports `?profile={name}` to resolve profile-specific role overrides and effect
   "editable": true,
   "model": "openai/gpt-5",
   "instructions": "You are a coding specialist...",
-  "profile": null,
-  "profile_override": false,
+  "persona": null,
+  "persona_override": false,
   "selectable": true
 }
 ```
@@ -1873,15 +1820,15 @@ App-facing alias for `GET /api/v1/config/roles/{name}`.
 
 Role creation, updates, and deletion are REPL-only operations in the current API design.
 
-#### `GET /api/v1/config/profiles`
+#### `GET /api/v1/config/personas`
 
-Lists discovered profiles so clients can offer a profile picker instead of manual text entry.
+Lists discovered personas so clients can offer a persona picker instead of manual text entry.
 
 **Response `200`**
 
 ```json
 {
-  "profiles": [
+  "personas": [
     {
       "name": "caelum",
       "display_name": "Caelum",
@@ -1910,13 +1857,13 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
     }
   ],
   "count": 2,
-  "default_profile": "caelum"
+  "default_persona": "caelum"
 }
 ```
 
-#### `GET /api/v1/config/profile-preferences/schema`
+#### `GET /api/v1/config/persona-preferences/schema`
 
-Returns the curated, app-facing schema for the first-class profile preferences editor.
+Returns the curated, app-facing schema for the first-class persona preferences editor.
 
 This endpoint exists so the app can render domain-specific sections and controls without exposing raw `preferences.json` structure or internal inspection fields directly.
 
@@ -1929,14 +1876,14 @@ This endpoint exists so the app can render domain-specific sections and controls
     {
       "id": "communication_style",
       "label": "Communication Style",
-      "description": "How the profile speaks, collaborates, and frames feedback.",
+      "description": "How the persona speaks, collaborates, and frames feedback.",
       "fields": [
         {
           "id": "response_style",
           "label": "Response Style",
           "storage_path": "prompt_directives.response_style",
           "input": "suggested_text",
-          "description": "Choose how the profile should sound in normal replies.",
+          "description": "Choose how the persona should sound in normal replies.",
           "suggestions": [
             "structured and measured",
             "brief and exact",
@@ -1977,9 +1924,9 @@ This endpoint exists so the app can render domain-specific sections and controls
 }
 ```
 
-#### `GET /api/v1/config/profiles/{name}`
+#### `GET /api/v1/config/personas/{name}`
 
-Return a single profile record with picker-friendly policy details.
+Return a single persona record with picker-friendly policy details.
 
 **Response `200`**
 
@@ -2073,23 +2020,23 @@ Return a single profile record with picker-friendly policy details.
 
 `preferences` remains the inspection-oriented summary. `preference_values` is the curated value payload intended for app-side preference editors. `preference_document` is the raw persisted preference document for clients that need to merge curated edits without dropping unsupported keys.
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-#### `GET /api/v1/profiles`
+#### `GET /api/v1/personas`
 
-App-facing alias for `GET /api/v1/config/profiles`.
+App-facing alias for `GET /api/v1/config/personas`.
 
-#### `GET /api/v1/profiles/{name}`
+#### `GET /api/v1/personas/{name}`
 
-App-facing alias for `GET /api/v1/config/profiles/{name}`.
+App-facing alias for `GET /api/v1/config/personas/{name}`.
 
-#### `POST /api/v1/profiles`
+#### `POST /api/v1/personas`
 
-Create a new profile for app onboarding and profile-first setup flows.
+Create a new persona for app onboarding and persona-first setup flows.
 
 This first phase-1 slice supports:
 
-- `name`: required lowercase profile slug using letters, numbers, hyphens, or underscores
+- `name`: required lowercase persona slug using letters, numbers, hyphens, or underscores
 - `description`: optional shortcut used to generate a default `soul.md` when `soul` is omitted
 - `soul`: optional full markdown body for `soul.md`
 - `backstory`: optional markdown content written to `backstory.md`
@@ -2120,15 +2067,15 @@ Provide either `description` or `soul`.
 
 **Response `201`**
 
-Returns the same profile detail shape as `GET /api/v1/profiles/{name}`. The new profile is immediately visible in subsequent list and detail requests without a server restart.
+Returns the same persona detail shape as `GET /api/v1/personas/{name}`. The new persona is immediately visible in subsequent list and detail requests without a server restart.
 
-**Response `409`** — profile already exists.
+**Response `409`** — persona already exists.
 
 **Response `400`** — invalid name, invalid JSON body, invalid preferences, or missing `description`/`soul`.
 
-#### `PATCH /api/v1/profiles/{name}`
+#### `PATCH /api/v1/personas/{name}`
 
-Update an existing profile for onboarding and profile management flows.
+Update an existing persona for onboarding and persona management flows.
 
 This initial update slice supports:
 
@@ -2137,7 +2084,7 @@ This initial update slice supports:
 - `backstory`: string to write `backstory.md`, or `null` to remove it
 - `preferences`: typed preferences object to write `preferences.json`, or `null` to remove it
 
-Profile renaming is not supported by this endpoint yet.
+Persona renaming is not supported by this endpoint yet.
 
 **Request Body**
 
@@ -2158,17 +2105,17 @@ Profile renaming is not supported by this endpoint yet.
 
 **Response `200`**
 
-Returns the same profile detail shape as `GET /api/v1/profiles/{name}`.
+Returns the same persona detail shape as `GET /api/v1/personas/{name}`.
 
 **Response `400`** — invalid JSON, invalid preferences, unsupported rename attempt, or no supported fields.
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-#### `DELETE /api/v1/profiles/{name}`
+#### `DELETE /api/v1/personas/{name}`
 
-Delete a profile directory that is no longer needed.
+Delete a persona directory that is no longer needed.
 
-This initial slice intentionally refuses to delete the configured default profile so the app cannot leave the workspace pointing at a broken default profile.
+This initial slice intentionally refuses to delete the configured default persona so the app cannot leave the workspace pointing at a broken default persona.
 
 **Response `200`**
 
@@ -2179,11 +2126,11 @@ This initial slice intentionally refuses to delete the configured default profil
 }
 ```
 
-**Response `404`** — profile not found.
+**Response `404`** — persona not found.
 
-**Response `409`** — the requested profile is still the configured default profile.
+**Response `409`** — the requested persona is still the configured default persona.
 
-> **Breaking change:** the profile-scoped backstory source-management routes (`GET`/`PUT`/`DELETE /api/v1/profiles/{name}/backstory/entries`, `POST /api/v1/profiles/{name}/backstory/folders`, and `GET /api/v1/profiles/{name}/backstory`) have been removed from core. Source-file backstory generation now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` above still accepts a `backstory` field that writes `backstory.md` content directly.
+> **Breaking change:** the persona-scoped backstory source-management routes (`GET`/`PUT`/`DELETE /api/v1/personas/{name}/backstory/entries`, `POST /api/v1/personas/{name}/backstory/folders`, and `GET /api/v1/personas/{name}/backstory`) have been removed from core. Source-file backstory generation now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/personas/{name}` above still accepts a `backstory` field that writes `backstory.md` content directly.
 
 #### `GET /api/v1/config/models`
 
@@ -2355,11 +2302,13 @@ This endpoint enables onboarding wizards and management UIs to show users which 
 
 ### Child Runs
 
-Child runs track sub-agent invocations within a session. When the orchestrator spawns a child agent (e.g., `coder`, `reviewer`), the run is recorded with its role, model, prompt, result, and token usage.
+Child runs track sub-agent (delegated) invocations within a session. A child run is a first-class, typed resource (`child-run.json`): it carries `role`, nullable `model` (null ⇒ inherit the parent's model), `prompt`, nullable `result`, a closed-set `status`, the split token triad (`prompt_tokens` / `completion_tokens` / `total_tokens`), `created_at`, and nullable `completed_at`.
+
+`status` is one of `pending`, `running`, `completed`, `failed`, `cancelled`.
 
 #### `GET /api/v1/sessions/{id}/child-runs`
 
-List all child agent runs for a session.
+List all child runs for a session, each as a `child-run.json` resource.
 
 **Response `200`**
 
@@ -2368,14 +2317,19 @@ List all child agent runs for a session.
   "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "child_runs": [
     {
-      "id": "cr1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
-      "parent_iteration": 3,
-      "agent_role": "coder",
+      "id": "cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      "parent_turn_id": null,
+      "role": "coder",
       "model": "anthropic/claude-sonnet-4-20250514",
       "prompt": "Implement the ServerHandler class...",
       "result": "I've created the ServerHandler class...",
-      "token_count": 2450,
-      "created_at": "2026-02-16T14:32:15+00:00"
+      "status": "completed",
+      "prompt_tokens": 120,
+      "completion_tokens": 45,
+      "total_tokens": 165,
+      "created_at": "2026-02-16T14:32:15Z",
+      "completed_at": "2026-02-16T14:32:19Z"
     }
   ],
   "count": 1
@@ -2387,6 +2341,83 @@ List all child agent runs for a session.
 | Status | Code | Condition |
 |--------|------|-----------|
 | `404` | `session_not_found` | Session does not exist |
+
+#### `POST /api/v1/sessions/{id}/child-runs`
+
+Spawn a child run. This is a **gated Core operation**: only a top-level, full-access orchestrator session may spawn a child. Any other session (a delegated/child role, or a non-full access level) is rejected `403 forbidden` — children do not nest.
+
+The child runs **synchronously** (sync-execute-then-report): the row is recorded `running`, the child is executed via the in-process child-agent path, and the terminal `completed`/`failed` transition (with `completed_at` and the token triad) is recorded before the response is written. The response is therefore `202` with an already-terminal `child-run.json` resource. A child that fails during execution still returns `202` with `status: "failed"` — the failure is captured in the resource, not surfaced as an HTTP error.
+
+> **Note:** the HTTP-spawned child is **text-only** — it runs with its provider, role, and prompt but **no toolkits** (no filesystem, shell, edit, or memory tools). Its `result` is the model's response to the prompt, not the outcome of tool-driven work. This differs from the in-agent `spawn_agent` tool, whose child is granted an access-level toolkit graph. Toolkit-equipped HTTP child runs are out of scope for this endpoint's current revision.
+
+**Request Body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `role` | string | Yes | The child role to spawn (e.g. `coder`, `reviewer`). Resolved to a model via the role resolver. |
+| `prompt` | string | Yes | The task prompt handed to the child. |
+
+```json
+{
+  "role": "coder",
+  "prompt": "Implement the ServerHandler class..."
+}
+```
+
+**Response `202`** — a `child-run.json` resource (see the list example above) with a terminal `status`.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `400` | `missing_field` | `role` or `prompt` is missing/empty |
+| `403` | `forbidden` | The session is not a top-level, full-access orchestrator session |
+| `404` | `session_not_found` | Session does not exist |
+
+#### `GET /api/v1/sessions/{id}/child-runs/{childRunId}`
+
+Fetch a single child run as a `child-run.json` resource.
+
+**Response `200`** — the `child-run.json` resource.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | No child run with that id belongs to the session |
+
+#### `GET /api/v1/sessions/{id}/child-runs/{childRunId}/events`
+
+Stream a child run's typed lifecycle as **Server-Sent Events** (`text/event-stream`). Each frame is a `sse-childrun-event.json` record: `{ event, data }` discriminated by the SSE `event:` name, plus the optional `id:` transport cursor. The event name is drawn from the closed set `started`, `token`, `message`, `done` (plus a terminal `error` frame that reuses `sse-error.json`).
+
+Because child runs execute **synchronously** (see the spawn endpoint above), the row is already terminal by the time the stream is opened and there is no per-token/message event store for children. The stream therefore replays **deterministically** from the finalized row:
+
+1. `started` — `{ "child_run_id": "…" }`
+2. `done` (terminal) — the full `child-run.json` resource, then the stream closes.
+
+A `Last-Event-ID` header (or `?since` / `?since_id` query) is accepted for reconnect symmetry with the other SSE streams, but a child run has no incremental frames to resume past, so the deterministic `started` → `done` replay is the whole stream.
+
+**Response `200`** — `Content-Type: text/event-stream`.
+
+```
+id: 00000000000000000001
+event: started
+data: {"child_run_id":"cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"}
+
+id: 00000000000000000002
+event: done
+data: {"id":"cr1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6","parent_session_id":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6","role":"coder","status":"completed", "...": "…"}
+```
+
+This SSE route is never idempotency-recorded: the middleware detects `text/event-stream` and passes the live stream through untouched.
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | No child run with that id belongs to the session |
 
 ### Server
 
@@ -2586,7 +2617,7 @@ Create a new background task. The task is started immediately if under the concu
 {
   "prompt": "Refactor the authentication module",
   "role": "coder",
-  "profile": "caelum",
+  "persona": "caelum",
   "title": "Auth refactor",
   "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "max_iterations": 25,
@@ -2598,9 +2629,9 @@ Create a new background task. The task is started immediately if under the concu
 |-------|------|----------|---------|-------------|
 | `prompt` | string | Yes | — | The task prompt (max 1 MiB) |
 | `role` | string | No | `"orchestrator"` | Agent role for the task. Must be a known role. |
-| `profile` | string | No | `null` | Explicit profile for the task session. Must exist under `profiles/{name}/soul.md`. If `parent_session_id` is provided, it must match the parent session profile. |
+| `persona` | string | No | `null` | Explicit persona for the task session. Must exist under `personas/{name}/soul.md`. If `parent_session_id` is provided, it must match the parent session persona. |
 | `title` | string | No | `null` | Human-readable title for the task |
-| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's profile when one is set. |
+| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's persona when one is set. |
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
 | `project_id` | string | No | `null` | Attach the task to an existing project |
 
@@ -2615,7 +2646,7 @@ When `parent_session_id` is provided, it must refer to a writable session. Close
   "status": "running",
   "prompt": "Refactor the authentication module",
   "role": "coder",
-  "profile": "caelum",
+  "persona": "caelum",
   "title": "Auth refactor",
   "project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00"
@@ -2962,7 +2993,7 @@ Delete an artifact (and its canonical file, if filesystem-backed).
 
 ### Questions
 
-Structured questions let an agent ask the user one validated question via the `ask_user` tool. On an interactive API turn the question is streamed as a `question` SSE event (see the [message-send endpoint](#post-apiv1sessionsidmessages) SSE event table) and the turn suspends until it is answered over these endpoints; in a `block`-mode loop the question escalates the loop to `blocked` (see [LOOPS.md](LOOPS.md)). Both routes are **CORE authenticated** (never public). See [QUESTIONS.md](QUESTIONS.md) for the full feature guide.
+Structured questions let an agent ask the user one validated question via the `ask_user` tool. On an interactive API turn the question is streamed as a `question` SSE event (see the [message-send endpoint](#post-apiv1sessionsidmessages) SSE event table) and the turn suspends until it is answered over these endpoints; in a `block`-mode loop the question escalates the loop to `blocked` (see [LOOPS.md](LOOPS.md)). These routes are **CORE authenticated** (never public) and never behind the optional `questions` profile. See [QUESTIONS.md](QUESTIONS.md) for the full feature guide.
 
 #### `GET /api/v1/sessions/{id}/questions`
 
@@ -3029,6 +3060,35 @@ Answering a `block`-mode loop question reopens the blocked loop stage (the escal
 | `409` | `conflict` | Question already answered (no longer pending). |
 | `422` | `question_invalid_answer` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
 
+#### `POST /api/v1/sessions/{id}/turns/{turnId}/answer`
+
+Answer the pending question raised by an interactive turn — the **Core answer path** a client reaches after receiving a `question` SSE event. The event's `data.question_id` correlates the frame to the pending question; the client answers by posting the answer body to the turn. This route is CORE (never behind the optional `questions` profile), so answering a turn's blocking question never requires that capability.
+
+The request body is identical to the question-id answer endpoint above (`selected` / `text`), and both endpoints share a single validate-and-record path.
+
+**Request Body**
+
+```json
+{
+  "selected": ["No"],
+  "text": null
+}
+```
+
+**Response `200`**
+
+```json
+{ "answered": true }
+```
+
+**Error responses**
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| `404` | `not_found` | No question is pending for this turn. |
+| `409` | `conflict` | The turn's question is already answered. |
+| `422` | `validation_error` | Answer is not valid for this question (fails `QuestionResponse::isValidFor`). |
+
 ### Schedules
 
 Schedules enable autonomous, timer-driven execution via cron-style expressions. The API server evaluates due schedules every 60 seconds and creates background tasks automatically. A circuit breaker auto-disables schedules after consecutive failures.
@@ -3041,38 +3101,42 @@ Filesystem-backed schedules synced from `workspace/schedules/*.json` remain read
 
 Create a schedule.
 
+The request body is the strict CAP authoring shape: `name`, `cron`, `persona_id`, and a kind-discriminated `action`. Any other field is rejected `422 validation_error`. `action` is a typed union:
+
+- `{"kind": "turn", "prompt": "..."}` — dispatch a one-shot turn each tick.
+- `{"kind": "loop", "definition_name": "research"}` — dispatch a loop definition each tick.
+
+A `loop` action without `definition_name`, a `turn` action without `prompt`, or an unknown `kind` is rejected `422 validation_error`.
+
 **Request Body**
 
 ```json
 {
   "name": "daily-review",
-  "schedule_expression": "0 9 * * 1-5",
-  "prompt": "Review recent changes.",
-  "role": "orchestrator",
-  "max_iterations": 12,
-  "timezone": "UTC",
-  "max_failures": 5
+  "cron": "0 9 * * 1-5",
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "Review recent changes." }
 }
 ```
 
-**Response `201`**
+**Response `201`** — the created ScheduledTask object.
 
 ```json
 {
-  "schedule": {
-    "id": "a1b2c3d4",
-    "name": "daily-review",
-    "schedule_expression": "0 9 * * 1-5",
-    "prompt": "Review recent changes.",
-    "role": "orchestrator",
-    "max_iterations": 12,
-    "enabled": 1,
-    "created_by": "api",
-    "timezone": "UTC",
-    "max_failures": 5
-  }
+  "id": "a1b2c3d4",
+  "name": "daily-review",
+  "cron": "0 9 * * 1-5",
+  "persona_id": "01J00000000000000000000P01",
+  "action": { "kind": "turn", "prompt": "Review recent changes." },
+  "status": "enabled",
+  "last_run_at": null,
+  "next_run_at": "2026-02-17T09:00:00Z",
+  "created_at": "2026-02-10T12:00:00Z",
+  "updated_at": "2026-02-10T12:00:00Z"
 }
 ```
+
+The scheduler advertises the cron dialect it parses (a standard 5-field POSIX/Vixie expression) via instance-info `schedules.dialect: "posix-5field"` so a client can judge whether a `cron` string is portable.
 
 #### `GET /api/v1/schedules`
 
@@ -3087,29 +3151,25 @@ List all schedules with optional filters.
 
 **Response `200`**
 
+Each item is a ScheduledTask object. Results are cursor-paginated (`items` / `next_cursor`).
+
 ```json
 {
-  "schedules": [
+  "items": [
     {
       "id": "a1b2c3d4",
       "name": "daily-review",
-      "schedule_expression": "0 9 * * 1-5",
-      "prompt": "Review recent changes...",
-      "role": "orchestrator",
-      "max_iterations": 48,
-      "enabled": 1,
-      "timezone": "UTC",
-      "next_run_at": "2026-02-17T09:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "persona_id": "01J00000000000000000000P01",
+      "action": { "kind": "turn", "prompt": "Review recent changes." },
+      "status": "enabled",
       "last_run_at": "2026-02-16T09:00:00Z",
-      "last_task_id": "t1a2b3c4",
-      "last_status": "completed",
-      "run_count": 5,
-      "failure_count": 0,
-      "max_failures": 3,
+      "next_run_at": "2026-02-17T09:00:00Z",
       "created_at": "2026-02-10T12:00:00Z",
       "updated_at": "2026-02-16T09:01:00Z"
     }
   ],
+  "next_cursor": null,
   "stats": {
     "total": 3,
     "enabled": 2,
@@ -3213,11 +3273,18 @@ List recent background task runs triggered by a schedule.
 
 #### `PATCH /api/v1/schedules/{id}`
 
-Update a mutable schedule.
+Update a mutable schedule (partial). The strict CAP patch shape accepts any subset of `name`, `cron`, `persona_id`, `action`, and `status` (`enabled` | `disabled`); at least one field is required. Any other field is rejected `422 validation_error`. When `action` is supplied it is re-validated as the kind-discriminated union. `status` routes through the same enable/disable path that recomputes `next_run_at` (the dedicated action endpoints below remain available).
 
-Use this endpoint for definition fields such as `name`, `description`, `schedule_expression`, `prompt`, `role`, `max_iterations`, `timezone`, and `max_failures`. Use the action endpoints below for enabled state changes.
+**Request Body**
 
-**Response `200`** — updated schedule object.
+```json
+{
+  "cron": "0 10 * * 1-5",
+  "action": { "kind": "loop", "definition_name": "research" }
+}
+```
+
+**Response `200`** — the updated ScheduledTask object.
 
 **Response `409`** — filesystem-backed schedule.
 
@@ -3276,7 +3343,7 @@ Loop stage advancement only happens while the API server is running. `LoopManage
 
 Create and start a loop.
 
-Use `session_id` when the loop should inherit the session's active project and downstream profile context. Use `project_id` or `project_slug` to pin the loop to a project directly. When no project is supplied, the loop resolves or auto-creates one for its run.
+Use `session_id` when the loop should inherit the session's active project and downstream persona context. Use `project_id` or `project_slug` to pin the loop to a project directly. When no project is supplied, the loop resolves or auto-creates one for its run.
 
 When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
@@ -3433,9 +3500,10 @@ boot.
 
 #### `GET /api/v1/loops/definitions/{name}`
 
-Get one loop definition as its raw JSON (the exact stored file contents).
+Get one loop definition. The response is the stored authoring file plus a
+server-assigned `version` token (the on-disk file never stores `version`).
 
-**Response `200`** — the raw definition object.
+**Response `200`** — the definition object, including `version`.
 
 **Errors**
 
@@ -3445,11 +3513,21 @@ Get one loop definition as its raw JSON (the exact stored file contents).
 `{name}` must match `^[a-z0-9][a-z0-9_-]*$` (the name becomes a filename, so
 this is a strict path-traversal guard).
 
-#### `POST /api/v1/loops/definitions`
+#### `PUT /api/v1/loops/definitions/{name}`
 
-Create a new loop definition. Create-only — use `PUT` to overwrite an existing
-one. The `name` field in the body is authoritative and becomes the filename
-(`workspace/loops/{name}.json`).
+The single write path for a loop definition. It branches on the optimistic-
+concurrency precondition headers — a precondition is mandatory:
+
+- `If-None-Match: *` — **create**; fails with `409 conflict` if a definition
+  with that name already exists.
+- `If-Match: <version>` — **update**; fails with `409 version_conflict` if the
+  stored `version` differs, or `404 content_not_found` if it does not exist.
+- neither header — `409 conflict` (a precondition is required).
+
+The path `{name}` is authoritative and becomes the filename
+(`workspace/loops/{name}.json`). The body is a strict authoring shape: the
+server-owned `version` is assigned on create and incremented on each update, so
+a body carrying `version` (or any other server-owned field) is rejected.
 
 **Request**
 
@@ -3464,26 +3542,18 @@ one. The `name` field in the body is authoritative and becomes the filename
 }
 ```
 
-**Response `201`** — the stored raw definition.
+**Response `201`** (create) or `200` (update) — the stored definition, including
+its current `version`.
 
 **Errors**
 
-- `400 validation_error` — missing/invalid `name` (must match `^[a-z0-9][a-z0-9_-]*$`),
-  or an invalid structure (e.g. empty `roles`, missing `termination_condition`).
-- `409 conflict` — a definition with that name already exists.
-
-#### `PUT /api/v1/loops/definitions/{name}`
-
-Upsert a loop definition — creates it if absent, overwrites it if present. The
-path `{name}` is authoritative; any `name` in the body is ignored.
-
-**Request** — same shape as `POST`, without a required `name`.
-
-**Response `200`** — the stored raw definition.
-
-**Errors**
-
-- `400 validation_error` — invalid `{name}`, or an invalid structure.
+- `422 validation_error` — invalid `{name}`, an invalid structure (e.g. empty
+  `roles`, missing `termination_condition`), or a body carrying a server-owned
+  field such as `version`.
+- `409 conflict` — the definition already exists (on create), or no precondition
+  header was supplied.
+- `409 version_conflict` — the `If-Match` version does not match the stored one.
+- `404 content_not_found` — `If-Match` update of a definition that does not exist.
 
 #### `DELETE /api/v1/loops/definitions/{name}`
 
@@ -4278,14 +4348,14 @@ Return the fully constructed system prompt that the agent would receive on its n
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `role` | string | `orchestrator` | Role scope to resolve before rendering the prompt preview |
-| `profile` | string | `null` | Optional profile scope to apply while rendering the prompt preview |
+| `persona` | string | `null` | Optional persona scope to apply while rendering the prompt preview |
 | `session_id` | string | `null` | Optional session to inspect. When `conversationHistoryInSystemPrompt` is enabled, Coqui uses this to render the real `Conversation History` block with stored timestamps, summary/full markers, tool markers, and actor-backed `@speaker` labels |
 
 **Response `200`**
 
 ```json
 {
-  "profile": "caelum",
+  "persona": "caelum",
   "role": "orchestrator",
   "resolved_model": "ollama/qwen3:latest",
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
@@ -4356,13 +4426,13 @@ Return the fully constructed system prompt that the agent would receive on its n
 }
 ```
 
-When `session_id` is omitted, prompt inspection renders the static role/profile/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section. This is the same session-aware path used by `/prompt export` in the REPL.
+When `session_id` is omitted, prompt inspection renders the static role/persona/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section. This is the same session-aware path used by `/prompt export` in the REPL.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `profile` | string\|null | Explicit profile scope used to render the prompt preview |
+| `persona` | string\|null | Explicit persona scope used to render the prompt preview |
 | `role` | string | Effective role used to render the prompt preview |
-| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `profile` scope |
+| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `persona` scope |
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
@@ -4418,7 +4488,7 @@ Return the runtime slash-command catalog that powers REPL help output. This is t
 | `commands` | array | Flat list of command metadata for search/filter UIs |
 | `count` | int | Total number of commands returned |
 
-> **Breaking change:** `GET /api/v1/server/backstory` has been removed from core. It returned generated `backstory.md` content and source-manifest metadata for the source-file backstory generator, which now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/profiles/{name}` still accepts a `backstory` field that writes `backstory.md` content directly.
+> **Breaking change:** `GET /api/v1/server/backstory` has been removed from core. It returned generated `backstory.md` content and source-manifest metadata for the source-file backstory generator, which now lives in the optional `coqui-toolkit-backstory` package. `PATCH /api/v1/personas/{name}` still accepts a `backstory` field that writes `backstory.md` content directly.
 
 ## Middleware
 
@@ -4549,7 +4619,7 @@ The `/mcp` REPL command itself comes from the optional `coquibot/coqui-toolkit-m
 | `/mcp set-env <name> <ENV_KEY>` | `POST /api/v1/mcp/servers/{name}/env` | Links a secret or env placeholder to an MCP server |
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
-| profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
+| persona preference schema | `GET /api/v1/config/persona-preferences/schema` | Returns the curated app-facing preference editor schema |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/audit` | `GET /api/v1/audit` | Lists audit entries (approval decisions and questions) with filters |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
@@ -4583,14 +4653,14 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
 | `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (`SSE` by default, `?stream=false` for blocking) |
 | `DELETE` | `/api/v1/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
-| `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload files (multipart) |
-| `GET` | `/api/v1/sessions/{id}/files` | Yes | List uploaded files |
-| `GET` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Download a file |
-| `DELETE` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
+| `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload a content blob (multipart or raw binary) |
+| `GET` | `/api/v1/sessions/{id}/files/{ref}` | Yes | Download a blob by `content_ref` (Range-aware) |
 | `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
-| `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
+| `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child runs |
+| `POST` | `/api/v1/sessions/{id}/child-runs` | Yes | Spawn a child run (gated: top-level full-access only; `202`, sync-execute) |
+| `GET` | `/api/v1/sessions/{id}/child-runs/{childRunId}` | Yes | Get a single child run |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
 | `GET` | `/api/v1/config/context` | Yes | Get the supported app-facing context settings with defaults, metadata, and restart state |
 | `PATCH` | `/api/v1/config/context` | Yes | Update supported context settings such as `conversationHistoryInSystemPrompt` and auto-summarize controls |
@@ -4598,11 +4668,11 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
-| `GET` | `/api/v1/profiles` | Yes | List discovered profiles for app pickers |
-| `GET` | `/api/v1/profiles/{name}` | Yes | Get profile detail |
-| `POST` | `/api/v1/profiles` | Yes | Create a profile |
-| `PATCH` | `/api/v1/profiles/{name}` | Yes | Update soul, backstory, and preferences for a profile |
-| `DELETE` | `/api/v1/profiles/{name}` | Yes | Delete a non-default profile |
+| `GET` | `/api/v1/personas` | Yes | List discovered personas for app pickers |
+| `GET` | `/api/v1/personas/{name}` | Yes | Get persona detail |
+| `POST` | `/api/v1/personas` | Yes | Create a persona |
+| `PATCH` | `/api/v1/personas/{name}` | Yes | Update soul, backstory, and preferences for a persona |
+| `DELETE` | `/api/v1/personas/{name}` | Yes | Delete a non-default persona |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
 | `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |
@@ -4659,9 +4729,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
-| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one raw loop definition |
-| `POST` | `/api/v1/loops/definitions` | Yes | Create a loop definition |
-| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Upsert a loop definition |
+| `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one loop definition (with version) |
+| `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Create (If-None-Match: *) or update (If-Match: version) a loop definition |
 | `DELETE` | `/api/v1/loops/definitions/{name}` | Yes | Delete a loop definition |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
 | `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
@@ -4681,6 +4750,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
 | `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 | `GET` | `/api/v1/sessions/{id}/questions` | Yes | List pending structured questions |
-| `POST` | `/api/v1/sessions/{id}/questions/{questionId}/answer` | Yes | Answer a structured question |
+| `POST` | `/api/v1/sessions/{id}/questions/{questionId}/answer` | Yes | Answer a structured question by id |
+| `POST` | `/api/v1/sessions/{id}/turns/{turnId}/answer` | Yes | Answer a turn's pending question (Core answer path) |
 
 Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart now exposes explicit restart-state metadata over HTTP for app clients.

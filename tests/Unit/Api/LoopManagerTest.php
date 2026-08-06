@@ -71,9 +71,9 @@ test('tick creates a background task for the next pending stage', function () {
     expect($task['prompt'])->toContain('Build the feature');
 });
 
-test('tick inherits active profile from parent loop session', function () {
-    $profiledParentSessionId = $this->storage->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $profiledParentSessionId);
+test('tick inherits active persona from parent loop session', function () {
+    $personaScopedParentSessionId = $this->storage->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $personaScopedParentSessionId);
 
     $this->manager->tick();
 
@@ -83,7 +83,26 @@ test('tick inherits active profile from parent loop session', function () {
     $session = $this->storage->getSession((string) $task['session_id']);
 
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
+});
+
+test('tick inherits the workspace from the parent loop session', function () {
+    $rootedParentSessionId = $this->storage->createSession(
+        'orchestrator',
+        'ollama/qwen3:latest',
+        workspace: '/srv/agents/ws-loop',
+    );
+    $loopId = $this->executor->startLoop($this->definition, 'Build the feature', $rootedParentSessionId);
+
+    $this->manager->tick();
+
+    $state = $this->loopStore->getCurrentState($loopId);
+    $stage = $state['stages'][0];
+    $task = $this->storage->getTask((string) $stage['task_id']);
+    $session = $this->storage->getSession((string) $task['session_id']);
+
+    expect($session)->not->toBeNull();
+    expect($session['workspace'])->toBe('/srv/agents/ws-loop');
 });
 
 test('reconcile completes a finished stage and creates a loop output artifact', function () {

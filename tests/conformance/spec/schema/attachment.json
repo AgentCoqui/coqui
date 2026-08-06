@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/attachment.json",
+  "title": "Attachment",
+  "description": "A reference from a turn/message to a Content blob. Routed by mime_type. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content_ref", "mime_type"],
+  "properties": {
+    "content_ref": { "$ref": "common.json#/$defs/Id" },
+    "mime_type": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-question.json",
+  "title": "SSE question frame",
+  "description": "A `question` frame on a turn stream — a structured question raised by the Core `ask_user` mechanism that blocks the interactive turn until answered or cancelled. The `data.question_id` is a REQUIRED correlation id: a client answers the blocking question by posting it back through the Core `submitTurnAnswer` operation (POST /sessions/{id}/turns/{turnId}/answer), which is reachable without the optional `questions` profile. The `id` mirrors the SSE `id:` transport cursor (see sse-frame.json); it is not part of `data`.",
+  "type": "object",
+  "required": ["event", "data"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Monotonic stream cursor (the SSE `id:` line)."
+    },
+    "event": {
+      "const": "question",
+      "description": "SSE event name for this frame."
+    },
+    "data": {
+      "type": "object",
+      "required": ["question_id"],
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "description": "Correlation id echoed back when answering (submitTurnAnswer body)."
+        },
+        "prompt": { "type": "string" },
+        "options": { "type": "array" },
+        "suggested": {}
+      }
+    }
+  },
+  "additionalProperties": false
+}

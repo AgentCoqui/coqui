@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/loop-live.json",
+  "title": "LoopLive",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["loop_id", "status", "current_iteration", "current_stage", "budget", "stages"],
+  "properties": {
+    "loop_id": { "$ref": "common.json#/$defs/Id" },
+    "status": { "$ref": "loop.json#/properties/status" },
+    "current_iteration": { "type": "integer", "minimum": 0 },
+    "current_stage": { "type": "integer", "minimum": 0 },
+    "model": { "$ref": "common.json#/$defs/ModelId" },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "tokens_used": { "type": "integer", "minimum": 0 },
+        "iterations_used": { "type": "integer", "minimum": 0 },
+        "max_iterations": { "type": ["integer","null"], "minimum": 1 },
+        "elapsed_ms": { "type": "integer", "minimum": 0 },
+        "breakdown": { "$ref": "budget-breakdown.json", "description": "Optional system-prompt budget breakdown (Budgeting.md §6) — the same read-model getBudget returns, surfaced inline on the live snapshot." }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["stage_index", "role", "status"],
+        "properties": {
+          "stage_index": { "type": "integer", "minimum": 0 },
+          "role": { "type": "string" },
+          "status": { "$ref": "loop-stage.json#/properties/status" },
+          "result_summary": { "type": ["string","null"] }
+        }
+      }
+    },
+    "feed": { "type": "array", "items": { "type": "object" }, "description": "Recent activity items (shape open)." }
+  }
+}

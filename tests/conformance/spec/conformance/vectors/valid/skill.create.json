@@ -1,0 +1,1 @@
+{ "name": "commit-hygiene", "description": "How to write disciplined commits.", "origin": { "kind": "builtin" }, "execution": { "kind": "instruction", "requires": [] } }

@@ -6,18 +6,15 @@ namespace CoquiBot\Coqui\Api\Session;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Contract\SessionType;
-use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Exception\SessionTypeException;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\GroupSessionService;
-use CoquiBot\Coqui\Config\RoleResolver;
 
 final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterface, GroupSessionEndpointHandlerInterface
 {
     public function __construct(
         private GroupSessionService $groupSessions,
         private SessionStorage $storage,
-        private RoleResolver $roleResolver,
     ) {}
 
     public function type(): SessionType
@@ -60,56 +57,7 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
             throw new SessionTypeException(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
-        if ($request->updatesGroupEnabled && $request->groupEnabled !== true) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Use session creation for new group sessions. Existing sessions cannot change group mode via PATCH.',
-            );
-        }
-
-        if ($request->includesMembers) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Use the session group member endpoints to manage members.',
-            );
-        }
-
-        if ($request->updatesTitle && $request->title !== null) {
-            $this->storage->updateSessionTitle($sessionId, $request->title);
-        }
-
-        $resolvedRole = (string) ($session['model_role'] ?? SystemRole::Orchestrator->value);
-        if ($request->updatesModelRole && $request->modelRole !== null) {
-            if ($request->modelRole !== SystemRole::Orchestrator->value) {
-                throw new SessionTypeException(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    'Group sessions must remain orchestrator-managed.',
-                );
-            }
-
-            if (!$this->roleResolver->hasRole($request->modelRole)) {
-                throw new SessionTypeException(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $request->modelRole),
-                );
-            }
-
-            $resolvedRole = $request->modelRole;
-        }
-
-        if ($request->updatesProfile) {
-            throw new SessionTypeException(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Group sessions do not support a single active profile.',
-            );
-        }
-
-        if ($request->updatesGroupMaxRounds) {
-            $this->groupSessions->updateSessionMaxRounds($sessionId, $request->groupMaxRounds);
-        }
-
-        $resolvedModel = $this->roleResolver->resolve($resolvedRole, null);
-        $this->storage->updateSessionRole($sessionId, $resolvedRole, $resolvedModel);
+        SessionPatchApplier::apply($this->storage, $sessionId, $request);
 
         return $this->requireSession($sessionId);
     }
@@ -166,10 +114,10 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
         $groupSession = $this->requireGroupSession($session);
         $requestBody = $this->requireRequestBody($body);
 
-        $profile = $this->groupSessions->normalizeMember($requestBody['profile'] ?? null);
+        $persona = $this->groupSessions->normalizeMember($requestBody['persona_id'] ?? null);
         $result = $this->groupSessions->addSessionMember(
             sessionId: $sessionId,
-            profile: $profile,
+            persona: $persona,
             confirmCloseActive: $this->confirmCloseActiveGroupSession($requestBody),
             groupMaxRounds: $this->resolveGroupMaxRounds($groupSession),
             closureReasonPrefix: 'api_group_membership_update',
@@ -182,16 +130,16 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
      * @param array<string, mixed> $session
      * @return array<string, mixed>
      */
-    public function removeMember(array $session, string $profile, mixed $body): array
+    public function removeMember(array $session, string $persona, mixed $body): array
     {
         $sessionId = $this->requireSessionId($session);
         $groupSession = $this->requireGroupSession($session);
-        $targetProfile = $this->groupSessions->normalizeMember($profile);
+        $targetPersona = $this->groupSessions->normalizeMember($persona);
         $requestBody = is_array($body) ? $body : [];
 
         $result = $this->groupSessions->removeSessionMember(
             sessionId: $sessionId,
-            profile: $targetProfile,
+            persona: $targetPersona,
             confirmCloseActive: $this->confirmCloseActiveGroupSession($requestBody),
             groupMaxRounds: $this->resolveGroupMaxRounds($groupSession),
             closureReasonPrefix: 'api_group_membership_update',

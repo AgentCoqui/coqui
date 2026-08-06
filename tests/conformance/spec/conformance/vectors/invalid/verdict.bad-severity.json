@@ -1,0 +1,7 @@
+{
+  "requirements_met": false,
+  "quality_pass": false,
+  "findings": [
+    { "severity": "Blocker", "summary": "Auth bypass in login path." }
+  ]
+}

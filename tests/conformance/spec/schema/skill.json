@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/skill.json",
+  "title": "Skill",
+  "description": "An on-demand capability pack — procedures/knowledge, optionally with bundled scripts (skills profile). Carries provenance (D1) and an execution requirement (I7). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "status", "origin", "execution"],
+  "properties": {
+    "name": { "$ref": "common.json#/$defs/Slug" },
+    "description": { "type": "string" },
+    "metadata": { "type": ["object", "null"] },
+    "source": { "type": ["string", "null"], "description": "Opaque host-defined provenance pointer (marketplace ref, path, url)." },
+    "status": { "type": "string", "enum": ["available", "disabled"] },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["builtin", "local", "imported"], "description": "Provenance class. builtin/local are first-party; imported is untrusted-by-default (Capabilities §5)." },
+        "publisher": { "type": ["string", "null"] },
+        "signature": { "type": ["string", "null"], "description": "RESERVED, forward-compatible. Unverified in 0.3 — a variant MAY verify it later without a breaking change. Absence/null ⇒ unsigned." }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["instruction", "script"], "description": "instruction-only = fully portable; script = requires the capabilities in `requires` (I7)." },
+        "requires": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Capabilities the skill's scripts need (e.g. \"shell\"). A variant lacking one marks the skill not-runnable-here." }
+      }
+    },
+    "created_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] },
+    "updated_at": { "oneOf": [ { "$ref": "common.json#/$defs/Timestamp" }, { "type": "null" } ] }
+  }
+}

@@ -108,7 +108,6 @@ test('guidelines() shows active loop count and details', function () {
         goal: 'Build the widget feature',
         configuration: ['type' => 'evaluation_bound', 'value' => 'APPROVED'],
         sessionId: $this->sessionId,
-        projectId: 'proj-1',
         maxIterations: 10,
     );
     $this->loopStore->updateLoopStatus($loopId, 'running');

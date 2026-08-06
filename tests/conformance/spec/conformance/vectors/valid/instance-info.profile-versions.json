@@ -1,0 +1,6 @@
+{
+  "protocol_version": "0.5.0",
+  "profiles": ["mcp", "schedules"],
+  "bindings": ["in-process"],
+  "profile_versions": { "mcp": "0.3.0", "schedules": "0.3.0" }
+}

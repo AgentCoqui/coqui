@@ -22,7 +22,7 @@ test('create returns a 32-char hex id', function () {
     $id = $this->store->create(
         name: 'test-schedule',
         scheduleExpression: '*/5 * * * *',
-        prompt: 'Run health check',
+        action: ['kind' => 'turn', 'prompt' => 'Run health check'],
     );
 
     expect($id)->toBeString();
@@ -33,7 +33,7 @@ test('create stores schedule with correct fields', function () {
     $id = $this->store->create(
         name: 'daily-report',
         scheduleExpression: '0 9 * * *',
-        prompt: 'Generate daily report',
+        action: ['kind' => 'turn', 'prompt' => 'Generate daily report'],
         role: 'coder',
         maxIterations: 30,
         description: 'Runs every day at 9am',
@@ -46,7 +46,7 @@ test('create stores schedule with correct fields', function () {
 
     expect($schedule)->not->toBeNull();
     expect($schedule['name'])->toBe('daily-report');
-    expect($schedule['schedule_expression'])->toBe('0 9 * * *');
+    expect($schedule['cron'])->toBe('0 9 * * *');
     expect($schedule['prompt'])->toBe('Generate daily report');
     expect($schedule['role'])->toBe('coder');
     expect((int) $schedule['max_iterations'])->toBe(30);
@@ -63,7 +63,7 @@ test('create computes next_run_at for valid cron', function () {
     $id = $this->store->create(
         name: 'every-minute',
         scheduleExpression: '* * * * *',
-        prompt: 'ping',
+        action: ['kind' => 'turn', 'prompt' => 'ping'],
     );
 
     $schedule = $this->store->get($id);
@@ -75,7 +75,7 @@ test('create with @once sets next_run_at to now', function () {
     $id = $this->store->create(
         name: 'one-shot',
         scheduleExpression: '@once',
-        prompt: 'Do this once',
+        action: ['kind' => 'turn', 'prompt' => 'Do this once'],
     );
 
     $schedule = $this->store->get($id);
@@ -87,13 +87,13 @@ test('create enforces unique name', function () {
     $this->store->create(
         name: 'unique-name',
         scheduleExpression: '* * * * *',
-        prompt: 'first',
+        action: ['kind' => 'turn', 'prompt' => 'first'],
     );
 
     $this->store->create(
         name: 'unique-name',
         scheduleExpression: '*/5 * * * *',
-        prompt: 'second',
+        action: ['kind' => 'turn', 'prompt' => 'second'],
     );
 })->throws(PDOException::class);
 
@@ -107,7 +107,7 @@ test('getByName returns the schedule', function () {
     $this->store->create(
         name: 'find-me',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
     );
 
     $schedule = $this->store->getByName('find-me');
@@ -126,11 +126,11 @@ test('update modifies fields', function () {
     $id = $this->store->create(
         name: 'update-me',
         scheduleExpression: '* * * * *',
-        prompt: 'original',
+        action: ['kind' => 'turn', 'prompt' => 'original'],
     );
 
     $result = $this->store->update($id,
-        prompt: 'updated prompt',
+        action: ['kind' => 'turn', 'prompt' => 'updated prompt'],
         description: 'New description',
     );
 
@@ -145,7 +145,7 @@ test('update recomputes next_run_at when expression changes', function () {
     $id = $this->store->create(
         name: 'recompute',
         scheduleExpression: '0 0 1 1 *',
-        prompt: 'yearly',
+        action: ['kind' => 'turn', 'prompt' => 'yearly'],
     );
 
     $before = $this->store->get($id);
@@ -160,7 +160,7 @@ test('update recomputes next_run_at when expression changes', function () {
 });
 
 test('update returns false for nonexistent id', function () {
-    expect($this->store->update('fake-id', prompt: 'x'))->toBeFalse();
+    expect($this->store->update('fake-id', action: ['kind' => 'turn', 'prompt' => 'x']))->toBeFalse();
 });
 
 // --- Delete ---
@@ -169,7 +169,7 @@ test('delete removes the schedule', function () {
     $id = $this->store->create(
         name: 'delete-me',
         scheduleExpression: '* * * * *',
-        prompt: 'bye',
+        action: ['kind' => 'turn', 'prompt' => 'bye'],
     );
 
     $result = $this->store->delete($id);
@@ -185,8 +185,8 @@ test('delete returns false for nonexistent id', function () {
 // --- List ---
 
 test('list returns all schedules', function () {
-    $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
-    $this->store->create(name: 'b', scheduleExpression: '* * * * *', prompt: 'b');
+    $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
+    $this->store->create(name: 'b', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'b']);
 
     $list = $this->store->list();
 
@@ -194,8 +194,8 @@ test('list returns all schedules', function () {
 });
 
 test('list filters by enabled state', function () {
-    $id = $this->store->create(name: 'enabled', scheduleExpression: '* * * * *', prompt: 'x');
-    $disabledId = $this->store->create(name: 'to-disable', scheduleExpression: '* * * * *', prompt: 'y');
+    $id = $this->store->create(name: 'enabled', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'x']);
+    $disabledId = $this->store->create(name: 'to-disable', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'y']);
     $this->store->disable($disabledId);
 
     $enabledOnly = $this->store->list(enabled: true);
@@ -213,7 +213,7 @@ test('disable and enable toggle the state', function () {
     $id = $this->store->create(
         name: 'toggle',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
     );
 
     $this->store->disable($id);
@@ -231,7 +231,7 @@ test('markExecuted updates run tracking fields', function () {
     $id = $this->store->create(
         name: 'executed',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
     );
 
     $this->store->markExecuted($id, 'task-123');
@@ -248,7 +248,7 @@ test('markSuccess updates status and resets failures', function () {
     $id = $this->store->create(
         name: 'success',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
     );
 
     $this->store->markExecuted($id, 'task-1');
@@ -263,7 +263,7 @@ test('markFailed increments failure count', function () {
     $id = $this->store->create(
         name: 'failing',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
         maxFailures: 3,
     );
 
@@ -281,7 +281,7 @@ test('markFailed disables on max failures (circuit breaker)', function () {
     $id = $this->store->create(
         name: 'circuit-break',
         scheduleExpression: '* * * * *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
         maxFailures: 2,
     );
 
@@ -300,7 +300,7 @@ test('getReadySchedules returns only enabled schedules past next_run_at', functi
     $this->store->create(
         name: 'ready',
         scheduleExpression: '* * * * *',
-        prompt: 'past due',
+        action: ['kind' => 'turn', 'prompt' => 'past due'],
     );
 
     // Force next_run_at into the past
@@ -317,7 +317,7 @@ test('getReadySchedules excludes disabled schedules', function () {
     $id = $this->store->create(
         name: 'disabled',
         scheduleExpression: '* * * * *',
-        prompt: 'nope',
+        action: ['kind' => 'turn', 'prompt' => 'nope'],
     );
 
     $this->store->forceNextRun($id, '2020-01-01T00:00:00Z');
@@ -331,8 +331,8 @@ test('getReadySchedules excludes disabled schedules', function () {
 // --- Stats ---
 
 test('getStats returns correct counts', function () {
-    $id1 = $this->store->create(name: 'active', scheduleExpression: '* * * * *', prompt: 'a');
-    $id2 = $this->store->create(name: 'inactive', scheduleExpression: '* * * * *', prompt: 'b');
+    $id1 = $this->store->create(name: 'active', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
+    $id2 = $this->store->create(name: 'inactive', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'b']);
     $this->store->disable($id2);
 
     $stats = $this->store->getStats();
@@ -348,7 +348,7 @@ test('forceNextRun updates next_run_at', function () {
     $id = $this->store->create(
         name: 'force',
         scheduleExpression: '0 0 1 1 *',
-        prompt: 'test',
+        action: ['kind' => 'turn', 'prompt' => 'test'],
     );
 
     $this->store->forceNextRun($id, '2024-06-15T12:00:00Z');
@@ -376,9 +376,9 @@ test('computeNextRun returns null for @once', function () {
 // --- Bulk Operations ---
 
 test('deleteAll removes all schedules and returns count', function () {
-    $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
-    $this->store->create(name: 'b', scheduleExpression: '* * * * *', prompt: 'b');
-    $this->store->create(name: 'c', scheduleExpression: '* * * * *', prompt: 'c');
+    $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
+    $this->store->create(name: 'b', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'b']);
+    $this->store->create(name: 'c', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'c']);
 
     $count = $this->store->deleteAll();
 
@@ -391,9 +391,9 @@ test('deleteAll returns 0 on empty store', function () {
 });
 
 test('disableAll disables all enabled schedules and returns count', function () {
-    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
-    $id2 = $this->store->create(name: 'b', scheduleExpression: '* * * * *', prompt: 'b');
-    $id3 = $this->store->create(name: 'c', scheduleExpression: '* * * * *', prompt: 'c');
+    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
+    $id2 = $this->store->create(name: 'b', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'b']);
+    $id3 = $this->store->create(name: 'c', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'c']);
     $this->store->disable($id3);
 
     $count = $this->store->disableAll();
@@ -405,15 +405,15 @@ test('disableAll disables all enabled schedules and returns count', function () 
 });
 
 test('disableAll returns 0 when all already disabled', function () {
-    $id = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $id = $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
     $this->store->disable($id);
 
     expect($this->store->disableAll())->toBe(0);
 });
 
 test('enableAll enables all disabled schedules with recomputed next_run_at', function () {
-    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
-    $id2 = $this->store->create(name: 'b', scheduleExpression: '0 9 * * *', prompt: 'b');
+    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
+    $id2 = $this->store->create(name: 'b', scheduleExpression: '0 9 * * *', action: ['kind' => 'turn', 'prompt' => 'b']);
     $this->store->disable($id1);
     $this->store->disable($id2);
 
@@ -432,7 +432,7 @@ test('enableAll enables all disabled schedules with recomputed next_run_at', fun
 });
 
 test('enableAll returns 0 when all already enabled', function () {
-    $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $this->store->create(name: 'a', scheduleExpression: '* * * * *', action: ['kind' => 'turn', 'prompt' => 'a']);
 
     expect($this->store->enableAll())->toBe(0);
 });
@@ -464,4 +464,39 @@ test('schedule validator rejects prompt longer than 50000 characters', function 
 
     expect($error)->not->toBeNull();
     expect($error)->toContain('50000');
+});
+
+test('create rejects a loop action whose definition_name is not a slug', function () {
+    expect(fn () => $this->store->create(
+        name: 'non-slug-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => 'Research Loop'],
+        personaId: 'p_1',
+    ))->toThrow(\CoquiBot\Coqui\Exception\RequestBodyException::class);
+});
+
+test('create rejects a loop action definition_name with a trailing newline', function () {
+    // PCRE `$` matches immediately before a final \n, so without the /D anchor
+    // "research\n" would be accepted here and later emitted by toWire as a
+    // definition_name that an ECMA-262/opis Slug validator rejects.
+    expect(fn () => $this->store->create(
+        name: 'trailing-newline-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => "research\n"],
+        personaId: 'p_1',
+    ))->toThrow(\CoquiBot\Coqui\Exception\RequestBodyException::class);
+});
+
+test('create accepts a loop action with a slug definition_name', function () {
+    $id = $this->store->create(
+        name: 'slug-loop',
+        scheduleExpression: '0 3 * * *',
+        action: ['kind' => 'loop', 'definition_name' => 'research-loop_1'],
+        personaId: 'p_1',
+    );
+
+    $schedule = $this->store->get($id);
+
+    expect($schedule['action_kind'])->toBe('loop');
+    expect($schedule['definition_name'])->toBe('research-loop_1');
 });

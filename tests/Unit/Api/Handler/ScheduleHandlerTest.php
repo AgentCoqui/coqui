@@ -39,12 +39,9 @@ test('schedule handler creates a schedule through the API', function () {
             ['Content-Type' => 'application/json'],
             json_encode([
                 'name' => 'daily-review',
-                'schedule_expression' => '0 9 * * 1-5',
-                'prompt' => 'Review recent changes.',
-                'role' => 'orchestrator',
-                'timezone' => 'UTC',
-                'max_iterations' => 12,
-                'max_failures' => 5,
+                'cron' => '0 9 * * 1-5',
+                'persona_id' => 'caelum',
+                'action' => ['kind' => 'turn', 'prompt' => 'Review recent changes.'],
             ]) ?: '',
         );
 
@@ -52,9 +49,10 @@ test('schedule handler creates a schedule through the API', function () {
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(201);
-        expect($body['schedule']['name'])->toBe('daily-review');
-        expect($body['schedule']['created_by'])->toBe('api');
-        expect($body['schedule']['enabled'])->toBe(1);
+        expect($body['name'])->toBe('daily-review');
+        expect($body['persona_id'])->toBe('caelum');
+        expect($body['status'])->toBe('enabled');
+        expect($body['action'])->toMatchArray(['kind' => 'turn', 'prompt' => 'Review recent changes.']);
     } finally {
         cleanupScheduleHandlerFixture($fixture);
     }
@@ -64,15 +62,15 @@ test('schedule handler updates mutable schedules', function () {
     $fixture = createScheduleHandlerFixture();
 
     try {
-        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', 'Review recent changes.');
+        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', ['kind' => 'turn', 'prompt' => 'Review recent changes.']);
 
         $request = new ServerRequest(
             'PATCH',
             '/api/v1/schedules/' . $scheduleId,
             ['Content-Type' => 'application/json'],
             json_encode([
-                'description' => 'Weekday review run',
-                'schedule_expression' => '0 10 * * 1-5',
+                'cron' => '0 10 * * 1-5',
+                'action' => ['kind' => 'turn', 'prompt' => 'Weekday review run'],
             ]) ?: '',
         );
 
@@ -80,8 +78,8 @@ test('schedule handler updates mutable schedules', function () {
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(200);
-        expect($body['schedule']['description'])->toBe('Weekday review run');
-        expect($body['schedule']['schedule_expression'])->toBe('0 10 * * 1-5');
+        expect($body['cron'])->toBe('0 10 * * 1-5');
+        expect($body['action'])->toMatchArray(['kind' => 'turn', 'prompt' => 'Weekday review run']);
     } finally {
         cleanupScheduleHandlerFixture($fixture);
     }
@@ -91,7 +89,7 @@ test('schedule handler action endpoints disable enable and trigger schedules', f
     $fixture = createScheduleHandlerFixture();
 
     try {
-        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', 'Review recent changes.');
+        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', ['kind' => 'turn', 'prompt' => 'Review recent changes.']);
 
         $disableResponse = $fixture['handler']->disable(new ServerRequest('POST', '/api/v1/schedules/' . $scheduleId . '/disable'), $scheduleId);
         $enableResponse = $fixture['handler']->enable(new ServerRequest('POST', '/api/v1/schedules/' . $scheduleId . '/enable'), $scheduleId);
@@ -115,7 +113,7 @@ test('schedule handler delete removes mutable schedules', function () {
     $fixture = createScheduleHandlerFixture();
 
     try {
-        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', 'Review recent changes.');
+        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', ['kind' => 'turn', 'prompt' => 'Review recent changes.']);
 
         $response = $fixture['handler']->delete(new ServerRequest('DELETE', '/api/v1/schedules/' . $scheduleId), $scheduleId);
         $body = json_decode((string) $response->getBody(), true);
@@ -154,8 +152,8 @@ test('schedule handler exposes upcoming schedules and aggregate stats', function
     $fixture = createScheduleHandlerFixture();
 
     try {
-        $enabledId = $fixture['store']->create('daily-review', '@once', 'Review recent changes.');
-        $disabledId = $fixture['store']->create('weekly-retro', '0 9 * * 1', 'Review weekly progress.');
+        $enabledId = $fixture['store']->create('daily-review', '@once', ['kind' => 'turn', 'prompt' => 'Review recent changes.']);
+        $disabledId = $fixture['store']->create('weekly-retro', '0 9 * * 1', ['kind' => 'turn', 'prompt' => 'Review weekly progress.']);
         $fixture['store']->disable($disabledId);
 
         $upcomingResponse = $fixture['handler']->upcoming(
@@ -186,7 +184,7 @@ test('schedule handler returns run history for a schedule', function () {
     $fixture = createScheduleHandlerFixture();
 
     try {
-        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', 'Review recent changes.');
+        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', ['kind' => 'turn', 'prompt' => 'Review recent changes.']);
 
         $sessionOne = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $taskOne = $fixture['storage']->createTask(

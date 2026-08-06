@@ -87,13 +87,13 @@ final readonly class GroupHandler
             return RouteResult::continue();
         }
 
-        $profileInput = trim($arg);
+        $personaInput = trim($arg);
 
         try {
-            $profile = $this->groupSessions->normalizeMember($profileInput);
+            $persona = $this->groupSessions->normalizeMember($personaInput);
             $result = $this->groupSessions->addSessionMember(
                 sessionId: $sessionId,
-                profile: $profile,
+                persona: $persona,
                 confirmCloseActive: false,
                 groupMaxRounds: $this->currentGroupMaxRounds($groupSession),
                 closureReasonPrefix: 'repl_group_membership_update',
@@ -103,7 +103,7 @@ final readonly class GroupHandler
                 try {
                     $result = $this->groupSessions->addSessionMember(
                         sessionId: $sessionId,
-                        profile: $this->groupSessions->normalizeMember($profileInput),
+                        persona: $this->groupSessions->normalizeMember($personaInput),
                         confirmCloseActive: true,
                         groupMaxRounds: $this->currentGroupMaxRounds($groupSession),
                         closureReasonPrefix: 'repl_group_membership_update',
@@ -116,7 +116,7 @@ final readonly class GroupHandler
             }
         }
 
-        $io->success(sprintf('Added @%s. Members: %s.', trim($profileInput), $this->formatMembers($this->extractSessionMembers($result->session))));
+        $io->success(sprintf('Added @%s. Members: %s.', trim($personaInput), $this->formatMembers($this->extractSessionMembers($result->session))));
 
         return RouteResult::continue();
     }
@@ -128,13 +128,13 @@ final readonly class GroupHandler
             return RouteResult::continue();
         }
 
-        $profileInput = trim($arg);
+        $personaInput = trim($arg);
 
         try {
-            $profile = $this->groupSessions->normalizeMember($profileInput);
+            $persona = $this->groupSessions->normalizeMember($personaInput);
             $result = $this->groupSessions->removeSessionMember(
                 sessionId: $sessionId,
-                profile: $profile,
+                persona: $persona,
                 confirmCloseActive: false,
                 groupMaxRounds: $this->currentGroupMaxRounds($groupSession),
                 closureReasonPrefix: 'repl_group_membership_update',
@@ -144,7 +144,7 @@ final readonly class GroupHandler
                 try {
                     $result = $this->groupSessions->removeSessionMember(
                         sessionId: $sessionId,
-                        profile: $this->groupSessions->normalizeMember($profileInput),
+                        persona: $this->groupSessions->normalizeMember($personaInput),
                         confirmCloseActive: true,
                         groupMaxRounds: $this->currentGroupMaxRounds($groupSession),
                         closureReasonPrefix: 'repl_group_membership_update',
@@ -157,7 +157,7 @@ final readonly class GroupHandler
             }
         }
 
-        $io->success(sprintf('Removed @%s. Members: %s.', trim($profileInput), $this->formatMembers($this->extractSessionMembers($result->session))));
+        $io->success(sprintf('Removed @%s. Members: %s.', trim($personaInput), $this->formatMembers($this->extractSessionMembers($result->session))));
 
         return RouteResult::continue();
     }
@@ -250,12 +250,12 @@ final readonly class GroupHandler
             '',
             '  /group status',
             '  /group start <member1,member2,...> [--rounds=3]',
-            '  /group add <profile>',
-            '  /group remove <profile>',
+            '  /group add <persona>',
+            '  /group remove <persona>',
             '  /group replace <member1,member2,...> [--rounds=3]',
             '  /group rounds <n>',
             '',
-            'Group sessions stay orchestrator-managed and clear any single active profile scope.',
+            'Group sessions stay orchestrator-managed and clear any single active persona scope.',
             'General prompts fan out to all members in stored order unless you narrow them with @name.',
             'Use @everyone or @group in a prompt to force a full-team response.',
         ]);
@@ -341,7 +341,7 @@ final readonly class GroupHandler
         }
 
         return array_values(array_map(
-            static fn(array $member): string => (string) ($member['profile'] ?? ''),
+            static fn(array $member): string => (string) ($member['persona_id'] ?? ''),
             array_filter($members, static fn(mixed $member): bool => is_array($member)),
         ));
     }

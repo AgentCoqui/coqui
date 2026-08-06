@@ -35,7 +35,7 @@ test('upsertFilesystem creates a new filesystem schedule', function () {
     expect($schedule['name'])->toBe('daily-backup');
     expect($schedule['source'])->toBe('filesystem');
     expect($schedule['source_path'])->toBe('/workspace/schedules/daily-backup.json');
-    expect($schedule['schedule_expression'])->toBe('0 2 * * *');
+    expect($schedule['cron'])->toBe('0 2 * * *');
     expect($schedule['prompt'])->toBe('Run daily backup');
     expect($schedule['description'])->toBe('Nightly backup');
 });
@@ -58,7 +58,7 @@ test('upsertFilesystem updates definition fields on re-sync', function () {
     expect($id2)->toBe($id1);
 
     $schedule = $this->store->get($id1);
-    expect($schedule['schedule_expression'])->toBe('*/10 * * * *');
+    expect($schedule['cron'])->toBe('*/10 * * * *');
     expect($schedule['prompt'])->toBe('New prompt');
 });
 
@@ -122,7 +122,7 @@ test('deleteRemovedFilesystemSchedules does not remove system schedules', functi
     $this->store->create(
         name: 'system-schedule',
         scheduleExpression: '* * * * *',
-        prompt: 'System prompt',
+        action: ['kind' => 'turn', 'prompt' => 'System prompt'],
     );
 
     // Create a filesystem schedule
@@ -158,7 +158,7 @@ test('isFilesystemSchedule returns false for system schedules', function () {
     $id = $this->store->create(
         name: 'system-test',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
 
     expect($this->store->isFilesystemSchedule($id))->toBeFalse();
@@ -170,7 +170,7 @@ test('deleteAll only deletes system schedules', function () {
     $this->store->create(
         name: 'system-one',
         scheduleExpression: '* * * * *',
-        prompt: 'System',
+        action: ['kind' => 'turn', 'prompt' => 'System'],
     );
 
     $this->store->upsertFilesystem(
@@ -191,7 +191,7 @@ test('enableAll only enables system schedules', function () {
     $sysId = $this->store->create(
         name: 'system-disabled',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
     $this->store->disable($sysId);
 
@@ -212,7 +212,7 @@ test('disableAll only disables system schedules', function () {
     $this->store->create(
         name: 'system-enabled',
         scheduleExpression: '* * * * *',
-        prompt: 'Test',
+        action: ['kind' => 'turn', 'prompt' => 'Test'],
     );
 
     $this->store->upsertFilesystem(

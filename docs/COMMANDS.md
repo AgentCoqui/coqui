@@ -15,7 +15,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/new` | Start a new session. When a profile is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same profile (resets role to `orchestrator`) |
+| `/new` | Start a new session. When a persona is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same persona (resets role to `orchestrator`) |
 | `/sessions` | List active surfaced interactive sessions. Internal hidden background sessions are excluded |
 | `/resume <id>` | Resume a specific active surfaced session by ID. Hidden internal sessions cannot be resumed from the REPL |
 | `/history` | Show conversation history for the current session |
@@ -31,17 +31,17 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles update [name]` | Apply pending built-in role updates |
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
-| `/profile` | Show the current active personality profile |
-| `/profile <name>` | Switch to a personality profile. Coqui reuses the most recent active session for that profile, archives older duplicate active sessions if any exist, and creates a new one only when none remain active |
-| `/profile default` | Show the configured default startup profile |
-| `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
-| `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |
-| `/profiles` | List all available personality profiles |
+| `/persona` | Show the current active personality persona |
+| `/persona <name>` | Switch to a personality persona. Coqui reuses the most recent active session for that persona, archives older duplicate active sessions if any exist, and creates a new one only when none remain active |
+| `/persona default` | Show the configured default startup persona |
+| `/persona default <name|none>` | Set or clear the default startup persona in `openclaw.json` |
+| `/persona reset` | Clear persona, revert to default identity (resumes the last unpersonaScoped session or creates one) |
+| `/personas` | List all available personality personas |
 | `/group` | Show help, or show the current group session when the active session is group-enabled |
 | `/group status` | Show the active group session's members, round cap, and orchestrator role |
 | `/group start <member1,member2,...> [--rounds=N]` | Start or resume an orchestrator-managed group session for the requested member set |
-| `/group add <profile>` | Add one member to the current group session |
-| `/group remove <profile>` | Remove one member from the current group session |
+| `/group add <persona>` | Add one member to the current group session |
+| `/group remove <persona>` | Remove one member from the current group session |
 | `/group replace <member1,member2,...> [--rounds=N]` | Replace the current group membership, optionally updating the round cap |
 | `/group rounds <n>` | Update the maximum per-turn coordination rounds for the current group session |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
@@ -49,7 +49,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/thinking off\|low\|medium\|high` | Set reasoning effort for the active model (`off` disables thinking on thinking-capable Ollama models); persists to `openclaw.json` and applies on the next message |
 | `/thinking clear` | Remove the reasoning-effort override and restore the model default |
 
-Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
+Group sessions stay orchestrator-managed and clear any single active persona scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
 
 When the active session is group-enabled, the REPL prompt shows the current member list, for example `You (group session with @alex-hormozi, @trinity)`. Prompts without explicit member mentions fan out to all members in stored order. Use `@name` to narrow the responder set or `@everyone` / `@group` to force a full-team reply. During a turn, streamed start, iteration, and reasoning output is labeled with the active member so you can see who is speaking and why that responder set was chosen.
 
@@ -86,7 +86,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts plus file and folder breakdowns |
 | `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
-> **`/backstory` moved out of core.** Source-file backstory generation and the `/backstory` command are provided by the optional `coqui-toolkit-backstory` package (`/mods install coquibot/coqui-toolkit-backstory`). Core treats `backstory.md` as a plain optional markdown file — see [docs/PROFILES.md](PROFILES.md#breaking-changes).
+> **`/backstory` moved out of core.** Source-file backstory generation and the `/backstory` command are provided by the optional `coqui-toolkit-backstory` package (`/mods install coquibot/coqui-toolkit-backstory`). Core treats `backstory.md` as a plain optional markdown file — see [docs/PERSONAS.md](PERSONAS.md#breaking-changes).
 
 ### Images
 
@@ -96,8 +96,8 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/image help` | Show the same standardized image toolkit command reference |
 | `/image generate <prompt>` | Generate an image through the installed image toolkit and save it into the workspace image library |
 | `/image preview <path>` | Render an existing workspace image as a low-fidelity terminal preview |
-| `/image list` | Browse saved image records; `--profile`, `--vendor`, `--category`, `--tag`, and `--sort` narrow the result set |
-| `/image search <query>` | Search saved image records by prompt, tags, owner, profile, model, vendor, or path |
+| `/image list` | Browse saved image records; `--persona`, `--vendor`, `--category`, `--tag`, and `--sort` narrow the result set |
+| `/image search <query>` | Search saved image records by prompt, tags, owner, persona, model, vendor, or path |
 | `/image get <record-id>` | Show one saved image record |
 | `/image tag <record-id> <tag1,tag2>` | Update tags and optional category for a saved image record |
 | `/image delete <record-id>` | Delete a saved image record from the workspace image library |
@@ -243,7 +243,7 @@ Compatibility alias for REPL-only mode via the launcher.
 coqui run                      # Start the REPL only
 coqui run --new                # Start a fresh session
 coqui run --session abc123     # Resume a specific session
-coqui run --profile caelum     # Resume or create the last active session for a profile
+coqui run --persona caelum     # Resume or create the last active session for a persona
 coqui run --auto-approve       # Skip tool confirmation prompts
 coqui run --continue           # Resume last session and auto-send "Continue."
 ```

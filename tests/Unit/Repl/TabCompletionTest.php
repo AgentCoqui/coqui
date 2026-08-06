@@ -5,7 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -29,14 +29,14 @@ function createTabCompletionFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-tab-completion-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    mkdir($workspacePath . '/profiles/nova', 0755, true);
-    mkdir($workspacePath . '/profiles/iris', 0755, true);
+    mkdir($workspacePath . '/personas/caelum', 0755, true);
+    mkdir($workspacePath . '/personas/nova', 0755, true);
+    mkdir($workspacePath . '/personas/iris', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
     mkdir($workspacePath . '/skills/review-skill', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.\n");
-    file_put_contents($workspacePath . '/profiles/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
-    file_put_contents($workspacePath . '/profiles/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
+    file_put_contents($workspacePath . '/personas/caelum/soul.md', "# Caelum\n\nA calm companion.\n");
+    file_put_contents($workspacePath . '/personas/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
+    file_put_contents($workspacePath . '/personas/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
     copy(dirname(__DIR__, 3) . '/config/roles/coder.md', $workspacePath . '/roles/coder.md');
     file_put_contents($workspacePath . '/skills/review-skill/' . ModRegistry::ORIGIN_FILE, json_encode([
         'source' => 'coqui.mods',
@@ -71,7 +71,7 @@ function createTabCompletionFixture(): array
     ]));
 
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 3));
-    $profileDiscovery = new ProfileDiscovery($workspacePath);
+    $personaDiscovery = new PersonaDiscovery($workspacePath);
     $loopDiscovery = new LoopDiscovery($workspacePath, dirname(__DIR__, 3));
     $loopDiscovery->seedBuiltinLoops();
     $skillDiscovery = new SkillDiscovery($workspacePath);
@@ -85,7 +85,7 @@ function createTabCompletionFixture(): array
         workspacePath: $workspacePath,
         roleResolver: $roleResolver,
         roleDiscovery: $roleDiscovery,
-        profileDiscovery: $profileDiscovery,
+        personaDiscovery: $personaDiscovery,
         projectStore: $projectStore,
         loopDiscovery: $loopDiscovery,
         discovery: $discovery,
@@ -95,7 +95,7 @@ function createTabCompletionFixture(): array
 
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
     $projectStore->createProject('Docs Cleanup', 'docs-cleanup');
-    $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', 'Run nightly review');
+    $scheduleId = $scheduleStore->create('nightly-review', '0 0 * * *', ['kind' => 'turn', 'prompt' => 'Run nightly review']);
     $loopId = $loopStore->createLoop('harness', 'Keep REPL docs aligned', []);
 
     $pendingTaskId = $storage->createTask($sessionId, 'Pending review task');
@@ -133,7 +133,7 @@ function testBootManagerForTabCompletion(
     string $workspacePath,
     RoleResolver $roleResolver,
     RoleDiscovery $roleDiscovery,
-    ProfileDiscovery $profileDiscovery,
+    PersonaDiscovery $personaDiscovery,
     ProjectStore $projectStore,
     LoopDiscovery $loopDiscovery,
     ToolkitDiscovery $discovery,
@@ -148,7 +148,7 @@ function testBootManagerForTabCompletion(
         $workspacePath,
         $roleResolver,
         $roleDiscovery,
-        $profileDiscovery,
+        $personaDiscovery,
         $projectStore,
         $loopDiscovery,
         $discovery,
@@ -158,7 +158,7 @@ function testBootManagerForTabCompletion(
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
         $this->roleDiscovery = $roleDiscovery;
-        $this->profileDiscovery = $profileDiscovery;
+        $this->personaDiscovery = $personaDiscovery;
         $this->projectStore = $projectStore;
         $this->loopDiscovery = $loopDiscovery;
         $this->discovery = $discovery;
@@ -216,7 +216,7 @@ test('static command completion covers catalog argument hints', function (): voi
     }
 });
 
-test('role, profile, session, task, and todo completion use live state', function (): void {
+test('role, persona, session, task, and todo completion use live state', function (): void {
     $fixture = createTabCompletionFixture();
 
     try {
@@ -232,11 +232,11 @@ test('role, profile, session, task, and todo completion use live state', functio
         expect($fixture['completion']->complete('/group '))->toContain('status');
         expect($fixture['completion']->complete('/group start '))->toContain('caelum');
         expect($fixture['completion']->complete('/group start '))->toContain('--rounds=3');
-        expect($fixture['completion']->complete('/profile d'))->toContain('default');
-        expect($fixture['completion']->complete('/profile '))->toContain('caelum');
-        expect($fixture['completion']->complete('/profile default '))->toContain('caelum');
-        expect($fixture['completion']->complete('/profile default '))->toContain('none');
-        expect($fixture['completion']->complete('/profile default '))->toContain('clear');
+        expect($fixture['completion']->complete('/persona d'))->toContain('default');
+        expect($fixture['completion']->complete('/persona '))->toContain('caelum');
+        expect($fixture['completion']->complete('/persona default '))->toContain('caelum');
+        expect($fixture['completion']->complete('/persona default '))->toContain('none');
+        expect($fixture['completion']->complete('/persona default '))->toContain('clear');
         expect($fixture['completion']->complete('/resume '))->toContain($fixture['otherSessionId']);
         expect($fixture['completion']->complete('/resume '))->toContain($fixture['resumeSessionId']);
         expect($fixture['completion']->complete('/task '))->toContain($fixture['pendingTaskId']);

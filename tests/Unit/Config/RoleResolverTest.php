@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 
@@ -180,7 +180,7 @@ MD);
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->toArray()['builder'])->toMatchArray([
@@ -227,7 +227,7 @@ MD);
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         $selectable = $resolver->selectableRoles();
@@ -259,12 +259,12 @@ test('resolves aliases through config', function () {
     expect($resolver->resolve('coder'))->toBe('anthropic/claude-sonnet-4-20250514');
 });
 
-test('uses profile soul frontmatter model when no role-specific override exists', function () {
+test('uses persona soul frontmatter model when no role-specific override exists', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
-    mkdir($workspacePath . '/profiles/artist', 0755, true);
+    mkdir($workspacePath . '/personas/artist', 0755, true);
     mkdir($projectRoot . '/config/roles', 0755, true);
-    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: openai/gpt-4.1-mini\n---\n# Artist\n");
+    file_put_contents($workspacePath . '/personas/artist/soul.md', "---\nmodel: openai/gpt-4.1-mini\n---\n# Artist\n");
 
     try {
         $config = OpenClawConfig::fromArray([
@@ -279,7 +279,7 @@ test('uses profile soul frontmatter model when no role-specific override exists'
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->resolve('reviewer', 'artist'))->toBe('openai/gpt-4.1-mini');
@@ -288,16 +288,52 @@ test('uses profile soul frontmatter model when no role-specific override exists'
     }
 });
 
-test('profile role override beats global role config and profile default model', function () {
+function createResolveForSessionResolver(): RoleResolver
+{
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => [
+                    'orchestrator' => 'ollama/qwen3:latest',
+                ],
+            ],
+        ],
+    ]);
+
+    return new RoleResolver($config);
+}
+
+test('resolveForSession: a non-null session model overrides the role/persona chain', function () {
+    $resolver = createResolveForSessionResolver();
+    // A concrete session model wins outright and is alias-expanded via resolveModel().
+    expect($resolver->resolveForSession('anthropic/claude-opus-4', 'orchestrator', null))
+        ->toBe('anthropic/claude-opus-4');
+});
+
+test('resolveForSession: a null session model falls through to the existing role/persona/primary chain', function () {
+    $resolver = createResolveForSessionResolver();
+    // Identical to resolve() when the session model is null (inherit).
+    expect($resolver->resolveForSession(null, 'orchestrator', null))
+        ->toBe($resolver->resolve('orchestrator', null));
+});
+
+test('resolveForSession: an empty-string session model is treated as inherit', function () {
+    $resolver = createResolveForSessionResolver();
+    expect($resolver->resolveForSession('', 'orchestrator', null))
+        ->toBe($resolver->resolve('orchestrator', null));
+});
+
+test('persona role override beats global role config and persona default model', function () {
     $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
     $projectRoot = $workspacePath . '/project';
     mkdir($workspacePath . '/roles', 0755, true);
-    mkdir($workspacePath . '/profiles/artist/roles', 0755, true);
+    mkdir($workspacePath . '/personas/artist/roles', 0755, true);
     mkdir($projectRoot . '/config/roles', 0755, true);
 
-    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: ollama/mistral:latest\n---\n# Artist\n");
+    file_put_contents($workspacePath . '/personas/artist/soul.md', "---\nmodel: ollama/mistral:latest\n---\n# Artist\n");
     createRoleResolverTestRole($workspacePath . '/roles/coder.md', 'coder', 'openai/gpt-4o');
-    createRoleResolverTestRole($workspacePath . '/profiles/artist/roles/coder.md', 'coder', 'anthropic/claude-sonnet-4-20250514', 11);
+    createRoleResolverTestRole($workspacePath . '/personas/artist/roles/coder.md', 'coder', 'anthropic/claude-sonnet-4-20250514', 11);
 
     try {
         $config = OpenClawConfig::fromArray([
@@ -315,7 +351,7 @@ test('profile role override beats global role config and profile default model',
             $config,
             null,
             new RoleDiscovery($workspacePath, $projectRoot),
-            new ProfileDiscovery($workspacePath),
+            new PersonaDiscovery($workspacePath),
         );
 
         expect($resolver->resolve('coder', 'artist'))->toBe('anthropic/claude-sonnet-4-20250514');

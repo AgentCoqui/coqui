@@ -1,0 +1,14 @@
+{
+  "name": "diverge-converge",
+  "version": 1,
+  "description": "Creative divergence before convergent implementation.",
+  "roles": [
+    { "name": "diverge", "role": "muse", "prompt": "Explore many divergent possibilities for the goal.", "order": 0 },
+    { "name": "examine", "role": "philosopher", "prompt": "Examine the possibilities; surface tensions, assumptions, and the strongest directions.", "order": 1 },
+    { "name": "plan", "role": "plan", "prompt": "Converge on a plan from the strongest direction.", "order": 2 },
+    { "name": "implement", "role": "coder", "prompt": "Implement the plan.", "order": 3 },
+    { "name": "evaluate", "role": "reviewer", "prompt": "Review against the goal. Respond APPROVED or list required changes.", "order": 4, "gate": true }
+  ],
+  "termination_condition": { "type": "evaluation_bound", "value": { "criteria": "Result is coherent and meets the goal", "max_review_rounds": 3 } },
+  "max_rework_attempts": 3
+}

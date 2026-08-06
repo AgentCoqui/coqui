@@ -106,16 +106,16 @@ test('getImageConfig returns configured image defaults', function () {
     ]);
 });
 
-test('getDefaultProfile returns normalized configured profile', function () {
+test('getDefaultPersona returns normalized configured persona', function () {
     $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
-                'profile' => ' Caelum ',
+                'persona' => ' Caelum ',
             ],
         ],
     ]);
 
-    expect($config->getDefaultProfile())->toBe('caelum');
+    expect($config->getDefaultPersona())->toBe('caelum');
 });
 
 test('conversation history prompt flag defaults to false', function () {

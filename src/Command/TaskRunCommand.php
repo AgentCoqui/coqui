@@ -10,7 +10,7 @@ use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
@@ -113,20 +113,20 @@ final class TaskRunCommand extends Command
             $taskProjectId = null;
         }
         $session = $storage->getSession($sessionId);
-        $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
-            ? $session['profile']
+        $taskPersona = is_array($session) && is_string($session['persona_id'] ?? null) && $session['persona_id'] !== ''
+            ? $session['persona_id']
             : null;
-        if ($taskProfile !== null && $boot->profileDiscovery()->profileExists($taskProfile)) {
-            $preferences = ProfilePreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));
+        if ($taskPersona !== null && $boot->personaDiscovery()->personaExists($taskPersona)) {
+            $preferences = PersonaPreferences::fromPersonaPath($boot->personaDiscovery()->getPersonaPath($taskPersona));
             if (!$preferences->isRoleAllowed($role)) {
-                $message = sprintf('Profile "%s" does not allow role "%s".', $taskProfile, $role);
+                $message = sprintf('Persona "%s" does not allow role "%s".', $taskPersona, $role);
                 $storage->updateTaskStatus($taskId, 'failed', ['error' => $message]);
                 $storage->appendTaskEvent($taskId, 'failed', ['error' => $message]);
                 return 1;
             }
         }
 
-        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskProfile);
+        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskPersona);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)
         $cap = $boot->config()->getBackgroundTaskMaxIterations();
@@ -166,37 +166,19 @@ final class TaskRunCommand extends Command
             sessionId: $sessionId,
         );
 
-        // Resolve the structured-question policy for this task. Loop stages carry
-        // loop/stage identifiers in the task's handoff metadata; the loop's
-        // `on_question` mode lives in its stored configuration snapshot. Plain
-        // background tasks (no loop context) default to `block`.
-        $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::Block;
+        // Loops and background tasks never block on a question (D4): auto-answer
+        // with the agent's suggested answer. Loop/stage ids are threaded for audit
+        // when present in the task handoff metadata.
         $loopId = null;
         $stageId = null;
-        $loopBlock = null;
         $meta = is_string($task['metadata'] ?? null) ? json_decode($task['metadata'], true) : null;
         if (is_array($meta) && isset($meta['loop_id'])) {
             $loopId = (string) $meta['loop_id'];
             $stageId = isset($meta['stage_id']) ? (string) $meta['stage_id'] : null;
-            $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($storage->getPdo());
-            $loopRow = $loopStore->getLoop($loopId);
-            $config = is_array($loopRow) && is_string($loopRow['configuration'] ?? null)
-                ? json_decode($loopRow['configuration'], true)
-                : null;
-            $onQuestion = \CoquiBot\Coqui\Contract\OnQuestionPolicy::fromString(
-                is_array($config) && isset($config['on_question']) && is_string($config['on_question'])
-                    ? $config['on_question']
-                    : null,
-            );
-            // Block-mode ask_user escalates the loop to `blocked`; the operator
-            // answers over REST, which reopens the iteration (Task 9).
-            $loopBlock = new \CoquiBot\Coqui\Question\LoopQuestionBlockNotifier($loopStore);
         }
-        $questionResponder = new \CoquiBot\Coqui\Question\PolicyQuestionResponder(
-            $onQuestion,
+        $questionResponder = new \CoquiBot\Coqui\Question\DefaultingQuestionResponder(
             new \CoquiBot\Coqui\Question\QuestionPersistence($storage),
             $sessionId,
-            loopBlock: $loopBlock,
             turnId: null,
             loopId: $loopId,
             stageId: $stageId,
@@ -219,7 +201,7 @@ final class TaskRunCommand extends Command
                 maxIterations: $maxIterations,
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $taskProjectId,
-                profile: $taskProfile,
+                persona: $taskPersona,
                 questionResponder: $questionResponder,
             );
 

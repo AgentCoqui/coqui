@@ -1,0 +1,8 @@
+{
+  "id": "anthropic/claude-opus-4",
+  "display_name": "Claude Opus 4",
+  "context_window": 200000,
+  "max_output_tokens": 32000,
+  "tokenizer_hint": "claude",
+  "capabilities": ["tools", "vision", "thinking"]
+}

@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\Discovery\InstanceInfoBuilder;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -19,8 +20,9 @@ use React\Http\Message\Response;
 /**
  * Server status and control endpoints.
  *
- * GET  /api/v1/server/info   — version, uptime, active sessions/tasks
- * GET  /api/v1/server/stats  — database-level statistics
+ * GET  /api/v1/server/info      — version, uptime, active sessions/tasks
+ * GET  /api/v1/server/instance  — aggregated CAP InstanceInfo capability discovery
+ * GET  /api/v1/server/stats     — database-level statistics
  */
 final readonly class ServerHandler
 {
@@ -33,6 +35,7 @@ final readonly class ServerHandler
         private ?BackgroundTaskManager $taskManager = null,
         private ?LoopManager $loopManager = null,
         private ?ApiLifecycleController $lifecycle = null,
+        private ?InstanceInfoBuilder $instanceInfo = null,
     ) {}
 
     /**
@@ -77,6 +80,25 @@ final readonly class ServerHandler
         }
 
         return Router::jsonResponse($data);
+    }
+
+    /**
+     * GET /api/v1/server/instance — aggregated CAP InstanceInfo.
+     *
+     * The capability-discovery document: protocol version, profiles (open set),
+     * bindings, models, host/builtin toolkits, mcp transports, auth, and limits.
+     * Distinct from the `/server/info` health blob.
+     */
+    public function instance(ServerRequestInterface $request): Response
+    {
+        if ($this->instanceInfo === null) {
+            return Router::errorResponse(
+                ApiErrorCode::INTERNAL_ERROR,
+                'InstanceInfo discovery is unavailable in this environment.',
+            );
+        }
+
+        return Router::jsonResponse($this->instanceInfo->build());
     }
 
     /**

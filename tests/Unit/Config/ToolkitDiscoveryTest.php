@@ -47,14 +47,14 @@ test('toolkit discovery prefers fromCoquiContext and passes runtime context', fu
 
         $entries = $discovery->instantiateRegisteredGrouped(context: [
             'config' => 'config-object',
-            'activeProfile' => 'caelum',
+            'activePersona' => 'caelum',
             'sessionId' => 'session-1',
         ]);
 
         expect($entries)->toHaveCount(1);
         expect($entries[0]['toolkit'])->toBeInstanceOf(ContextAwareTestToolkit::class);
         expect($entries[0]['toolkit']->context['config'])->toBe('config-object');
-        expect($entries[0]['toolkit']->context['activeProfile'])->toBe('caelum');
+        expect($entries[0]['toolkit']->context['activePersona'])->toBe('caelum');
         expect($entries[0]['toolkit']->context['sessionId'])->toBe('session-1');
         expect($entries[0]['toolkit']->context['workspacePath'])->toBe($workspacePath);
         expect($entries[0]['toolkit']->context['packageName'])->toBe('acme/context-aware-toolkit');

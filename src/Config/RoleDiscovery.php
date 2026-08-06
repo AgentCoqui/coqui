@@ -30,8 +30,8 @@ final class RoleDiscovery
     /** @var array<string, RoleProperties>|null Cached discovery results keyed by name */
     private ?array $discovered = null;
 
-    /** @var array<string, array<string, RoleProperties>> Cached profile role results keyed by profile path */
-    private array $profileDiscovered = [];
+    /** @var array<string, array<string, RoleProperties>> Cached persona role results keyed by persona path */
+    private array $personaDiscovered = [];
 
     public function __construct(
         string $workspacePath,
@@ -99,12 +99,12 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function getRole(string $name, ?string $profilePath = null): RoleProperties
+    public function getRole(string $name, ?string $personaPath = null): RoleProperties
     {
-        if ($profilePath !== null) {
-            $profileRole = $this->getProfileRole($name, $profilePath);
-            if ($profileRole !== null) {
-                return $profileRole;
+        if ($personaPath !== null) {
+            $personaRole = $this->getPersonaRole($name, $personaPath);
+            if ($personaRole !== null) {
+                return $personaRole;
             }
         }
 
@@ -122,9 +122,9 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function readInstructions(string $name, ?string $profilePath = null): string
+    public function readInstructions(string $name, ?string $personaPath = null): string
     {
-        $role = $this->getRole($name, $profilePath);
+        $role = $this->getRole($name, $personaPath);
 
         return $this->parser->readBody($role->path);
     }
@@ -132,10 +132,10 @@ final class RoleDiscovery
     /**
      * Check if a role exists.
      */
-    public function roleExists(string $name, ?string $profilePath = null): bool
+    public function roleExists(string $name, ?string $personaPath = null): bool
     {
         try {
-            $this->getRole($name, $profilePath);
+            $this->getRole($name, $personaPath);
             return true;
         } catch (RoleNotFoundException) {
             return false;
@@ -147,21 +147,21 @@ final class RoleDiscovery
      *
      * @return string[]
      */
-    public function availableRoles(?string $profilePath = null): array
+    public function availableRoles(?string $personaPath = null): array
     {
         $roles = array_keys($this->discoverAll());
 
-        if ($profilePath !== null) {
-            $roles = array_unique([...$roles, ...array_keys($this->discoverProfileRoles($profilePath))]);
+        if ($personaPath !== null) {
+            $roles = array_unique([...$roles, ...array_keys($this->discoverPersonaRoles($personaPath))]);
             sort($roles);
         }
 
         return $roles;
     }
 
-    public function getProfileRole(string $name, string $profilePath): ?RoleProperties
+    public function getPersonaRole(string $name, string $personaPath): ?RoleProperties
     {
-        $roles = $this->discoverProfileRoles($profilePath);
+        $roles = $this->discoverPersonaRoles($personaPath);
 
         return $roles[$name] ?? null;
     }
@@ -289,6 +289,95 @@ final class RoleDiscovery
     }
 
     /**
+     * Whether a role name is a valid slug (delegates to the parser's rules).
+     * This is also the path-traversal guard: names become filenames.
+     */
+    public function isValidRoleName(string $name): bool
+    {
+        return $this->parser->validateName($name) === [];
+    }
+
+    /**
+     * Persist an API-authored role to workspace/roles/{name}.md.
+     *
+     * Mirrors LoopDiscovery::saveDefinition: the filename is authoritative for
+     * the name, server-owned tokens (version/id/timestamps) are stripped and
+     * never written (the version lives in ObjectVersionStore), and the on-disk
+     * file is the authoring source only. The authoring body is the strict
+     * role.put.json shape; display_name/description are synthesized because that
+     * shape does not carry them, so the file re-parses cleanly.
+     *
+     * @param array<string, mixed> $body role.put.json authoring body
+     * @throws \InvalidArgumentException on an invalid name/access_level or a reserved name
+     * @throws \RuntimeException on a write failure
+     */
+    public function saveRole(string $name, array $body): void
+    {
+        if (!$this->isValidRoleName($name)) {
+            throw new \InvalidArgumentException(sprintf('Invalid role name: "%s"', $name));
+        }
+
+        if ($this->isReservedName($name)) {
+            throw new \InvalidArgumentException(sprintf('Role name "%s" is reserved and cannot be written.', $name));
+        }
+
+        // Server-owned tokens are never persisted into the authoring file.
+        unset($body['version'], $body['id'], $body['created_at'], $body['updated_at']);
+
+        $accessLevel = is_string($body['access_level'] ?? null) ? $body['access_level'] : '';
+        if (!$this->parser->isValidAccessLevel($accessLevel)) {
+            throw new \InvalidArgumentException(sprintf('Invalid access_level: "%s"', $accessLevel));
+        }
+
+        // Coqui stores toolkits as a comma-separated string; the wire shape is a
+        // string list. Fold it down on write and RoleProducer unfolds it on read.
+        $toolkits = null;
+        if (isset($body['toolkits']) && is_array($body['toolkits'])) {
+            $names = array_values(array_filter(
+                array_map(static fn($t): string => is_string($t) ? trim($t) : '', $body['toolkits']),
+                static fn(string $t): bool => $t !== '',
+            ));
+            $toolkits = $names === [] ? null : implode(',', $names);
+        }
+
+        $maxIterations = isset($body['max_iterations']) && is_numeric($body['max_iterations'])
+            ? (int) $body['max_iterations']
+            : null;
+
+        $model = isset($body['model']) && is_string($body['model']) && $body['model'] !== ''
+            ? $body['model']
+            : null;
+
+        $instructions = isset($body['instructions']) && is_string($body['instructions'])
+            ? $body['instructions']
+            : '';
+
+        $displayName = str_replace(['-', '_'], ' ', $name);
+        $displayName = ucwords($displayName);
+
+        $props = new RoleProperties(
+            name: $name,
+            displayName: $displayName,
+            description: sprintf('%s role.', $displayName),
+            path: '',
+            accessLevel: $accessLevel,
+            model: $model,
+            toolkits: $toolkits,
+            maxIterations: $maxIterations,
+        );
+
+        $content = $this->parser->buildRoleFile($props, $instructions, includeVersion: false);
+
+        $this->ensureRolesDir();
+        $filePath = $this->rolesDir . '/' . $name . '.md';
+        if (file_put_contents($filePath, $content) === false) {
+            throw new \RuntimeException(sprintf('Failed to write role "%s"', $name));
+        }
+
+        $this->invalidateCache();
+    }
+
+    /**
      * Create a new role file.
      *
      * @param array<string, mixed>|RoleProperties $properties Frontmatter data or value object.
@@ -398,28 +487,28 @@ final class RoleDiscovery
     public function invalidateCache(): void
     {
         $this->discovered = null;
-        $this->profileDiscovered = [];
+        $this->personaDiscovered = [];
     }
 
     /**
      * @return array<string, RoleProperties>
      */
-    private function discoverProfileRoles(string $profilePath): array
+    private function discoverPersonaRoles(string $personaPath): array
     {
-        if (isset($this->profileDiscovered[$profilePath])) {
-            return $this->profileDiscovered[$profilePath];
+        if (isset($this->personaDiscovered[$personaPath])) {
+            return $this->personaDiscovered[$personaPath];
         }
 
-        $rolesDir = rtrim($profilePath, '/') . '/roles';
-        $this->profileDiscovered[$profilePath] = [];
+        $rolesDir = rtrim($personaPath, '/') . '/roles';
+        $this->personaDiscovered[$personaPath] = [];
 
         if (!is_dir($rolesDir)) {
-            return $this->profileDiscovered[$profilePath];
+            return $this->personaDiscovered[$personaPath];
         }
 
         $entries = scandir($rolesDir);
         if ($entries === false) {
-            return $this->profileDiscovered[$profilePath];
+            return $this->personaDiscovered[$personaPath];
         }
 
         foreach ($entries as $entry) {
@@ -434,13 +523,13 @@ final class RoleDiscovery
 
             try {
                 $properties = $this->parser->readProperties($filePath);
-                $this->profileDiscovered[$profilePath][$properties->name] = $properties;
+                $this->personaDiscovered[$personaPath][$properties->name] = $properties;
             } catch (RoleParseException) {
                 continue;
             }
         }
 
-        return $this->profileDiscovered[$profilePath];
+        return $this->personaDiscovered[$personaPath];
     }
 
     /**

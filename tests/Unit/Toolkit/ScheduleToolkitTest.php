@@ -17,7 +17,7 @@ afterEach(function () {
     cleanupSqliteTestDb($this->dbPath);
 });
 
-test('schedule_create persists active profile in schedule metadata', function () {
+test('schedule_create persists active persona in schedule metadata', function () {
     $toolkit = new ScheduleToolkit($this->store, 'caelum');
     $tool = toolFromToolkit($toolkit, 'schedule_create');
 
@@ -34,7 +34,7 @@ test('schedule_create persists active profile in schedule metadata', function ()
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->mimeType)->toBe('application/json');
     expect($result->displayHint)->toBe('structured-json');
-    expect($metadata['profile'] ?? null)->toBe('caelum');
+    expect($metadata['persona'] ?? null)->toBe('caelum');
 });
 
 test('schedule_get returns structured json metadata', function () {

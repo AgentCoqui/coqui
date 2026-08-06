@@ -1,6 +1,6 @@
 ---
 title: Structured Questions
-description: "The ask_user tool: answer formats, suggested defaults, per-surface responders, the on_question policy for non-interactive loops, and the audit trail"
+description: "The ask_user tool: answer formats, suggested defaults, per-surface responders, how non-interactive loops auto-answer, and the audit trail"
 ---
 
 # Structured Questions
@@ -93,28 +93,15 @@ The runtime wires exactly one responder into the `ask_user` tool for a given exe
 | --- | --- | --- |
 | `InteractiveQuestionResponder` | REPL turn | Renders the question synchronously via the console and block-waits for a valid answer. Always resolves inline. |
 | `SuspendingQuestionResponder` | Interactive HTTP API turn (runs in a `turn:run` child process) | Persists the question, emits a `question` SSE turn-event, then block-polls the database for the answer the REST answer endpoint records. Bounded by a timeout and an optional cancellation token so a never-answered question cannot hang. |
-| `PolicyQuestionResponder` | Loop stage / background task | Applies the loop's `on_question` policy (`block` or `default`) — no interactive prompt. |
+| `DefaultingQuestionResponder` | Loop stage / background task | Auto-answers with the agent's `suggested` best-guess answer and logs it — no interactive prompt. Loops never block on a question. |
 
 If no responder is wired for a context, the `ask_user` tool is simply not present — existing loops and turns that never call `ask_user` are unaffected.
 
-## Non-interactive loops: the `on_question` policy
+## Non-interactive loops and background tasks
 
-A loop definition carries an `on_question` field (`block` | `default`, default `block`) that decides what happens when a stage calls `ask_user`. See [LOOPS.md](LOOPS.md) for where it sits in the definition file.
+A loop or background task runs unattended, so an `ask_user` call from a stage **never blocks**. The `DefaultingQuestionResponder` auto-answers with the agent's `suggested` best-guess answer, persists both the asked and answered records for audit, and the stage continues without interruption. This is why `suggested` is required: it is the answer that will actually be taken when no operator is present.
 
-- **`block` (default)** — the stage escalates the whole loop to the `blocked` state, carrying the question as the escalation payload, and the `ask_user` call returns a hard-STOP sentinel (`QUESTION_BLOCKED`) that instructs the agent to stop immediately and take no further action. The whole iteration is later reopened from stage 0 with the operator's answer injected.
-- **`default`** — the agent's `suggested` answer is auto-taken and logged, and the stage continues without interruption.
-
-Role-level `on_question` override is **not** supported in v1 — the policy is set per loop definition only.
-
-### How a blocked question is surfaced and resolved
-
-When a `block`-mode loop stage asks a question:
-
-1. The loop transitions to `blocked` (an actionable `loop.blocked` escalation), exactly like the circuit-breaker escalation, so the existing blocked-loop UI and notifications surface it.
-2. An operator lists pending questions with `GET /api/v1/sessions/{id}/questions` and answers with `POST /api/v1/sessions/{id}/questions/{questionId}/answer`.
-3. Answering a block-mode loop question **reopens** the iteration (like a retry): the escalation is cleared, the rework breaker is reset, and the answer is staged for one-shot injection into the reopened stage prompt. Every stage in the current iteration is reset and the iteration re-runs from stage 0 — the same sequence as `LoopHandler::retryIteration` — so completed work from earlier stages in that iteration is discarded too.
-
-Both endpoints are CORE authenticated. Their request/response shapes and status codes are documented in [API.md](API.md).
+An operator can still list and answer pending questions over the REST surface (`GET /api/v1/sessions/{id}/questions`, `POST /api/v1/sessions/{id}/questions/{questionId}/answer`) — both CORE authenticated — but a loop stage does not wait for them. See [API.md](API.md) for the endpoint shapes.
 
 ## Audit trail
 
@@ -129,11 +116,10 @@ Q&A is persisted **only** to `audit_log` and the `questions` table — never to 
 
 - One question per `ask_user` call; no batching.
 - No formats beyond `single_select`, `multi_select`, and `free_text` (plus `allow_other` on selects).
-- No role-level `on_question` override — the policy is per loop definition.
 - Q&A is confined to `audit_log` + the `questions` table.
-- A `block`-mode `ask_user` from a plain (non-loop) background task has no operator resume path — the question stays pending and the task halts; `ask_user` block-mode resolution is supported for loops (and live REPL/API turns), not fire-and-forget background tasks.
+- Loops and background tasks never block on a question — they auto-answer with the agent's `suggested` default. Only live REPL and API turns wait for an operator.
 
 ## See also
 
 - [API.md](API.md) — the `GET`/`POST` questions endpoints and the `question` SSE turn-event.
-- [LOOPS.md](LOOPS.md) — the `on_question` loop-definition field and the `blocked`/unblock lifecycle.
+- [LOOPS.md](LOOPS.md) — how loops auto-answer questions and the `blocked`/unblock lifecycle.

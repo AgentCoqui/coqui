@@ -1,0 +1,9 @@
+{
+  "id": "01J000000000000000AUDIT001",
+  "session_id": "01J0000000000000000SESSION",
+  "tool_name": "shell_exec",
+  "arguments": { "command": "rm -rf ./build" },
+  "action": "approved",
+  "reason": "operator confirmed",
+  "created_at": "2026-07-28T00:00:03Z"
+}

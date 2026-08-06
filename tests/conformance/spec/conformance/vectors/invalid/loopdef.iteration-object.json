@@ -1,0 +1,9 @@
+{
+  "name": "loopdef-iteration-object",
+  "description": "Well-formed except that iteration_bound carries an object value instead of an integer.",
+  "roles": [
+    { "name": "work", "role": "coder", "prompt": "Do one increment of work toward the goal.", "order": 0 }
+  ],
+  "termination_condition": { "type": "iteration_bound", "value": { "criteria": "should not be an object", "max_review_rounds": 2 } },
+  "max_rework_attempts": 3
+}

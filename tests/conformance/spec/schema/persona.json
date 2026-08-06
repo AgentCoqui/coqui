@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/persona.json",
+  "title": "Persona",
+  "description": "An authored agent identity. The required fields are the lean persona; optional layers are additive. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "avatar", "model", "allowed_roles", "soul", "version", "created_at", "updated_at"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "version": { "type": "integer", "minimum": 1, "description": "Opaque optimistic-concurrency token; server-assigned, increments on each update. Clients send the current value as If-Match on mutation; a mismatch returns 409 version_conflict." },
+    "name": { "type": "string", "minLength": 1 },
+    "avatar": {
+      "type": "object",
+      "description": "Tint/color or image reference used to render the persona.",
+      "additionalProperties": true,
+      "properties": {
+        "tint": { "type": "string", "description": "Color or gradient token." },
+        "image_ref": { "type": ["string", "null"] }
+      }
+    },
+    "model": { "$ref": "common.json#/$defs/ModelId" },
+    "allowed_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Role names this persona may run. MUST include 'orchestrator'. Authoritative for Loop stage roles.",
+      "contains": { "const": "orchestrator" }
+    },
+    "soul": {
+      "type": "string",
+      "description": "The system-prompt identity text (soul.md content)."
+    },
+    "backstory": { "type": ["string", "null"], "description": "Optional persistent identity context." },
+    "context": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "Optional supplementary note blocks."
+    },
+    "preferences": {
+      "type": ["object", "null"],
+      "description": "Optional lean behavioral policy (Personas.md §4). Prompt-composition control is out of scope here (Doc 5).",
+      "additionalProperties": false,
+      "properties": {
+        "directives": {
+          "type": "object",
+          "description": "Free-form key/value guidance rendered as a short preferences block.",
+          "additionalProperties": { "type": "string" }
+        },
+        "behavior": {
+          "type": "object",
+          "description": "Runtime hints, not rendered into the prompt.",
+          "additionalProperties": false,
+          "properties": {
+            "temperature_hint": { "type": "number", "minimum": 0, "maximum": 2 }
+          }
+        },
+        "sections": {
+          "type": "object",
+          "description": "Per-persona prompt-section policy (Budgeting.md §4). Only non-pinned sections; security/soul/workflow are not valid keys.",
+          "additionalProperties": false,
+          "properties": {
+            "backstory": { "enum": ["on", "off", "stub"] },
+            "context": { "enum": ["on", "off", "stub"] },
+            "preferences": { "enum": ["on", "off"] },
+            "memory": { "enum": ["on", "off"] },
+            "tools": { "enum": ["on", "stub"] }
+          }
+        }
+      }
+    },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "updated_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

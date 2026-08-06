@@ -166,16 +166,23 @@ final class LoopManager
         // scope so ArtifactToolkit can access cross-stage data.
         $workScopeSessionId = $stageResult->sessionId;
         $workScopeSession = $workScopeSessionId !== null ? $this->storage->getSession($workScopeSessionId) : null;
-        $activeProfile = is_array($workScopeSession) && is_string($workScopeSession['profile'] ?? null) && $workScopeSession['profile'] !== ''
-            ? $workScopeSession['profile']
+        $activePersona = is_array($workScopeSession) && is_string($workScopeSession['persona_id'] ?? null) && $workScopeSession['persona_id'] !== ''
+            ? $workScopeSession['persona_id']
+            : null;
+
+        // Inherit the work-scope session's rooted workspace so the stage's
+        // execution agent operates against the same filesystem root (D3).
+        $parentWorkspace = is_array($workScopeSession) && is_string($workScopeSession['workspace'] ?? null) && $workScopeSession['workspace'] !== ''
+            ? $workScopeSession['workspace']
             : null;
 
         // Create a fresh execution session for this stage's background task
         $sessionId = $this->storage->createSession(
             modelRole: $stageResult->role,
             model: '',
-            profile: $activeProfile,
+            persona: $activePersona,
             visibility: 'hidden',
+            workspace: $parentWorkspace,
         );
 
         // Propagate active project context from parent session to task session
@@ -219,6 +226,7 @@ final class LoopManager
             metadata: $stageMetadata,
         );
         $this->loopStore->updateLoopProgress($loopId, (int) ($state['iteration']['iteration_number'] ?? 0), $stageResult->stageIndex);
+        $this->loopStore->setDispatchState($loopId, 'dispatched');
         $this->loopStore->updateLoopMetadata($loopId, [
             'dispatch' => [
                 'status' => 'dispatched',
@@ -439,6 +447,10 @@ final class LoopManager
     private function failLoop(string $loopId, string $phase, \Throwable $e): void
     {
         try {
+            // dispatch_state stays a closed-set value: a failed dispatch means the
+            // stage was NOT dispatched (pending), with the error captured for
+            // diagnosis (CORE-16). The rich failure detail rides in metadata.
+            $this->loopStore->setDispatchState($loopId, 'pending', mb_substr($e->getMessage(), 0, 200));
             $this->loopStore->updateLoopMetadata($loopId, [
                 'dispatch' => [
                     'status' => 'failed',
@@ -502,9 +514,11 @@ final class LoopManager
         $iterationNumber = (int) ($state['iteration']['iteration_number'] ?? 0);
         $stageIndex = (int) ($stage['stage_index'] ?? 0);
 
-        // Resolve project_id from the loop record
+        // Resolve the loop's project from its configuration snapshot (the
+        // loops.project_id column was dropped with the protocol's Project removal).
         $loop = $this->loopStore->getLoop($loopId);
-        $projectId = $loop['project_id'] ?? null;
+        $config = is_array($loop) ? json_decode((string) ($loop['configuration'] ?? ''), true) : null;
+        $projectId = is_array($config) ? ($config['resolved_project_id'] ?? null) : null;
 
         return $this->artifactStore->create(
             sessionId: $workScopeSessionId,

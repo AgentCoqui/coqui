@@ -210,7 +210,7 @@ Stage agents receive toolkits based on their role's access level:
 | `readonly` (e.g., plan, reviewer) | Read-only files only |
 | `minimal` | No file or shell access |
 
-Access level gates file, shell, web, and auto-discovered toolkits only. Independently of access level — including `minimal` — every stage agent also receives `CoquiDocsToolkit` (unconditional), `MemoryToolkit` (whenever a memory store is configured), `ArtifactToolkit` (storage + session + the `artifacts` profile feature), and the always-loaded `CoquiSkillsTool`. `SkillToolkit` is never constructed for stage agents; it is only wired for `spawn_agent` children.
+Access level gates file, shell, web, and auto-discovered toolkits only. Independently of access level — including `minimal` — every stage agent also receives `CoquiDocsToolkit` (unconditional), `MemoryToolkit` (whenever a memory store is configured), `ArtifactToolkit` (storage + session + the `artifacts` persona feature), and the always-loaded `CoquiSkillsTool`. `SkillToolkit` is never constructed for stage agents; it is only wired for `spawn_agent` children.
 
 ### Excluded from Stage Agents
 
@@ -219,7 +219,7 @@ Stage agents intentionally do **not** receive:
 - `LoopToolkit` — prevents infinite loop recursion
 - `ScheduleToolkit` — prevents unbounded schedule creation
 
-Stage agents run through the same `OrchestratorAgent` class as top-level agents; the exclusion comes from a guard inside it. Both toolkits require `access_level === 'full'` **and** `workScopeSessionId === null`, and a stage agent always has a work-scope session set. `LoopToolkit` additionally requires the `loops` profile feature, and both consult the role's toolkit allowlist — so two of the three gates are configuration.
+Stage agents run through the same `OrchestratorAgent` class as top-level agents; the exclusion comes from a guard inside it. Both toolkits require `access_level === 'full'` **and** `workScopeSessionId === null`, and a stage agent always has a work-scope session set. `LoopToolkit` additionally requires the `loops` persona feature, and both consult the role's toolkit allowlist — so two of the three gates are configuration.
 
 ## Custom Loop Definitions
 
@@ -259,20 +259,9 @@ Example file:
 }
 ```
 
-### Non-interactive questions (`on_question`)
+### Non-interactive questions
 
-A loop runs unattended, so an `ask_user` call from a stage cannot open an interactive prompt. The top-level `on_question` field decides what happens instead:
-
-```json
-"on_question": "block"
-```
-
-| Value | Behavior |
-| --- | --- |
-| `"block"` (default) | The stage's `ask_user` call escalates the loop to `blocked` with the question as the escalation payload, and the tool returns a hard-STOP sentinel so the agent stops immediately. An operator answers via `POST /api/v1/sessions/{id}/questions/{questionId}/answer`; the stage then reopens from the start with the answer injected. |
-| `"default"` | The agent's `suggested` best-guess answer is auto-taken and logged, and the stage continues without interruption. |
-
-`on_question` is omitted → `block`. This is set **per loop definition only**; a role-level override is not supported in v1. See [QUESTIONS.md](QUESTIONS.md) for the full structured-questions guide and [API.md](API.md) for the answer endpoints.
+A loop runs unattended, so an `ask_user` call from a stage cannot open an interactive prompt and **never blocks the loop**. The agent's `suggested` best-guess answer is auto-taken and logged, and the stage continues without interruption. Always provide a good `suggested` default. See [QUESTIONS.md](QUESTIONS.md) for the full structured-questions guide.
 
 ### Parameterized Definitions
 
@@ -405,4 +394,4 @@ There is **one** execution mode. Whatever creates a loop, its stages always run 
 - [DATA_FLOW.md](DATA_FLOW.md) — How all components connect
 - [ARTIFACTS.md](ARTIFACTS.md) — Artifacts created by loop stages
 - [PROJECTS.md](PROJECTS.md) — Projects auto-created by loops
-- [QUESTIONS.md](QUESTIONS.md) — Structured questions and the `on_question` policy
+- [QUESTIONS.md](QUESTIONS.md) — Structured questions and how loops auto-answer them

@@ -1,0 +1,1 @@
+{ "name": "nightly-research", "cron": "0 3 * * *", "persona_id": "01J00000000000000000000P01", "action": { "kind": "loop", "definition_name": "research" }, "status": "enabled" }

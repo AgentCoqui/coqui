@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/scheduled-task.patch.json",
+  "title": "ScheduledTaskPatch",
+  "description": "Authoring shape for updateSchedule (partial PATCH). Every field is optional; at least one MUST be present (minProperties). Only client-mutable fields are accepted — name, cron, persona_id, action, and status (enabled|disabled toggle, per Schedules.md). Immutable/derived fields (id, created_at, updated_at, last_run_at, next_run_at) are forbidden. Sub-schemas are $ref'd from scheduled-task.json so they cannot drift. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "name": { "$ref": "scheduled-task.json#/properties/name" },
+    "cron": { "$ref": "scheduled-task.json#/properties/cron" },
+    "persona_id": { "$ref": "scheduled-task.json#/properties/persona_id" },
+    "action": { "$ref": "scheduled-task.json#/properties/action" },
+    "status": { "$ref": "scheduled-task.json#/properties/status" }
+  }
+}

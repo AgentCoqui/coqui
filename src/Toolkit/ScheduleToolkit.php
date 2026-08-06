@@ -30,7 +30,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 {
     public function __construct(
         private ScheduleStore $scheduleStore,
-        private ?string $activeProfileId = null,
+        private ?string $activePersonaId = null,
     ) {}
 
     public function tools(): array
@@ -316,15 +316,16 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $maxIterations = ScheduleValidator::normalizeMaxIterations((int) ($args['max_iterations'] ?? 48));
         $isOneShot = ($cron === '@once');
         $metadata = null;
-        if ($this->activeProfileId !== null) {
-            $encoded = json_encode(['profile' => $this->activeProfileId], JSON_UNESCAPED_SLASHES);
+        if ($this->activePersonaId !== null) {
+            $encoded = json_encode(['persona' => $this->activePersonaId], JSON_UNESCAPED_SLASHES);
             $metadata = $encoded !== false ? $encoded : null;
         }
 
         $id = $this->scheduleStore->create(
             name: $name,
             scheduleExpression: $isOneShot ? '@once' : $cron,
-            prompt: $prompt,
+            action: ['kind' => 'turn', 'prompt' => $prompt],
+            personaId: $this->activePersonaId,
             role: $role,
             maxIterations: $maxIterations,
             timezone: $timezone,
@@ -374,7 +375,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
                 $s['id'],
                 $s['name'],
                 $source,
-                $s['schedule_expression'],
+                $s['cron'],
                 $nextRun,
                 $runs,
                 $failures,
@@ -443,7 +444,9 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $this->scheduleStore->update(
             id: $id,
             scheduleExpression: $cron,
-            prompt: isset($args['prompt']) ? trim((string) $args['prompt']) : null,
+            action: isset($args['prompt'])
+                ? ['kind' => 'turn', 'prompt' => trim((string) $args['prompt'])]
+                : null,
             role: $args['role'] ?? null,
             maxIterations: $maxIterations,
             enabled: isset($args['enabled']) ? (bool) $args['enabled'] : null,

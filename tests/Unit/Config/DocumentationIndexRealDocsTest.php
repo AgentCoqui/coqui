@@ -20,7 +20,7 @@ it('indexes every docs/*.md that exists on disk', function () use ($projectRoot)
     sort($indexed);
 
     // A doc that exists but is not indexed is invisible to the agent — the exact
-    // regression that hid LOOPS.md and PROFILES.md behind a hardcoded allowlist.
+    // regression that hid LOOPS.md and PERSONAS.md behind a hardcoded allowlist.
     expect($indexed)->toBe($onDisk)
         ->and($indexed)->toHaveCount(18);
 });
@@ -30,7 +30,7 @@ it('indexes the docs that the old hardcoded allowlist omitted', function () use 
 
     expect($indexed)
         ->toContain('docs/LOOPS.md')
-        ->toContain('docs/PROFILES.md')
+        ->toContain('docs/PERSONAS.md')
         ->toContain('docs/QUESTIONS.md')
         ->toContain('docs/ARTIFACTS.md')
         ->toContain('docs/PROJECTS.md')
@@ -75,7 +75,7 @@ it('finds a loops-only term in the real docs/LOOPS.md', function () use ($projec
         }
     }
 
-    $data = json_decode($tool->execute(['query' => 'on_question'])->content, true);
+    $data = json_decode($tool->execute(['query' => 'rework_attempts'])->content, true);
     $paths = array_column($data['results'], 'path');
 
     // docs/LOOPS.md was invisible to the agent under the hardcoded allowlist.
@@ -96,7 +96,7 @@ it('surfaces the real docs/LOOPS.md for the bare term "loops"', function () use 
     $data = json_decode($tool->execute(['query' => 'loops'])->content, true);
     $paths = array_column($data['results'], 'path');
 
-    // The on_question test above only gates because API.md cannot match a
+    // The rework_attempts test above only gates because API.md cannot match a
     // loops-only term. "loops" is the question an agent actually asks, and it
     // returned 20/20 results from docs/API.md — the eight-doc blind spot
     // re-created at the ranking layer. docs/LOOPS.md is titled "Loops"; nothing

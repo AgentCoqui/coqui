@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/loop-iteration.json",
+  "title": "LoopIteration",
+  "description": "One pass through a Loop's role-chain. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "loop_id", "iteration_number", "status"],
+  "properties": {
+    "id": { "$ref": "common.json#/$defs/Id" },
+    "loop_id": { "$ref": "common.json#/$defs/Id" },
+    "iteration_number": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string", "enum": ["pending", "running", "completed", "needs_rework", "failed"] },
+    "outcome_summary": { "type": ["string", "null"] },
+    "started_at": { "$ref": "common.json#/$defs/NullableTimestamp" },
+    "completed_at": { "$ref": "common.json#/$defs/NullableTimestamp" }
+  }
+}

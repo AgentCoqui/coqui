@@ -1,0 +1,11 @@
+{
+  "name": "goal-driven",
+  "version": 1,
+  "description": "Plan and implement, judged against the goal without a reviewer role.",
+  "roles": [
+    { "name": "plan", "role": "plan", "prompt": "Plan the next increment toward the goal.", "order": 0 },
+    { "name": "implement", "role": "coder", "prompt": "Implement the planned increment.", "order": 1 }
+  ],
+  "termination_condition": { "type": "goal_bound", "value": { "goal_prompt": "Has the stated goal been achieved by the work so far?", "max_iterations": 10 } },
+  "max_rework_attempts": 3
+}

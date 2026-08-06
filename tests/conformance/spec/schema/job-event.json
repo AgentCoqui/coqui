@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/job-event.json",
+  "title": "JobEvent",
+  "description": "One entry in a Job's progress stream. Internal (diagnostics-only). Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "job_id", "event_type", "data", "created_at"],
+  "properties": {
+    "id": { "type": "integer", "description": "Autoincrement integer PK (not an opaque Id string)." },
+    "job_id": { "$ref": "common.json#/$defs/Id" },
+    "event_type": { "type": "string" },
+    "data": { "type": "object" },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

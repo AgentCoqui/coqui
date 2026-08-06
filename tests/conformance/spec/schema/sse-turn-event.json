@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/sse-turn-event.json",
+  "title": "SSE turn-stream event frame",
+  "description": "Discriminated union of the framed events on a turn stream (GET /sessions/{id}/turns/{turnId}/events). Each frame is `{ event, data }` discriminated by the SSE `event:` name; `data` is the concrete payload for that event. Event names and payloads MIRROR events.yaml's `turn` channel (token, message, tool_call, tool_result, question, done, error) — the same shapes on the in-process binding. The optional `id` mirrors the SSE `id:` transport cursor (see sse-frame.json); it is not part of any `data`. The `question` and `error` branches reuse sse-question.json / sse-error.json so a stream question/failure classifies identically to the interactive-answer / HTTP-error paths.",
+  "oneOf": [
+    { "$ref": "#/$defs/token" },
+    { "$ref": "#/$defs/message" },
+    { "$ref": "#/$defs/tool_call" },
+    { "$ref": "#/$defs/tool_result" },
+    { "$ref": "sse-question.json" },
+    { "$ref": "#/$defs/done" },
+    { "$ref": "sse-error.json" }
+  ],
+  "$defs": {
+    "token": {
+      "title": "token frame",
+      "description": "Incremental assistant text delta.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "token" },
+        "data": {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "text": { "type": "string" } }
+        }
+      }
+    },
+    "message": {
+      "title": "message frame",
+      "description": "A complete message was appended (assistant or tool).",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "message" },
+        "data": { "$ref": "message.json" }
+      }
+    },
+    "tool_call": {
+      "title": "tool_call frame",
+      "description": "The agent invoked a tool.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "tool_call" },
+        "data": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "tool_call_id": { "type": "string" },
+            "name": { "type": "string" },
+            "arguments": { "type": "object" }
+          }
+        }
+      }
+    },
+    "tool_result": {
+      "title": "tool_result frame",
+      "description": "A tool returned a result.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "tool_result" },
+        "data": {
+          "type": "object",
+          "required": ["tool_call_id"],
+          "properties": {
+            "tool_call_id": { "type": "string" },
+            "result": {}
+          }
+        }
+      }
+    },
+    "done": {
+      "title": "done frame",
+      "description": "Terminal event — the turn finished. Carries the final turn record.",
+      "type": "object",
+      "required": ["event", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Monotonic stream cursor (the SSE `id:` line)." },
+        "event": { "const": "done" },
+        "data": { "$ref": "turn.json" }
+      }
+    }
+  }
+}

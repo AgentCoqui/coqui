@@ -5,12 +5,12 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\PersonaDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Coqui\Support\PersonaSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -20,7 +20,7 @@ function createRunCommandSessionFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-run-command-session-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
-    mkdir($workspacePath . '/profiles', 0755, true);
+    mkdir($workspacePath . '/personas', 0755, true);
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
@@ -35,14 +35,14 @@ function createRunCommandSessionFixture(): array
         ],
     ]);
     $roleResolver = new RoleResolver($config);
-    $lifecycleManager = new ProfileSessionLifecycleManager(
+    $lifecycleManager = new PersonaSessionLifecycleManager(
         storage: $storage,
         providerFactory: new ProviderFactory($config),
         roleResolver: $roleResolver,
         memoryStore: new MemoryStore($workspacePath . '/memory.db'),
     );
 
-    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver, new ProfileDiscovery($workspacePath));
+    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver, new PersonaDiscovery($workspacePath));
     $output = new BufferedOutput();
     $command = new RunCommand();
 
@@ -63,16 +63,16 @@ function cleanupRunCommandSessionFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver, ProfileDiscovery $profileDiscovery): BootManager
+function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver, PersonaDiscovery $personaDiscovery): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($workspacePath, $roleResolver, $profileDiscovery): void {
+    $initializer = function () use ($workspacePath, $roleResolver, $personaDiscovery): void {
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
-        $this->profileDiscovery = $profileDiscovery;
+        $this->personaDiscovery = $personaDiscovery;
     };
 
     \Closure::bind($initializer, $boot, BootManager::class)();
@@ -113,37 +113,37 @@ function setRunCommandSessionUpdatedAt(SessionStorage $storage, string $sessionI
         ]);
 }
 
-test('run command startup selection resumes requested profile scope in terminal mode', function () {
+test('run command startup selection resumes requested persona scope in terminal mode', function () {
     $fixture = createRunCommandSessionFixture();
 
     try {
-        $profileSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $unprofiledSessionId, '2026-01-01T00:00:00+00:00');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $profileSessionId, '2026-01-03T00:00:00+00:00');
+        $personaSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $unpersonaScopedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $unpersonaScopedSessionId, '2026-01-01T00:00:00+00:00');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $personaSessionId, '2026-01-03T00:00:00+00:00');
 
-        $input = new ArrayInput(['--profile' => 'caelum'], $fixture['command']->getDefinition());
+        $input = new ArrayInput(['--persona' => 'caelum'], $fixture['command']->getDefinition());
         $sessionId = invokeRunCommandStartupSelection($fixture['command'], $input, $fixture['handler'], $fixture['io'], false);
 
-        expect($sessionId)->toBe($profileSessionId);
+        expect($sessionId)->toBe($personaSessionId);
     } finally {
         cleanupRunCommandSessionFixture($fixture);
     }
 });
 
-test('run command startup selection resumes default unprofiled scope in terminal mode', function () {
+test('run command startup selection resumes default unpersonaScoped scope in terminal mode', function () {
     $fixture = createRunCommandSessionFixture();
 
     try {
-        $profileSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $unprofiledSessionId, '2026-01-03T00:00:00+00:00');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $profileSessionId, '2026-01-04T00:00:00+00:00');
+        $personaSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $unpersonaScopedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $unpersonaScopedSessionId, '2026-01-03T00:00:00+00:00');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $personaSessionId, '2026-01-04T00:00:00+00:00');
 
         $input = new ArrayInput([], $fixture['command']->getDefinition());
         $sessionId = invokeRunCommandStartupSelection($fixture['command'], $input, $fixture['handler'], $fixture['io'], false);
 
-        expect($sessionId)->toBe($unprofiledSessionId);
+        expect($sessionId)->toBe($unpersonaScopedSessionId);
     } finally {
         cleanupRunCommandSessionFixture($fixture);
     }
@@ -169,21 +169,21 @@ test('run command startup selection uses attached session for continue mode', fu
     }
 });
 
-test('run command startup selection uses configured default profile in headless mode', function () {
+test('run command startup selection uses configured default persona in headless mode', function () {
     $fixture = createRunCommandSessionFixture();
 
     try {
-        $profileSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $unprofiledSessionId, '2026-01-01T00:00:00+00:00');
-        setRunCommandSessionUpdatedAt($fixture['storage'], $profileSessionId, '2026-01-03T00:00:00+00:00');
+        $personaSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $unpersonaScopedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $unpersonaScopedSessionId, '2026-01-01T00:00:00+00:00');
+        setRunCommandSessionUpdatedAt($fixture['storage'], $personaSessionId, '2026-01-03T00:00:00+00:00');
 
-        setRunCommandProperty($fixture['command'], 'configuredDefaultProfile', 'caelum');
+        setRunCommandProperty($fixture['command'], 'configuredDefaultPersona', 'caelum');
 
         $input = new ArrayInput([], $fixture['command']->getDefinition());
         $sessionId = invokeRunCommandStartupSelection($fixture['command'], $input, $fixture['handler'], null, true);
 
-        expect($sessionId)->toBe($profileSessionId);
+        expect($sessionId)->toBe($personaSessionId);
     } finally {
         cleanupRunCommandSessionFixture($fixture);
     }

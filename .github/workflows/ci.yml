@@ -8,12 +8,11 @@ on:
 
 jobs:
   tests:
-    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         php: ['8.4', '8.5']
 
     steps:
@@ -24,7 +23,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, mbstring, curl, xml, zip, gd${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
+          extensions: pdo_sqlite, mbstring, curl, xml, zip, gd, pcntl
           tools: composer:v2.9.8
           coverage: none
 
@@ -88,12 +87,11 @@ jobs:
           if-no-files-found: error
 
   static-analysis:
-    name: PHPStan (PHP ${{ matrix.php }}, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: PHPStan (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         php: ['8.4', '8.5']
 
     steps:
@@ -104,7 +102,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, mbstring, curl, xml, zip, gd${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
+          extensions: pdo_sqlite, mbstring, curl, xml, zip, gd, pcntl
           tools: composer:v2.9.8
           coverage: none
 

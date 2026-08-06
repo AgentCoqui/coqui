@@ -17,13 +17,13 @@ afterEach(function () {
     cleanupSqliteTestDb($this->dbPath);
 });
 
-test('tick creates scheduled task session with persisted profile metadata', function () {
+test('tick creates scheduled task session with persisted persona metadata', function () {
     $scheduleId = $this->scheduleStore->create(
         name: 'caelum-daily',
         scheduleExpression: '@once',
-        prompt: 'Check project continuity',
+        action: ['kind' => 'turn', 'prompt' => 'Check project continuity'],
         role: 'orchestrator',
-        metadata: json_encode(['profile' => 'caelum'], JSON_UNESCAPED_SLASHES),
+        metadata: json_encode(['persona' => 'caelum'], JSON_UNESCAPED_SLASHES),
     );
     $this->scheduleStore->forceNextRun($scheduleId, gmdate('Y-m-d\TH:i:s\Z', time() - 120));
 
@@ -34,5 +34,32 @@ test('tick creates scheduled task session with persisted profile metadata', func
 
     expect($task)->not->toBeNull();
     expect($session)->not->toBeNull();
-    expect($session['profile'])->toBe('caelum');
+    expect($session['persona_id'])->toBe('caelum');
+});
+
+test('tick dispatches a turn schedule but skips a loop schedule', function () {
+    $turnId = $this->scheduleStore->create(
+        name: 'turn-schedule',
+        scheduleExpression: '@once',
+        action: ['kind' => 'turn', 'prompt' => 'Do the turn work'],
+        role: 'orchestrator',
+    );
+    $loopId = $this->scheduleStore->create(
+        name: 'loop-schedule',
+        scheduleExpression: '@once',
+        action: ['kind' => 'loop', 'definition_name' => 'research'],
+        role: 'orchestrator',
+    );
+
+    $past = gmdate('Y-m-d\TH:i:s\Z', time() - 120);
+    $this->scheduleStore->forceNextRun($turnId, $past);
+    $this->scheduleStore->forceNextRun($loopId, $past);
+
+    $this->manager->tick();
+
+    // The turn schedule dispatched a background task.
+    expect($this->storage->getTaskByScheduleId($turnId))->not->toBeNull();
+
+    // The loop schedule did NOT — no empty-prompt turn is fired.
+    expect($this->storage->getTaskByScheduleId($loopId))->toBeNull();
 });

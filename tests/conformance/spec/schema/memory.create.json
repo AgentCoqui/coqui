@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/memory.create.json",
+  "title": "MemoryCreate",
+  "description": "Authoring shape for createMemory. Server-owned fields (id, version, created_at, updated_at) are forbidden — the server assigns them. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "content", "type"],
+  "properties": {
+    "name": { "$ref": "common.json#/$defs/Slug" },
+    "content": { "type": "string" },
+    "type": { "$ref": "memory.json#/properties/type" },
+    "persona_id": { "$ref": "memory.json#/properties/persona_id" },
+    "description": { "$ref": "memory.json#/properties/description" },
+    "metadata": { "$ref": "memory.json#/properties/metadata" }
+  }
+}

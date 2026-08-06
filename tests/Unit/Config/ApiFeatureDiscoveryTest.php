@@ -65,7 +65,7 @@ test('a discovered feature registers routes on the Router', function () {
         $storage = new \CoquiBot\Coqui\Storage\SessionStorage($dbPath);
         $services = new CoreServices(
             $storage,
-            new \CoquiBot\Coqui\Config\ProfileDiscovery(sys_get_temp_dir()),
+            new \CoquiBot\Coqui\Config\PersonaDiscovery(sys_get_temp_dir()),
             \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([])
         );
 
@@ -85,7 +85,7 @@ test('registerAll isolates a throwing feature and continues past it', function (
         $storage = new \CoquiBot\Coqui\Storage\SessionStorage($dbPath);
         $services = new CoreServices(
             $storage,
-            new \CoquiBot\Coqui\Config\ProfileDiscovery(sys_get_temp_dir()),
+            new \CoquiBot\Coqui\Config\PersonaDiscovery(sys_get_temp_dir()),
             \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([])
         );
 

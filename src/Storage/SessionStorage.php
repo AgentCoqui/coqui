@@ -31,6 +31,13 @@ use PDOException;
  */
 final class SessionStorage
 {
+    /**
+     * CAP 0.5.0 storage schema stamp. Written to meta.schema_version on a fresh
+     * store; a store carrying any other stamp is refused (fail-closed-open, no
+     * in-place migration).
+     */
+    public const SCHEMA_VERSION = '0.5.0';
+
     private PDO $db;
     private CoquiProcessChecker $processChecker;
     private BackgroundTaskRecordStore $taskStore;
@@ -60,14 +67,87 @@ final class SessionStorage
 
     private function createTables(): void
     {
+        // CAP 0.5.0 storage marker. Create + seed the stamp first, then refuse
+        // to open any store whose stamp differs from this build's SCHEMA_VERSION.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        SQL);
+        $seed = $this->db->prepare(
+            "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', :version)"
+        );
+        $seed->execute([':version' => self::SCHEMA_VERSION]);
+        $this->assertSchemaVersion($this->db);
+
+        // CAP 0.5.0 persona index. Snapshot of the file-based authoring source
+        // (PersonaSnapshotStore). Defined before any table that FK-references it,
+        // since PRAGMA foreign_keys is ON for every connection.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS personas (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL UNIQUE,
+                avatar        TEXT NOT NULL,
+                model         TEXT NOT NULL,
+                allowed_roles TEXT NOT NULL,
+                soul          TEXT NOT NULL,
+                backstory     TEXT,
+                context       TEXT,
+                preferences   TEXT,
+                version       INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        SQL);
+
+        // CAP 0.5.0 optimistic-concurrency counters for file-authored Core objects
+        // (personas, roles, loop definitions). The authoring content lives on disk;
+        // this table holds only the monotonic `version` token the spec requires each
+        // to expose for If-Match guarded writes. Keyed by (object_type, object_name);
+        // ObjectVersionStore is the sole writer. Recreate-from-empty — no ALTER.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS object_versions (
+                object_type TEXT NOT NULL,
+                object_name TEXT NOT NULL,
+                version     INTEGER NOT NULL DEFAULT 1,
+                updated_at  TEXT NOT NULL,
+                PRIMARY KEY (object_type, object_name)
+            )
+        SQL);
+
+        // CAP 0.5.0 sessions shape. Recreate-from-empty: every column an earlier
+        // release accreted via migrateAddColumn is folded into this base DDL, plus
+        // the CAP additions (nullable model ⇒ inherit, kind, pinned, workspace,
+        // version). persona_id is a plain nullable column with NO FK to personas —
+        // real session creation binds persona ids that are not guaranteed to exist
+        // as personas rows, and PRAGMA foreign_keys is ON, so a FK here would break
+        // session creation. Persona FK strictness is a deliberate Phase 4 carry-forward.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                model_role TEXT NOT NULL,
-                model TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                token_count INTEGER DEFAULT 0
+                id                    TEXT PRIMARY KEY,
+                persona_id            TEXT,
+                model_role            TEXT NOT NULL,
+                model                 TEXT,
+                kind                  TEXT NOT NULL DEFAULT 'chat',
+                pinned                INTEGER NOT NULL DEFAULT 0,
+                workspace             TEXT,
+                version               INTEGER NOT NULL DEFAULT 1,
+                title                 TEXT DEFAULT NULL,
+                active_project_id     TEXT DEFAULT NULL,
+                group_enabled         INTEGER NOT NULL DEFAULT 0,
+                group_composition_key TEXT DEFAULT NULL,
+                group_max_rounds      INTEGER DEFAULT NULL,
+                session_type          TEXT NOT NULL DEFAULT 'interactive',
+                visibility            TEXT NOT NULL DEFAULT 'visible',
+                is_closed             INTEGER NOT NULL DEFAULT 0,
+                is_archived           INTEGER NOT NULL DEFAULT 0,
+                closed_at             TEXT DEFAULT NULL,
+                archived_at           TEXT DEFAULT NULL,
+                closure_reason        TEXT DEFAULT NULL,
+                created_at            TEXT NOT NULL,
+                updated_at            TEXT NOT NULL,
+                token_count           INTEGER DEFAULT 0
             )
         SQL);
 
@@ -86,21 +166,69 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 child_runs shape. Recreate-from-empty: renamed to the reference
+        // columns (parent_session_id/role) and split token_count into the
+        // prompt/completion/total triad. model is NULLABLE (null ⇒ inherit per
+        // Personas §5); result is nullable; status is the closed lifecycle set.
+        // coqui runs children synchronously in-process, so status is known at write
+        // time (completed/failed) and completed_at is set. Both FKs target existing
+        // tables (sessions/turns) so they are safe under PRAGMA foreign_keys=ON:
+        // parent_turn_id nulls out (SET NULL) if the owning turn is removed.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS child_runs (
                 id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                parent_iteration INTEGER NOT NULL,
-                agent_role TEXT NOT NULL,
-                model TEXT NOT NULL,
+                parent_session_id TEXT NOT NULL,
+                parent_turn_id TEXT,
+                role TEXT NOT NULL,
+                model TEXT,
                 prompt TEXT NOT NULL,
-                result TEXT NOT NULL,
-                token_count INTEGER DEFAULT 0,
-                metadata TEXT,
+                result TEXT,
+                status TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                completed_at TEXT,
+                FOREIGN KEY (parent_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_turn_id) REFERENCES turns(id) ON DELETE SET NULL
             )
         SQL);
+
+        // CAP 0.5.0 content-addressed blob store (content.json). The row is the
+        // immutable metadata for a byte blob referenced by attachments/artifacts;
+        // content_ref is the opaque id, sha256 the lowercase-hex integrity digest.
+        // The spec never interprets the bytes; the `bytes` BLOB carries the payload
+        // so getContent can serve it (with Range) directly from the store. sha256 is
+        // uniquely indexed so store() can dedup identical blobs to one row.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS content (
+                content_ref TEXT PRIMARY KEY,
+                mime_type   TEXT NOT NULL,
+                size        INTEGER NOT NULL,
+                sha256      TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                bytes       BLOB NOT NULL
+            )
+        SQL);
+        $this->db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_content_sha256 ON content (sha256)');
+
+        // CAP 0.5.0 typed message attachments (attachment.json). Each row is a
+        // reference from a message to a Content blob, routed by mime_type. The
+        // content_ref is the opaque handle carried on the wire; it is NOT a foreign
+        // key into `content` — a message MAY reference a blob whose row is absent
+        // (e.g. imported/remapped history under PRAGMA foreign_keys=ON), so only the
+        // owning message FK is enforced (attachments cascade when the message is
+        // deleted). Ordering is stable by insertion via the autoincrement rowid.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS message_attachments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id  TEXT NOT NULL,
+                content_ref TEXT NOT NULL,
+                mime_type   TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )
+        SQL);
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_message_attachments_message ON message_attachments (message_id)');
 
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -115,20 +243,31 @@ final class SessionStorage
             )
         SQL);
 
+        // CAP 0.5.0 turns shape. Recreate-from-empty: coqui's operational columns
+        // (turn_process_id, result_payload, child_agent_count) are folded into the
+        // base DDL alongside the CAP additions — actor_persona_id (the member persona
+        // that produced the turn; null in a solo session) and a status lifecycle
+        // column. actor_persona_id is a plain nullable column with NO FK to personas,
+        // the same guardrail as sessions.persona_id: real turns bind persona ids not
+        // guaranteed to exist as personas rows, and PRAGMA foreign_keys is ON.
+        // Group-session required-and-non-null enforcement (422 missing_field) is a
+        // deliberate Phase 4 carry-forward.
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS turns (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
+                actor_persona_id TEXT,
                 turn_number INTEGER NOT NULL,
                 user_prompt TEXT NOT NULL,
                 response_text TEXT,
                 model TEXT,
-                prompt_tokens INTEGER DEFAULT 0,
-                completion_tokens INTEGER DEFAULT 0,
-                total_tokens INTEGER DEFAULT 0,
-                iterations INTEGER DEFAULT 0,
-                duration_ms INTEGER DEFAULT 0,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                iterations INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
                 tools_used TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
                 child_agent_count INTEGER DEFAULT 0,
                 turn_process_id TEXT DEFAULT NULL,
                 result_payload TEXT DEFAULT NULL,
@@ -139,7 +278,7 @@ final class SessionStorage
         SQL);
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)');
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(parent_session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)');
@@ -149,14 +288,9 @@ final class SessionStorage
         $this->migrateAddColumn('messages', 'actor_name', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('messages', 'actor_role', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
-        $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_turn_process ON turns(turn_process_id)');
-
-        // Migration: add title column to sessions
-        $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
 
         // Background tasks tables
         $this->db->exec(<<<SQL
@@ -225,29 +359,13 @@ final class SessionStorage
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
-        // Migration: active project tracking per session
-        $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
-
-        // Migration: personality profile per session
-        $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'group_enabled', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'session_type', "TEXT NOT NULL DEFAULT 'interactive'");
-        $this->migrateAddColumn('sessions', 'visibility', "TEXT NOT NULL DEFAULT 'visible'");
-        $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
-        $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
-
-        $this->db->exec("UPDATE sessions SET session_type = 'group' WHERE COALESCE(group_enabled, 0) = 1 AND COALESCE(session_type, '') != 'group'");
-
-        $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
-        $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
+        // All session lifecycle/persona/group columns are folded into the base
+        // sessions DDL above (CAP 0.5.0 recreate-from-empty). The former
+        // migrateAddColumn calls and the session_type/visibility data-repair
+        // UPDATEs are dead on a fresh store and have been removed.
         $this->repairLegacyBackgroundSessionVisibility();
 
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_persona_updated ON sessions(persona_id, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_group_enabled_updated ON sessions(group_enabled, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_visibility_updated ON sessions(visibility, updated_at DESC)');
@@ -256,18 +374,15 @@ final class SessionStorage
         $this->db->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS session_group_members (
                 session_id TEXT NOT NULL,
-                profile_name TEXT NOT NULL,
+                persona_id TEXT NOT NULL,
                 member_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (session_id, profile_name),
+                PRIMARY KEY (session_id, persona_id),
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
         SQL);
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, profile_name)');
-        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_profile ON session_group_members(profile_name)');
-
-        // Migration: child-run metadata for typed handoffs and provenance
-        $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, persona_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_persona ON session_group_members(persona_id)');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
@@ -348,6 +463,23 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_status ON session_title_jobs(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_session ON session_title_jobs(session_id)');
         $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_title_jobs_active_session ON session_title_jobs(session_id) WHERE status IN ('pending', 'running')");
+
+        // CAP 0.5.0 Idempotency-Key dedup for creators (CORE-53). Records the
+        // response a creator produced under an (key, route, actor) tuple so a
+        // repeated request replays it instead of minting a second resource.
+        // IdempotencyStore is the sole reader/writer. Recreate-from-empty — no ALTER.
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                "key"        TEXT NOT NULL,
+                route        TEXT NOT NULL,
+                actor        TEXT NOT NULL,
+                status       INTEGER NOT NULL,
+                body         TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT '',
+                created_at   TEXT NOT NULL,
+                PRIMARY KEY ("key", route, actor)
+            )
+        SQL);
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -355,15 +487,46 @@ final class SessionStorage
         SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
+    /**
+     * Fail-closed-open: refuse to open a store whose recorded schema stamp is
+     * present but differs from this build's SCHEMA_VERSION. CAP 0.5.0 does not
+     * perform in-place migration — a mismatched store is recreated from empty.
+     */
+    private function assertSchemaVersion(PDO $db): void
+    {
+        $stmt = $db->query("SELECT value FROM meta WHERE key = 'schema_version'");
+        if ($stmt === false) {
+            return;
+        }
+        $stored = $stmt->fetchColumn();
+        if ($stored !== false && $stored !== self::SCHEMA_VERSION) {
+            throw new \RuntimeException(
+                "Unsupported schema_version '{$stored}'; this build supports "
+                . self::SCHEMA_VERSION
+                . '. No in-place migration (CAP 0.5.0 fail-closed).'
+            );
+        }
+    }
+
+    /**
+     * The underlying PDO connection. Exposed for conformance assertions
+     * (e.g. verifying foreign_keys enforcement is active on the connection).
+     */
+    public function pdo(): PDO
+    {
+        return $this->db;
+    }
+
     public function createSession(
         string $modelRole,
-        string $model,
-        ?string $profile = null,
+        ?string $model,
+        ?string $persona = null,
         bool $groupEnabled = false,
         ?string $groupCompositionKey = null,
         ?int $groupMaxRounds = null,
         SessionType|string|null $sessionType = null,
         string $visibility = 'visible',
+        ?string $workspace = null,
     ): string
     {
         $id = IdGenerator::hex();
@@ -375,20 +538,21 @@ final class SessionStorage
         $resolvedVisibility = $this->normalizeVisibility($visibility);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, persona_id, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, workspace, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :persona_id, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :workspace, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
             'id' => $id,
             'model_role' => $modelRole,
             'model' => $model,
-            'profile' => $profile,
+            'persona_id' => $persona,
             'group_enabled' => $groupEnabled ? 1 : 0,
             'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
             'session_type' => $resolvedSessionType->value,
             'visibility' => $resolvedVisibility,
+            'workspace' => ($workspace !== null && $workspace !== '') ? $workspace : null,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -414,7 +578,7 @@ final class SessionStorage
             $sessionId = $this->createSession(
                 modelRole: $modelRole,
                 model: $model,
-                profile: null,
+                persona: null,
                 groupEnabled: true,
                 groupCompositionKey: $compositionKey,
                 groupMaxRounds: $groupMaxRounds,
@@ -445,7 +609,7 @@ final class SessionStorage
                 UPDATE sessions
                 SET group_enabled = 1,
                     session_type = :session_type,
-                    profile = NULL,
+                    persona_id = NULL,
                     group_composition_key = :group_composition_key,
                     group_max_rounds = :group_max_rounds,
                     updated_at = :updated_at
@@ -488,22 +652,22 @@ final class SessionStorage
     }
 
     /**
-     * @return list<array{profile: string, order: int, joined_at: string}>
+     * @return list<array{persona_id: string, order: int, joined_at: string}>
      */
     public function listSessionGroupMembers(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT profile_name, member_order, created_at
+            SELECT persona_id, member_order, created_at
             FROM session_group_members
             WHERE session_id = :session_id
-            ORDER BY member_order ASC, profile_name ASC
+            ORDER BY member_order ASC, persona_id ASC
         SQL);
 
         $stmt->execute(['session_id' => $sessionId]);
 
         return array_values(array_map(
             static fn(array $row): array => [
-                'profile' => (string) $row['profile_name'],
+                'persona_id' => (string) $row['persona_id'],
                 'order' => (int) $row['member_order'],
                 'joined_at' => (string) $row['created_at'],
             ],
@@ -517,7 +681,7 @@ final class SessionStorage
     public function listSessionGroupMemberNames(string $sessionId): array
     {
         return array_map(
-            static fn(array $member): string => (string) $member['profile'],
+            static fn(array $member): string => (string) $member['persona_id'],
             $this->listSessionGroupMembers($sessionId),
         );
     }
@@ -547,7 +711,7 @@ final class SessionStorage
     public function listActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey): array
     {
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                    s.group_enabled, s.group_composition_key, s.group_max_rounds,
                    s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -602,8 +766,8 @@ final class SessionStorage
         bool $excludeTaskSessions = true,
         bool $activeOnly = true,
         ?string $status = null,
-        ?string $profile = null,
-        bool $unprofiledOnly = false,
+        ?string $persona = null,
+        bool $unpersonaScopedOnly = false,
     ): array
     {
         $conditions = [];
@@ -623,11 +787,11 @@ final class SessionStorage
             $conditions[] = 's.is_closed = 0';
         }
 
-        if ($unprofiledOnly) {
-            $conditions[] = 's.profile IS NULL';
-        } elseif ($profile !== null) {
-            $conditions[] = 's.profile = :profile';
-            $params['profile'] = $profile;
+        if ($unpersonaScopedOnly) {
+            $conditions[] = 's.persona_id IS NULL';
+        } elseif ($persona !== null) {
+            $conditions[] = 's.persona_id = :persona_id';
+            $params['persona_id'] = $persona;
         }
 
         $filter = $conditions !== []
@@ -635,7 +799,7 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -680,7 +844,7 @@ final class SessionStorage
             ['session_id' => $id],
         );
         $childRunsTotal = $this->safeQueryScalarPreparedInt(
-            'SELECT COUNT(*) FROM child_runs WHERE session_id = :session_id',
+            'SELECT COUNT(*) FROM child_runs WHERE parent_session_id = :session_id',
             ['session_id' => $id],
         );
 
@@ -711,7 +875,7 @@ final class SessionStorage
             ['session_id' => $id],
         );
         $artifactPersistent = $this->safeQueryScalarPreparedInt(
-            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND persistent = 1',
+            "SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND project_id IS NOT NULL AND project_id != ''",
             ['session_id' => $id],
         );
         $artifactTypes = [];
@@ -733,9 +897,9 @@ final class SessionStorage
         $latestTurn = null;
         try {
             $latestTurnStmt = $this->db->prepare(<<<SQL
-                SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                        prompt_tokens, completion_tokens, total_tokens, iterations,
-                       duration_ms, tools_used, child_agent_count, turn_process_id,
+                       duration_ms, tools_used, status, child_agent_count, turn_process_id,
                        result_payload, created_at, completed_at
                 FROM turns
                 WHERE session_id = :session_id
@@ -906,6 +1070,114 @@ final class SessionStorage
     }
 
     /**
+     * Set a session's rooted workspace (CAP 0.5.0). Null (or empty) clears it to
+     * no rooted workspace. Does not bump `version`; the PATCH path bumps once.
+     */
+    public function updateSessionWorkspace(string $sessionId, ?string $workspace): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET workspace = :workspace, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'workspace' => ($workspace !== null && $workspace !== '') ? $workspace : null,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's effective model directly (CAP 0.5.0). Null clears the model
+     * to inherit per Personas §5 precedence. Unlike {@see updateSessionRole} this
+     * is a direct write with no role resolution. Does not bump `version`.
+     */
+    public function updateSessionModelDirect(string $sessionId, ?string $model): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET model = :model, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'model' => ($model !== null && $model !== '') ? $model : null,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's pinned flag (CAP 0.5.0). Does not bump `version`.
+     */
+    public function setSessionPinned(string $sessionId, bool $pinned): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET pinned = :pinned, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'pinned' => $pinned ? 1 : 0,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Set a session's lifecycle status (CAP 0.5.0). Accepts only the closed
+     * `session.json` status enum (active|archived|closed); the value maps onto the
+     * `is_closed`/`is_archived` lifecycle columns that {@see normalizeSessionRow}
+     * derives `status` back from. Does not bump `version`.
+     */
+    public function setSessionStatus(string $sessionId, string $status): void
+    {
+        [$isClosed, $isArchived, $closedAt, $archivedAt] = match ($status) {
+            'closed' => [1, 0, date('c'), null],
+            'archived' => [0, 1, null, date('c')],
+            default => [0, 0, null, null],
+        };
+
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET is_closed = :is_closed,
+                is_archived = :is_archived,
+                closed_at = :closed_at,
+                archived_at = :archived_at,
+                updated_at = :updated_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'is_closed' => $isClosed,
+            'is_archived' => $isArchived,
+            'closed_at' => $closedAt,
+            'archived_at' => $archivedAt,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Increment a session's optimistic-concurrency `version` token and return the
+     * new value. The CAP session PATCH path calls this exactly once per applied
+     * mutation so a single PATCH advances the version by exactly one.
+     */
+    public function bumpSessionVersion(string $sessionId): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET version = version + 1, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+
+        $read = $this->db->prepare('SELECT version FROM sessions WHERE id = :id');
+        $read->execute(['id' => $sessionId]);
+        $version = $read->fetchColumn();
+
+        return is_scalar($version) ? max(1, (int) $version) : 1;
+    }
+
+    /**
      * Update a session's active role and resolved model.
      */
     public function updateSessionRole(string $sessionId, string $modelRole, string $model): void
@@ -923,16 +1195,16 @@ final class SessionStorage
     }
 
     /**
-     * Update a session's active personality profile.
+     * Update a session's active personality persona.
      */
-    public function updateSessionProfile(string $sessionId, ?string $profile): void
+    public function updateSessionPersona(string $sessionId, ?string $persona): void
     {
         $stmt = $this->db->prepare(<<<SQL
-            UPDATE sessions SET profile = :profile, updated_at = :updated_at WHERE id = :id
+            UPDATE sessions SET persona_id = :persona_id, updated_at = :updated_at WHERE id = :id
         SQL);
 
         $stmt->execute([
-            'profile' => $profile,
+            'persona_id' => $persona,
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
@@ -1024,6 +1296,10 @@ final class SessionStorage
         return $this->db;
     }
 
+    /**
+     * @param list<array{content_ref: string, mime_type: string}>|null $attachments
+     *        Optional typed attachments (attachment.json shape) to carry on the message.
+     */
     public function addMessage(
         string $sessionId,
         string $role,
@@ -1033,6 +1309,7 @@ final class SessionStorage
         ?string $turnId = null,
         ?string $actorName = null,
         ?string $actorRole = null,
+        ?array $attachments = null,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
@@ -1055,10 +1332,94 @@ final class SessionStorage
             'created_at' => $now,
         ]);
 
+        if ($attachments !== null && $attachments !== []) {
+            $this->insertMessageAttachments($id, $attachments);
+        }
+
         $this->db->prepare('UPDATE sessions SET updated_at = :now WHERE id = :id')
             ->execute(['now' => $now, 'id' => $sessionId]);
 
         return $id;
+    }
+
+    /**
+     * Persist typed attachments for a message (attachment.json rows).
+     *
+     * @param list<array{content_ref: string, mime_type: string}> $attachments
+     */
+    private function insertMessageAttachments(string $messageId, array $attachments): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO message_attachments (message_id, content_ref, mime_type)
+            VALUES (:message_id, :content_ref, :mime_type)
+        SQL);
+
+        foreach ($attachments as $attachment) {
+            $stmt->execute([
+                'message_id' => $messageId,
+                'content_ref' => (string) $attachment['content_ref'],
+                'mime_type' => (string) $attachment['mime_type'],
+            ]);
+        }
+    }
+
+    /**
+     * Fetch typed attachments for a set of messages, grouped by message id.
+     *
+     * @param list<string> $messageIds
+     * @return array<string, list<array{content_ref: string, mime_type: string}>>
+     */
+    private function attachmentsByMessage(array $messageIds): array
+    {
+        if ($messageIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT message_id, content_ref, mime_type
+            FROM message_attachments
+            WHERE message_id IN ({$placeholders})
+            ORDER BY id ASC
+        SQL);
+        $stmt->execute($messageIds);
+
+        $grouped = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $grouped[(string) $row['message_id']][] = [
+                'content_ref' => (string) $row['content_ref'],
+                'mime_type' => (string) $row['mime_type'],
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Fetch a single message row in strict producer shape: carries session_id and
+     * turn_id (both required-or-nullable by message.json) plus its typed
+     * attachments[] joined from message_attachments. Returns null when absent.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getMessageRow(string $messageId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
+            FROM messages
+            WHERE id = :id
+        SQL);
+        $stmt->execute(['id' => $messageId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!is_array($row)) {
+            return null;
+        }
+
+        $normalized = $this->normalizeMessageRow($row);
+        $normalized['attachments'] = $this->attachmentsByMessage([$messageId])[$messageId] ?? [];
+
+        return $normalized;
     }
 
     /**
@@ -1067,7 +1428,7 @@ final class SessionStorage
     public function getMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
+            SELECT id, session_id, turn_id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -1075,7 +1436,35 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return $this->attachMessageAttachments(
+            $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC)),
+        );
+    }
+
+    /**
+     * Join each row's typed attachments[] in a single batched query (no N+1).
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachMessageAttachments(array $rows): array
+    {
+        $ids = [];
+        foreach ($rows as $row) {
+            if (isset($row['id']) && is_string($row['id'])) {
+                $ids[] = $row['id'];
+            }
+        }
+
+        $grouped = $this->attachmentsByMessage($ids);
+
+        foreach ($rows as &$row) {
+            $id = isset($row['id']) && is_string($row['id']) ? $row['id'] : '';
+            $row['attachments'] = $grouped[$id] ?? [];
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**
@@ -1543,16 +1932,16 @@ final class SessionStorage
     private function persistGroupMembers(string $sessionId, array $members): void
     {
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO session_group_members (session_id, profile_name, member_order, created_at)
-            VALUES (:session_id, :profile_name, :member_order, :created_at)
+            INSERT INTO session_group_members (session_id, persona_id, member_order, created_at)
+            VALUES (:session_id, :persona_id, :member_order, :created_at)
         SQL);
 
         $now = date('c');
 
-        foreach ($members as $index => $profileName) {
+        foreach ($members as $index => $personaName) {
             $stmt->execute([
                 'session_id' => $sessionId,
-                'profile_name' => $profileName,
+                'persona_id' => $personaName,
                 'member_order' => $index,
                 'created_at' => $now,
             ]);
@@ -1612,6 +2001,16 @@ final class SessionStorage
             ? 'archived'
             : ($isClosed === 1 ? 'closed' : 'active');
 
+        // CAP 0.5.0 fields. Default-tolerant so rows from SELECTs that omit the new
+        // columns still normalize. model passes through nullable (null ⇒ inherit).
+        $row['kind'] = is_string($row['kind'] ?? null) && $row['kind'] !== '' ? $row['kind'] : 'chat';
+        $row['pinned'] = (int) ($row['pinned'] ?? 0);
+        $row['version'] = is_scalar($row['version'] ?? null) ? max(1, (int) $row['version']) : 1;
+        $row['workspace'] = is_string($row['workspace'] ?? null) && $row['workspace'] !== ''
+            ? $row['workspace']
+            : null;
+        $row['model'] = is_string($row['model'] ?? null) && $row['model'] !== '' ? $row['model'] : null;
+
         return $row;
     }
 
@@ -1651,23 +2050,23 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listActiveInteractiveSessionsForProfile(string $profile): array
+    public function listActiveInteractiveSessionsForPersona(string $persona): array
     {
         $stmt = $this->db->prepare(<<<SQL
-                                                SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                                                                          s.session_type, s.visibility,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
                                      (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile = :profile
+              AND s.persona_id = :persona_id
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
 
         return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -1675,9 +2074,9 @@ final class SessionStorage
     /**
      * @return list<string>
      */
-    public function closeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
+    public function closeOtherActiveInteractiveSessionsForPersona(string $persona, string $keepSessionId, string $reason): array
     {
-        $sessions = $this->listActiveInteractiveSessionsForProfile($profile);
+        $sessions = $this->listActiveInteractiveSessionsForPersona($persona);
         $closedIds = [];
 
         foreach ($sessions as $session) {
@@ -1694,40 +2093,97 @@ final class SessionStorage
     }
 
     /**
-     * @param array<string, mixed>|null $metadata
+     * Record a delegated child-agent run (CAP `child-run.json` shape) and return
+     * its id. This is the single INSERT path for child runs. Callers that know the
+     * outcome at write time (a synchronous in-process child) may pass a terminal
+     * `status` ('completed'/'failed'/'cancelled') with the result + token triad in
+     * one call; callers that spawn-then-execute insert a non-terminal `status`
+     * ('pending'/'running') here and later call {@see finalizeChildRun()} to record
+     * the terminal transition. `completed_at` is set iff `status` is terminal.
+     * `model` is nullable (null ⇒ inherit); `parentTurnId` is the owning turn id
+     * when known (else null).
      */
-    public function logChildRun(
-        string $sessionId,
-        int $parentIteration,
-        string $agentRole,
-        string $model,
+    public function createChildRun(
+        string $parentSessionId,
+        string $role,
+        ?string $model,
         string $prompt,
-        string $result,
-        int $tokenCount = 0,
-        ?array $metadata = null,
+        string $status,
+        ?string $result = null,
+        ?string $parentTurnId = null,
+        int $promptTokens = 0,
+        int $completionTokens = 0,
+        int $totalTokens = 0,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
+        $completedAt = in_array($status, ['completed', 'failed', 'cancelled'], true) ? $now : null;
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at)
-            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :metadata, :created_at)
+            INSERT INTO child_runs (
+                id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
+            )
+            VALUES (
+                :id, :parent_session_id, :parent_turn_id, :role, :model, :prompt, :result, :status,
+                :prompt_tokens, :completion_tokens, :total_tokens, :created_at, :completed_at
+            )
         SQL);
 
         $stmt->execute([
             'id' => $id,
-            'session_id' => $sessionId,
-            'parent_iteration' => $parentIteration,
-            'agent_role' => $agentRole,
+            'parent_session_id' => $parentSessionId,
+            'parent_turn_id' => $parentTurnId,
+            'role' => $role,
             'model' => $model,
             'prompt' => $prompt,
             'result' => $result,
-            'token_count' => $tokenCount,
-            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
+            'status' => $status,
+            'prompt_tokens' => $promptTokens,
+            'completion_tokens' => $completionTokens,
+            'total_tokens' => $totalTokens,
             'created_at' => $now,
+            'completed_at' => $completedAt,
         ]);
 
         return $id;
+    }
+
+    /**
+     * Record the terminal transition of a child run previously inserted with a
+     * non-terminal status by {@see createChildRun()}. Sets the final `status`
+     * ('completed'/'failed'/'cancelled'), the result, the token triad, and stamps
+     * `completed_at`. This is the UPDATE half of the two-phase spawn-then-execute
+     * write path; there is no second INSERT path.
+     */
+    public function finalizeChildRun(
+        string $childRunId,
+        string $status,
+        ?string $result = null,
+        int $promptTokens = 0,
+        int $completionTokens = 0,
+        int $totalTokens = 0,
+    ): void {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE child_runs
+            SET status = :status,
+                result = :result,
+                prompt_tokens = :prompt_tokens,
+                completion_tokens = :completion_tokens,
+                total_tokens = :total_tokens,
+                completed_at = :completed_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'status' => $status,
+            'result' => $result,
+            'prompt_tokens' => $promptTokens,
+            'completion_tokens' => $completionTokens,
+            'total_tokens' => $totalTokens,
+            'completed_at' => date('c'),
+            'id' => $childRunId,
+        ]);
     }
 
     /**
@@ -1736,15 +2192,34 @@ final class SessionStorage
     public function getChildRuns(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at
+            SELECT id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                   prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
             FROM child_runs
-            WHERE session_id = :session_id
+            WHERE parent_session_id = :parent_session_id
             ORDER BY created_at ASC
         SQL);
 
-        $stmt->execute(['session_id' => $sessionId]);
+        $stmt->execute(['parent_session_id' => $sessionId]);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getChildRun(string $childRunId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, parent_session_id, parent_turn_id, role, model, prompt, result, status,
+                   prompt_tokens, completion_tokens, total_tokens, created_at, completed_at
+            FROM child_runs
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $childRunId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
     }
 
     public function updateTokenCount(string $sessionId, int $tokens): void
@@ -1877,6 +2352,16 @@ final class SessionStorage
             }
         }
 
+        // CORE-17: deleting a session cascade-stops any non-terminal loop bound to
+        // it, so no orphaned loop keeps ticking after its session is gone.
+        $loopStore = new LoopStore($this->db);
+        foreach ($loopStore->getLoopsBySession($id) as $loop) {
+            $status = (string) ($loop['status'] ?? '');
+            if (!in_array($status, ['completed', 'failed', 'cancelled'], true)) {
+                $loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
+            }
+        }
+
         $this->db->prepare('DELETE FROM sessions WHERE id = :id')
             ->execute(['id' => $id]);
     }
@@ -1891,6 +2376,7 @@ final class SessionStorage
         string $userPrompt,
         ?string $model = null,
         ?string $turnProcessId = null,
+        ?string $actorPersonaId = null,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
@@ -1904,14 +2390,17 @@ final class SessionStorage
         $stmt->execute(['session_id' => $sessionId]);
         $turnNumber = (int) $stmt->fetchColumn();
 
+        // A turn opens in the 'running' state; actor_persona_id records the member
+        // persona that produced it (null in a solo session).
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, turn_process_id, created_at)
-            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :turn_process_id, :created_at)
+            INSERT INTO turns (id, session_id, actor_persona_id, turn_number, user_prompt, model, status, turn_process_id, created_at)
+            VALUES (:id, :session_id, :actor_persona_id, :turn_number, :user_prompt, :model, 'running', :turn_process_id, :created_at)
         SQL);
 
         $stmt->execute([
             'id' => $id,
             'session_id' => $sessionId,
+            'actor_persona_id' => $actorPersonaId,
             'turn_number' => $turnNumber,
             'user_prompt' => $userPrompt,
             'model' => $model,
@@ -1948,6 +2437,7 @@ final class SessionStorage
                 duration_ms = :duration_ms,
                 tools_used = :tools_used,
                 child_agent_count = :child_agent_count,
+                status = 'completed',
                 completed_at = :completed_at
             WHERE id = :id
         SQL);
@@ -1993,9 +2483,9 @@ final class SessionStorage
     public function getTurns(string $sessionId, int $limit = 50): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
                    result_payload, created_at, completed_at
             FROM turns
             WHERE session_id = :session_id
@@ -2021,15 +2511,47 @@ final class SessionStorage
     public function getTurn(string $turnId): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
                    result_payload, created_at, completed_at
             FROM turns
             WHERE id = :id
         SQL);
 
         $stmt->execute(['id' => $turnId]);
+        $turn = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($turn === false) {
+            return null;
+        }
+
+        return $this->normalizeTurnRow($turn);
+    }
+
+    /**
+     * Get the normalized turn row bound to a turn process, or null if none.
+     *
+     * The turns row is finalized by {@see completeTurn()} before the terminal
+     * `complete` turn event fires, so the SSE `done` frame can project it via
+     * {@see \CoquiBot\Coqui\Api\Handler\TurnHandler::toWire()}.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTurnByProcessId(string $turnProcessId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, actor_persona_id, turn_number, user_prompt, response_text, model,
+                   prompt_tokens, completion_tokens, total_tokens, iterations,
+                   duration_ms, tools_used, status, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
+            FROM turns
+            WHERE turn_process_id = :turn_process_id
+            ORDER BY turn_number DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['turn_process_id' => $turnProcessId]);
         $turn = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($turn === false) {
@@ -2078,6 +2600,12 @@ final class SessionStorage
 
         $normalized = $turn;
         $normalized['tools_used'] = $this->decodeToolsUsed($turn['tools_used'] ?? null);
+        $normalized['actor_persona_id'] = is_string($turn['actor_persona_id'] ?? null) && $turn['actor_persona_id'] !== ''
+            ? (string) $turn['actor_persona_id']
+            : null;
+        $normalized['status'] = is_string($turn['status'] ?? null) && $turn['status'] !== ''
+            ? (string) $turn['status']
+            : 'running';
         $normalized['content'] = (string) ($turn['response_text'] ?? '');
         $normalized['restart_requested'] = false;
         $normalized['iteration_limit_reached'] = false;
@@ -2215,12 +2743,12 @@ final class SessionStorage
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestSessionIdForProfile(string $profile): ?string
+    public function getLatestSessionIdForPersona(string $persona): ?string
     {
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
             FROM sessions
-            WHERE profile = :profile
+            WHERE persona_id = :persona_id
                             AND visibility = 'visible'
                             AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND is_closed = 0
@@ -2228,19 +2756,19 @@ final class SessionStorage
             LIMIT 1
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestInteractiveUnprofiledSessionId(): ?string
+    public function getLatestInteractiveUnpersonaScopedSessionId(): ?string
     {
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile IS NULL
+              AND s.persona_id IS NULL
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
@@ -2277,20 +2805,20 @@ final class SessionStorage
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
-    public function getLatestInteractiveSessionIdForProfile(string $profile): ?string
+    public function getLatestInteractiveSessionIdForPersona(string $persona): ?string
     {
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id
             FROM sessions s
                         WHERE s.visibility = 'visible'
-              AND s.profile = :profile
+              AND s.persona_id = :persona_id
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
 
-        $stmt->execute(['profile' => $profile]);
+        $stmt->execute(['persona_id' => $persona]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
@@ -2347,7 +2875,7 @@ final class SessionStorage
         $visibilityFilter = $visibleOnly ? "AND s.visibility = 'visible'" : '';
 
         $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.persona_id, s.active_project_id, s.kind, s.pinned, s.workspace, s.version, s.created_at, s.updated_at, s.token_count,
                  s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
@@ -2827,6 +3355,25 @@ final class SessionStorage
         $stmt->execute([':session_id' => $sessionId]);
 
         return array_values($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Resolve the most recent question raised for a `(session, turn)` pair,
+     * regardless of status. Backs the turn-scoped answer path (submitTurnAnswer),
+     * which needs to tell "no question for this turn" apart from an already-answered
+     * one.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getQuestionByTurn(string $sessionId, string $turnId): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM questions WHERE session_id = :session_id AND turn_id = :turn_id ORDER BY created_at DESC, rowid DESC LIMIT 1',
+        );
+        $stmt->execute([':session_id' => $sessionId, ':turn_id' => $turnId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
     }
 
     /**

@@ -188,7 +188,7 @@ test('ScheduleFileWatchJob detects modified files', function () {
 
     $schedule = $this->scheduleStore->getByName('my-task');
     expect($schedule['prompt'])->toBe('Updated prompt');
-    expect($schedule['schedule_expression'])->toBe('*/10 * * * *');
+    expect($schedule['cron'])->toBe('*/10 * * * *');
 });
 
 test('ScheduleFileWatchJob detects removed files', function () {

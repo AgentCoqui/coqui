@@ -7,7 +7,7 @@ use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
-use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\PersonaPreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Prompt\PromptLoader;
@@ -94,7 +94,7 @@ it('places context immediately after backstory in classified sections (loader or
         promptsDir: dirname(__DIR__, 3) . '/prompts',
         placeholders: [],
         workspacePath: sys_get_temp_dir(),
-        profilePath: $persona,
+        personaPath: $persona,
     );
 
     $ids = array_column($loader->buildSystemPromptSections(), 'id');
@@ -104,11 +104,11 @@ it('places context immediately after backstory in classified sections (loader or
 });
 
 test('orchestrator (no-role) path pins prompt.context right after prompt.backstory', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
-    mkdir($profilePath . '/context', 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
-    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
+    $personaPath = $this->workspace . '/personas/caelum';
+    mkdir($personaPath . '/context', 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($personaPath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($personaPath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
 
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -117,8 +117,8 @@ test('orchestrator (no-role) path pins prompt.context right after prompt.backsto
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'caelum',
-            activeProfilePath: $profilePath,
+            activePersona: 'caelum',
+            activePersonaPath: $personaPath,
         ),
     );
 
@@ -139,12 +139,12 @@ test('orchestrator (no-role) path pins prompt.context right after prompt.backsto
 });
 
 test('orchestrator (no-role) path splices prompt.preferences right after prompt.context', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
-    mkdir($profilePath . '/context', 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
-    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
-    file_put_contents($profilePath . '/preferences.json', json_encode([
+    $personaPath = $this->workspace . '/personas/caelum';
+    mkdir($personaPath . '/context', 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($personaPath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($personaPath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
+    file_put_contents($personaPath . '/preferences.json', json_encode([
         'prompt_directives' => [
             'response_style' => 'concise and measured',
         ],
@@ -157,9 +157,9 @@ test('orchestrator (no-role) path splices prompt.preferences right after prompt.
         projectRoot: $this->projectRoot,
         workspacePath: $this->workspace,
         deps: new OrchestratorDependencies(
-            activeProfile: 'caelum',
-            activeProfilePath: $profilePath,
-            profilePreferences: ProfilePreferences::fromProfilePath($profilePath),
+            activePersona: 'caelum',
+            activePersonaPath: $personaPath,
+            personaPreferences: PersonaPreferences::fromPersonaPath($personaPath),
         ),
     );
 
@@ -186,11 +186,11 @@ test('orchestrator (no-role) path splices prompt.preferences right after prompt.
 });
 
 test('role path pins prompt.context right after prompt.backstory', function () {
-    $profilePath = $this->workspace . '/profiles/caelum';
-    mkdir($profilePath . '/context', 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
-    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
-    file_put_contents($profilePath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
+    $personaPath = $this->workspace . '/personas/caelum';
+    mkdir($personaPath . '/context', 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($personaPath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+    file_put_contents($personaPath . '/context/github.md', '# GitHub' . "\n\nuser: carmelo");
 
     $rolesDir = $this->workspace . '/roles';
     mkdir($rolesDir, 0755, true);
@@ -205,8 +205,8 @@ test('role path pins prompt.context right after prompt.backstory', function () {
         deps: new OrchestratorDependencies(
             roleDiscovery: new RoleDiscovery($this->workspace, $this->projectRoot),
             activeRole: 'coder',
-            activeProfile: 'caelum',
-            activeProfilePath: $profilePath,
+            activePersona: 'caelum',
+            activePersonaPath: $personaPath,
         ),
     );
 

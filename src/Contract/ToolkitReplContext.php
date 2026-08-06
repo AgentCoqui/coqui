@@ -30,8 +30,8 @@ final readonly class ToolkitReplContext
         /** Absolute path to the active workspace directory. */
         public string $workspacePath,
 
-        /** Currently active personality profile name (null if none). */
-        public ?string $activeProfile,
+        /** Currently active personality persona name (null if none). */
+        public ?string $activePersona,
 
         /** Current session identifier. */
         public string $sessionId,

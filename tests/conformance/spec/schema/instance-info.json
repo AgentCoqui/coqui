@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/instance-info.json",
+  "title": "InstanceInfo",
+  "description": "Returned by the Core capability-discovery operation. Normative.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["protocol_version", "profiles", "bindings"],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "description": "Semver of the protocol this instance implements.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "name": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": { "type": "string", "description": "Known set: remote, skills, artifacts, questions, mcp, schedules. Unknown (future) profiles are permitted and MUST be ignored by clients that don't recognize them (Foundation §6.2)." },
+      "uniqueItems": true,
+      "description": "Optional profiles implemented beyond mandatory Core."
+    },
+    "bindings": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["in-process", "http-sse"] },
+      "uniqueItems": true
+    },
+    "persona_count": { "type": "integer", "minimum": 0 },
+    "default_model": { "$ref": "common.json#/$defs/ModelId" },
+    "models": {
+      "type": "array",
+      "items": { "$ref": "model.json" },
+      "description": "Available models; also served in full by listModels."
+    },
+    "host_toolkits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["namespace"],
+        "properties": {
+          "namespace": { "type": "string", "description": "Tool namespace prefix; tools surface as `<namespace>_<tool>`." },
+          "description": { "type": "string" },
+          "tools": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "description": "Native, non-portable host-language toolkits this variant exposes (declared for feature-detection; tools namespaced + access-gated). Absence ⇒ none. A Core-only persona/skill declaring no host-toolkit dependency runs on any variant."
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "transports": { "type": "array", "items": { "type": "string", "enum": ["stdio", "http"] }, "uniqueItems": true, "description": "Transports this instance's MCP client supports. Wire details defer to the MCP spec." }
+      },
+      "description": "Present when the `mcp` profile is implemented. Server management (add/remove/configure, health) is implementation-defined."
+    },
+    "profile_versions": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+      "description": "Optional per-profile semver map (M1); lets a client detect a profile's version independently of protocol_version."
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "scheme"],
+      "properties": {
+        "required": { "type": "boolean", "description": "Whether this instance mandates an API key. A remote client reads this before presenting a key (Api §3)." },
+        "scheme": { "type": "string", "enum": ["bearer"], "description": "Authentication scheme; the only defined value is `bearer` (`Authorization: Bearer <key>`)." }
+      },
+      "description": "Optional authentication contract for the remote surface. A `remote` instance SHOULD populate this; a client reads `auth.required` before presenting a key. Absent on Core/embedded (no auth)."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_page_size", "max_payload_bytes", "max_content_bytes"],
+      "properties": {
+        "max_page_size": { "type": "integer", "minimum": 1, "description": "Largest page size the instance will honor for paginated list operations." },
+        "max_payload_bytes": { "type": "integer", "minimum": 1, "description": "Largest accepted request body in bytes; oversized requests fail `413 payload_too_large`." },
+        "max_content_bytes": { "type": "integer", "minimum": 1, "description": "Largest single Content upload in bytes (putContent)." },
+        "rate_limit": { "type": ["object", "null"], "description": "Optional rate-limit descriptor; shape is implementation-defined. Null or absent ⇒ unspecified." }
+      },
+      "description": "Optional operational limits. A `remote` instance SHOULD populate this so a client can size uploads and pages before issuing them."
+    },
+    "api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_path", "api_major"],
+      "properties": {
+        "base_path": { "type": "string", "description": "URL path prefix under which the API surface is mounted (e.g. `/` or `/v0`)." },
+        "api_major": { "type": "string", "description": "Major version tag of the wire API, letting a client locate/select the surface independently of `protocol_version`." }
+      },
+      "description": "Optional locator for the wire API surface; a remote client uses `base_path`/`api_major` to find the operations."
+    },
+    "builtin_toolkits": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "description": "Optional list of the portable built-in toolkits this variant offers (e.g. `shell`, `fs`, `web`). Lets a constrained variant (e.g. mobile) omit `shell`. Distinct from `host_toolkits` (native, non-portable). Absence ⇒ unspecified, not empty."
+    },
+    "schedules": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "dialect": { "type": "string", "description": "Identifier of the cron dialect this instance's scheduler parses (e.g. `posix-5field`, `quartz`, `vixie`). Advertised so a client knows whether a `ScheduledTask.cron` string is portable. Absent ⇒ dialect unspecified/opaque." }
+      },
+      "description": "Present when the `schedules` profile is implemented. Optional hint describing the scheduler's cron dialect so a client can judge portability of `cron` expressions."
+    }
+  }
+}

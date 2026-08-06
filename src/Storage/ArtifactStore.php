@@ -43,7 +43,6 @@ final class ArtifactStore
                 content TEXT NOT NULL DEFAULT '',
                 language TEXT,
                 filepath TEXT,
-                stage TEXT NOT NULL DEFAULT 'draft',
                 version INTEGER NOT NULL DEFAULT 1,
                 metadata TEXT,
                 created_at TEXT NOT NULL,
@@ -61,20 +60,11 @@ final class ArtifactStore
             CREATE INDEX IF NOT EXISTS idx_artifacts_session ON artifacts(session_id)
         SQL);
 
-        // Index / provenance columns — added to existing installations via migration.
+        // Index / provenance columns.
         $this->migrateAddColumn('artifacts', 'project_id', 'TEXT');
         $this->migrateAddColumn('artifacts', 'path', 'TEXT');
         $this->migrateAddColumn('artifacts', 'content_hash', 'TEXT');
         $this->migrateAddColumn('artifacts', 'created_by', 'TEXT');
-
-        // Dormant columns retained for back-compat. SQLite cannot cheaply drop
-        // columns, so `stage`, `persistent`, `storage_mode`, and `canonical_path`
-        // stay declared but are never read by current code. `persistent` and
-        // `filepath` are still written to mirror `project_id`/`path` for any
-        // external readers of the raw table.
-        $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
-        $this->migrateAddColumn('artifacts', 'storage_mode', "TEXT NOT NULL DEFAULT 'database'");
-        $this->migrateAddColumn('artifacts', 'canonical_path', 'TEXT');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -100,15 +90,14 @@ final class ArtifactStore
     ): string {
         $id = IdGenerator::hex();
         $now = Clock::nowUtc();
-        $isProjectLinked = $projectId !== null && $projectId !== '';
 
         $path = $this->fileService->pathFor($type, $title, $id, $language);
         $hash = $this->fileService->write($path, $content);
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO artifacts
-                (id, session_id, turn_id, title, type, content, language, filepath, path, content_hash, created_by, version, metadata, project_id, persistent, storage_mode, canonical_path, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 1, ?, ?, ?, 'filesystem', ?, ?, ?)
+                (id, session_id, turn_id, title, type, content, language, filepath, path, content_hash, created_by, version, metadata, project_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -123,8 +112,6 @@ final class ArtifactStore
             $createdBy,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
-            $isProjectLinked ? 1 : 0,
-            $path,
             $now,
             $now,
         ]);
@@ -162,8 +149,8 @@ final class ArtifactStore
         $hash = $this->fileService->write($path, $content);
         $newVersion = ((int) $row['version']) + 1;
 
-        $sets = ["content = ''", 'path = ?', 'canonical_path = ?', 'content_hash = ?', 'version = ?', 'updated_at = ?'];
-        $params = [$path, $path, $hash, $newVersion, Clock::nowUtc()];
+        $sets = ["content = ''", 'path = ?', 'content_hash = ?', 'version = ?', 'updated_at = ?'];
+        $params = [$path, $hash, $newVersion, Clock::nowUtc()];
 
         if ($title !== null) {
             $sets[] = 'title = ?';
@@ -211,11 +198,9 @@ final class ArtifactStore
         if (array_key_exists('project_id', $patch)) {
             if ($patch['project_id'] === null || $patch['project_id'] === '') {
                 $sets[] = 'project_id = NULL';
-                $sets[] = 'persistent = 0';
             } else {
                 $sets[] = 'project_id = ?';
                 $params[] = $patch['project_id'];
-                $sets[] = 'persistent = 1';
             }
         }
 
@@ -408,6 +393,84 @@ final class ArtifactStore
     }
 
     /**
+     * Serialize an index row to the CAP `artifact.json` wire shape.
+     *
+     * Emits ONLY the schema-declared properties (the object is
+     * `additionalProperties:false`-clean). `session_id` is required.
+     *
+     * Files-only mapping: coqui's `title` is the schema's `name`, and the
+     * canonical on-disk `path` is the opaque `content_ref` the spec never
+     * dereferences (falling back to the `content_hash` if a row predates its
+     * path). `metadata` emits as a JSON object (stdClass) or null — never a bare
+     * `[]`. `created_at` is normalized to RFC-3339 UTC (Z).
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function toWire(array $row): array
+    {
+        $path = (string) ($row['path'] ?? '');
+        $contentRef = $path !== '' ? $path : (string) ($row['content_hash'] ?? '');
+
+        return [
+            'id' => (string) ($row['id'] ?? ''),
+            'session_id' => (string) ($row['session_id'] ?? ''),
+            'name' => (string) ($row['title'] ?? ''),
+            'type' => (string) ($row['type'] ?? ''),
+            'content_ref' => $contentRef,
+            'metadata' => self::wireObject($row['metadata'] ?? null),
+            'created_at' => self::wireTimestamp($row['created_at'] ?? null) ?? Clock::nowUtc(),
+        ];
+    }
+
+    /**
+     * Normalize a stored timestamp to RFC-3339 UTC (Z), or null when absent.
+     */
+    private static function wireTimestamp(mixed $value): ?string
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format('Y-m-d\TH:i:s\Z');
+        } catch (\Throwable) {
+            return $value;
+        }
+    }
+
+    /**
+     * Coerce a stored value into a JSON object (stdClass) or null for a wire
+     * field typed `object|null`. An empty object survives as `stdClass`, never a
+     * bare `[]` (which JSON would encode as an array and break the schema).
+     */
+    private static function wireObject(mixed $value): ?\stdClass
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_array($value)) {
+            return (object) $value;
+        }
+
+        if ($value instanceof \stdClass) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, false);
+            if ($decoded instanceof \stdClass) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * One-time forward migration: move any inline-content row to a file.
      *
      * For every row that still carries inline `content` and has no `path`,
@@ -429,7 +492,7 @@ final class ArtifactStore
 
         $count = 0;
         $update = $this->db->prepare(
-            "UPDATE artifacts SET path = ?, canonical_path = ?, filepath = COALESCE(filepath, ?), content_hash = ?, storage_mode = 'filesystem', content = '', updated_at = ? WHERE id = ?",
+            "UPDATE artifacts SET path = ?, filepath = COALESCE(filepath, ?), content_hash = ?, content = '', updated_at = ? WHERE id = ?",
         );
 
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -440,7 +503,7 @@ final class ArtifactStore
                 isset($row['language']) ? (string) $row['language'] : null,
             );
             $hash = $this->fileService->write($path, (string) $row['content']);
-            $update->execute([$path, $path, $path, $hash, Clock::nowUtc(), $row['id']]);
+            $update->execute([$path, $path, $hash, Clock::nowUtc(), $row['id']]);
             $count++;
         }
 

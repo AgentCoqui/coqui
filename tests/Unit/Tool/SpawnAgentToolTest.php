@@ -305,10 +305,10 @@ test('artifact-creating child roles can also save and forget memory (memory-on-p
     }
 });
 
-test('filters available roles and rejects disallowed child roles for the active profile', function () {
-    $workspace = sys_get_temp_dir() . '/coqui-spawn-profile-' . bin2hex(random_bytes(4));
-    mkdir($workspace . '/profiles/caelum', 0755, true);
-    file_put_contents($workspace . '/profiles/caelum/preferences.json', json_encode([
+test('filters available roles and rejects disallowed child roles for the active persona', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-spawn-persona-' . bin2hex(random_bytes(4));
+    mkdir($workspace . '/personas/caelum', 0755, true);
+    file_put_contents($workspace . '/personas/caelum/preferences.json', json_encode([
         'prompts' => [
             'roles' => [
                 'allow' => ['orchestrator', 'reviewer'],
@@ -334,8 +334,8 @@ test('filters available roles and rejects disallowed child roles for the active 
             config: $config,
             projectRoot: $workspace,
             workspacePath: $workspace,
-            activeProfile: 'caelum',
-            activeProfilePath: $workspace . '/profiles/caelum',
+            activePersona: 'caelum',
+            activePersonaPath: $workspace . '/personas/caelum',
         );
 
         $schema = $tool->toFunctionSchema();

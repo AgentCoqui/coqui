@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Storage\ArtifactStore;
@@ -29,6 +30,11 @@ final readonly class ArtifactHandler
 {
     use DecodesRequestBody;
 
+    /**
+     * Upper bound on rows fetched from storage before in-memory pagination.
+     */
+    private const int LIST_FETCH_CAP = 200;
+
     public function __construct(
         private ArtifactStore $store,
         private ?SessionStorage $sessionStorage = null,
@@ -51,16 +57,30 @@ final readonly class ArtifactHandler
         $params = $request->getQueryParams();
         $type = isset($params['type']) ? trim((string) $params['type']) : null;
 
+        // Fetch a full window (the store defaults to 50), then paginate in
+        // memory. Declared default sort: updated_at DESC, id ASC — the store
+        // orders by updated_at DESC; id is the stable tiebreak + cursor key.
         $artifacts = $this->store->list(
             sessionId: $id,
             type: $type !== '' ? $type : null,
+            limit: self::LIST_FETCH_CAP,
         );
         $artifacts = array_map(fn(array $artifact): array => $this->normalizeArtifact($artifact), $artifacts);
 
-        return Router::jsonResponse([
-            'artifacts' => $artifacts,
-            'count' => count($artifacts),
-        ]);
+        usort($artifacts, static function (array $a, array $b): int {
+            $byUpdated = strcmp((string) ($b['updated_at'] ?? ''), (string) ($a['updated_at'] ?? ''));
+
+            return $byUpdated !== 0 ? $byUpdated : strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+        });
+
+        $params = $request->getQueryParams();
+
+        return Router::jsonResponse(CursorPage::build(
+            $artifacts,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $artifact): string => (string) ($artifact['id'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        ));
     }
 
     /**

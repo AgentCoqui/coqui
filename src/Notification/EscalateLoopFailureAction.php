@@ -54,11 +54,11 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             sessionId: (string) ($loop['session_id'] ?? ''),
         );
         $targetSession = $this->storage->getSession($targetSessionId);
-        $profile = is_array($targetSession) && is_string($targetSession['profile'] ?? null) && $targetSession['profile'] !== ''
-            ? $targetSession['profile']
+        $persona = is_array($targetSession) && is_string($targetSession['persona_id'] ?? null) && $targetSession['persona_id'] !== ''
+            ? $targetSession['persona_id']
             : null;
 
-        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $profile, visibility: 'hidden');
+        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $persona, visibility: 'hidden');
         $activeProjectId = $this->storage->getActiveProjectId($targetSessionId);
         if ($activeProjectId !== null) {
             $this->storage->setActiveProject($executionSessionId, $activeProjectId);
@@ -73,6 +73,13 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             ],
         ];
 
+        // The loops.project_id column was dropped with the protocol's Project
+        // removal (D3); the resolved project rides in the configuration snapshot.
+        $loopConfig = json_decode((string) ($loop['configuration'] ?? ''), true);
+        $loopProjectId = is_array($loopConfig) && is_string($loopConfig['resolved_project_id'] ?? null) && $loopConfig['resolved_project_id'] !== ''
+            ? $loopConfig['resolved_project_id']
+            : null;
+
         $followUpTaskId = $this->storage->createTask(
             sessionId: $executionSessionId,
             prompt: $this->buildPrompt($loop, $notification),
@@ -80,7 +87,7 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             parentSessionId: $targetSessionId,
             title: $this->buildTitle($loop),
             maxIterations: self::MAX_ITERATIONS,
-            projectId: isset($loop['project_id']) && is_string($loop['project_id']) && $loop['project_id'] !== '' ? $loop['project_id'] : null,
+            projectId: $loopProjectId,
             metadata: $metadata,
         );
 

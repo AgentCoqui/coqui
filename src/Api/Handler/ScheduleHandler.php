@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\CursorPage;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Exception\RequestBodyException;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\Clock;
@@ -28,6 +30,8 @@ use React\Http\Message\Response;
  */
 final readonly class ScheduleHandler
 {
+    use DecodesRequestBody;
+
     public function __construct(
         private ScheduleStore $store,
         private ?SessionStorage $storage = null,
@@ -38,15 +42,17 @@ final readonly class ScheduleHandler
      */
     public function create(ServerRequestInterface $request): Response
     {
-        $body = json_decode((string) $request->getBody(), true);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        try {
+            $body = $this->decodeAuthoringBody(
+                $request,
+                ['name', 'cron', 'persona_id', 'action'],
+                [],
+            );
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
-        $name = trim((string) ($body['name'] ?? ''));
-        if ($name === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'name is required');
-        }
+        $name = trim((string) $body['name']);
         if (($error = ScheduleValidator::validateName($name)) !== null) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
@@ -54,68 +60,38 @@ final readonly class ScheduleHandler
             return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Schedule name "%s" already exists', $name));
         }
 
-        $scheduleExpression = trim((string) ($body['schedule_expression'] ?? ''));
-        if ($scheduleExpression === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'schedule_expression is required');
-        }
+        $scheduleExpression = trim((string) $body['cron']);
         if (($error = ScheduleValidator::validateExpression($scheduleExpression)) !== null) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
-        $prompt = trim((string) ($body['prompt'] ?? ''));
-        if ($prompt === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'prompt is required');
-        }
-        if (($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
+        $personaId = trim((string) $body['persona_id']);
+        if ($personaId === '') {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'persona_id must not be empty', ['field' => 'persona_id']);
         }
 
-        $timezone = trim((string) ($body['timezone'] ?? 'UTC'));
-        if (($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
+        if (!is_array($body['action'])) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'action must be an object', ['field' => 'action']);
         }
 
-        $maxIterations = 48;
-        if (array_key_exists('max_iterations', $body) && $body['max_iterations'] !== null && $body['max_iterations'] !== '') {
-            if (!is_numeric($body['max_iterations'])) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be an integer');
-            }
-
-            $maxIterations = (int) $body['max_iterations'];
-            if ($maxIterations < 1) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be greater than 0');
-            }
-            $maxIterations = ScheduleValidator::normalizeMaxIterations($maxIterations);
+        try {
+            $id = $this->store->create(
+                name: $name,
+                scheduleExpression: $scheduleExpression,
+                action: $body['action'],
+                personaId: $personaId,
+                createdBy: 'api',
+            );
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
-        $maxFailures = 3;
-        if (array_key_exists('max_failures', $body) && $body['max_failures'] !== null && $body['max_failures'] !== '') {
-            if (!is_numeric($body['max_failures'])) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_failures must be an integer');
-            }
-
-            $maxFailures = (int) $body['max_failures'];
-            if ($maxFailures < 1) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_failures must be greater than 0');
-            }
-            $maxFailures = ScheduleValidator::normalizeMaxFailures($maxFailures);
+        $row = $this->store->get($id);
+        if ($row === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Schedule could not be read back after creation');
         }
 
-        $id = $this->store->create(
-            name: $name,
-            scheduleExpression: $scheduleExpression,
-            prompt: $prompt,
-            role: trim((string) ($body['role'] ?? 'orchestrator')) ?: 'orchestrator',
-            maxIterations: $maxIterations,
-            description: isset($body['description']) ? trim((string) $body['description']) : null,
-            createdBy: 'api',
-            timezone: $timezone,
-            maxFailures: $maxFailures,
-        );
-
-        $schedule = $this->store->get($id);
-
-        return Router::jsonResponse(['schedule' => $schedule], 201);
+        return Router::jsonResponse(ScheduleStore::toWire($row), 201);
     }
 
     /**
@@ -132,13 +108,41 @@ final readonly class ScheduleHandler
             ? trim((string) $params['created_by'])
             : null;
 
-        $schedules = $this->store->list(enabled: $enabled, createdBy: $createdBy);
-        $stats = $this->store->getStats();
+        $schedules = array_map(
+            static fn (array $row): array => ScheduleStore::toWire($row),
+            $this->store->list(enabled: $enabled, createdBy: $createdBy),
+        );
+
+        // Declared default sort: next_run_at ASC (NULLS LAST), id ASC — id is
+        // the stable tiebreak + unique cursor key.
+        usort($schedules, static function (array $a, array $b): int {
+            $aNext = $a['next_run_at'] ?? null;
+            $bNext = $b['next_run_at'] ?? null;
+
+            if ($aNext !== $bNext) {
+                if ($aNext === null) {
+                    return 1;
+                }
+                if ($bNext === null) {
+                    return -1;
+                }
+
+                return strcmp((string) $aNext, (string) $bNext);
+            }
+
+            return strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+        });
+
+        $page = CursorPage::build(
+            $schedules,
+            CursorPage::limitFrom($params['limit'] ?? null),
+            static fn(array $schedule): string => (string) ($schedule['id'] ?? ''),
+            CursorPage::decode(isset($params['cursor']) ? (string) $params['cursor'] : null),
+        );
 
         return Router::jsonResponse([
-            'schedules' => $schedules,
-            'count' => count($schedules),
-            'stats' => $stats,
+            ...$page,
+            'stats' => $this->store->getStats(),
         ]);
     }
 
@@ -181,7 +185,7 @@ final readonly class ScheduleHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Schedule not found');
         }
 
-        return Router::jsonResponse($schedule);
+        return Router::jsonResponse(ScheduleStore::toWire($schedule));
     }
 
     /**
@@ -232,13 +236,10 @@ final readonly class ScheduleHandler
             return $schedule;
         }
 
-        $body = json_decode((string) $request->getBody(), true);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
-        }
-
-        if (array_key_exists('enabled', $body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Use the enable or disable action endpoint to change enabled state');
+        try {
+            $body = $this->decodePatchBody($request, ['name', 'cron', 'persona_id', 'action', 'status']);
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
         $name = null;
@@ -255,69 +256,57 @@ final readonly class ScheduleHandler
         }
 
         $scheduleExpression = null;
-        if (array_key_exists('schedule_expression', $body)) {
-            $scheduleExpression = trim((string) $body['schedule_expression']);
+        if (array_key_exists('cron', $body)) {
+            $scheduleExpression = trim((string) $body['cron']);
             if (($error = ScheduleValidator::validateExpression($scheduleExpression)) !== null) {
                 return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
             }
         }
 
-        $prompt = null;
-        if (array_key_exists('prompt', $body)) {
-            $prompt = trim((string) $body['prompt']);
-            if ($prompt === '') {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'prompt must not be empty');
-            }
-            if (($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
+        $personaId = null;
+        if (array_key_exists('persona_id', $body)) {
+            $personaId = trim((string) $body['persona_id']);
+            if ($personaId === '') {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'persona_id must not be empty', ['field' => 'persona_id']);
             }
         }
 
-        $timezone = null;
-        if (array_key_exists('timezone', $body)) {
-            $timezone = trim((string) $body['timezone']);
-            if (($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
+        $action = null;
+        if (array_key_exists('action', $body)) {
+            if (!is_array($body['action'])) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'action must be an object', ['field' => 'action']);
             }
+            $action = $body['action'];
         }
 
-        $maxIterations = null;
-        if (array_key_exists('max_iterations', $body)) {
-            if (!is_numeric($body['max_iterations'])) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be an integer');
-            }
-            $maxIterations = (int) $body['max_iterations'];
-            if ($maxIterations < 1) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be greater than 0');
-            }
-            $maxIterations = ScheduleValidator::normalizeMaxIterations($maxIterations);
+        if (array_key_exists('status', $body) && !in_array($body['status'], ['enabled', 'disabled'], true)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'status must be enabled or disabled', ['field' => 'status']);
         }
 
-        $maxFailures = null;
-        if (array_key_exists('max_failures', $body)) {
-            if (!is_numeric($body['max_failures'])) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_failures must be an integer');
-            }
-            $maxFailures = (int) $body['max_failures'];
-            if ($maxFailures < 1) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_failures must be greater than 0');
-            }
-            $maxFailures = ScheduleValidator::normalizeMaxFailures($maxFailures);
+        try {
+            $this->store->update(
+                id: $id,
+                name: $name,
+                scheduleExpression: $scheduleExpression,
+                action: $action,
+                personaId: $personaId,
+            );
+        } catch (RequestBodyException $e) {
+            return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details, $e->status);
         }
 
-        $this->store->update(
-            id: $id,
-            name: $name,
-            description: array_key_exists('description', $body) ? trim((string) $body['description']) : null,
-            scheduleExpression: $scheduleExpression,
-            prompt: $prompt,
-            role: array_key_exists('role', $body) ? trim((string) $body['role']) : null,
-            maxIterations: $maxIterations,
-            timezone: $timezone,
-            maxFailures: $maxFailures,
-        );
+        // `status` is the CAP enabled|disabled toggle; route it through the
+        // same enable/disable path that recomputes next_run_at.
+        if (array_key_exists('status', $body)) {
+            $body['status'] === 'enabled' ? $this->store->enable($id) : $this->store->disable($id);
+        }
 
-        return Router::jsonResponse(['schedule' => $this->store->get($id)]);
+        $row = $this->store->get($id);
+        if ($row === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Schedule not found');
+        }
+
+        return Router::jsonResponse(ScheduleStore::toWire($row));
     }
 
     /**

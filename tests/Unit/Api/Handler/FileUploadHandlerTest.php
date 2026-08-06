@@ -14,7 +14,7 @@ function createFileUploadHandlerFixture(): array
 
     $dbPath = $tmpDir . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $uploadStorage = new FileUploadStorage($tmpDir);
+    $uploadStorage = new FileUploadStorage();
 
     return [
         'tmpDir' => $tmpDir,
@@ -48,30 +48,17 @@ test('file upload handler rejects uploads for closed sessions', function () {
     }
 });
 
-test('file upload handler rejects deletes for closed sessions', function () {
-    $fixture = createFileUploadHandlerFixture();
-
-    try {
-        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $fixture['storage']->closeSession($sessionId, 'history-rollover', true);
-
-        $response = $fixture['handler']->delete(new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId . '/files/missing'), $sessionId, 'missing');
-        $body = json_decode((string) $response->getBody(), true);
-
-        expect($response->getStatusCode())->toBe(409);
-        expect($body['code'])->toBe('session_closed');
-    } finally {
-        cleanupFileUploadHandlerFixture($fixture);
-    }
-});
-
-test('file upload handler rejects reads for hidden sessions', function () {
+test('file upload handler rejects reads of a missing ref for hidden sessions', function () {
     $fixture = createFileUploadHandlerFixture();
 
     try {
         $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
 
-        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/files'), $sessionId);
+        $response = $fixture['handler']->get(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/files/missing'),
+            $sessionId,
+            'missing',
+        );
         $body = json_decode((string) $response->getBody(), true);
 
         expect($response->getStatusCode())->toBe(404);

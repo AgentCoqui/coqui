@@ -341,6 +341,11 @@ final class LoopDiscovery
         // The filename is authoritative for the definition's name.
         $definition['name'] = $name;
 
+        // The on-disk file is the authoring source only. Server-owned tokens
+        // (version, id, timestamps) live in the ObjectVersionStore and must
+        // never be persisted into the definition file.
+        unset($definition['version'], $definition['id'], $definition['created_at'], $definition['updated_at']);
+
         // Structural validation — throws InvalidArgumentException on a bad shape.
         $parsed = LoopDefinition::fromArray($definition);
         if ($parsed->roles === []) {

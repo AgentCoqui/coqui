@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/persona-patch.json",
+  "title": "PersonaPatch",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "avatar": { "$ref": "persona.json#/properties/avatar" },
+    "model": { "$ref": "common.json#/$defs/ModelId" },
+    "allowed_roles": { "$ref": "persona.json#/properties/allowed_roles" },
+    "soul": { "type": "string" },
+    "backstory": { "type": ["string", "null"] },
+    "context": { "$ref": "persona.json#/properties/context" },
+    "preferences": { "$ref": "persona.json#/properties/preferences" }
+  }
+}

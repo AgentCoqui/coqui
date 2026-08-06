@@ -167,8 +167,8 @@ final class TurnRunCommand extends Command
                 ? (string) $session['model_role']
                 : 'orchestrator';
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
-            $profileRaw = $session['profile'] ?? null;
-            $profile = is_string($profileRaw) ? $profileRaw : null;
+            $personaRaw = $session['persona_id'] ?? null;
+            $persona = is_string($personaRaw) ? $personaRaw : null;
             $groupEnabled = is_array($session) && SessionType::fromSessionRow($session) === SessionType::Group;
 
             if ($groupEnabled) {
@@ -176,9 +176,11 @@ final class TurnRunCommand extends Command
                 $groupMaxRounds = is_int($session['group_max_rounds'] ?? null)
                     ? $session['group_max_rounds']
                     : 3;
-                $groupModel = is_string($session['model'] ?? null) && $session['model'] !== ''
-                    ? $session['model']
-                    : $boot->roleResolver()->resolve($sessionRole, null);
+                $groupModel = $boot->roleResolver()->resolveForSession(
+                    is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null,
+                    $sessionRole,
+                    null,
+                );
 
                 $coordinator = new GroupTurnCoordinator($storage);
                 $turnResult = $coordinator->run(
@@ -207,7 +209,7 @@ final class TurnRunCommand extends Command
                             observer: new TurnProcessObserver($storage, $turnProcessId, $actorName, $role ?? 'orchestrator'),
                             filePaths: $actorFilePaths,
                             role: $role,
-                            profile: $actorName,
+                            persona: $actorName,
                             actorName: $actorName,
                             actorRole: $role ?? 'orchestrator',
                             questionResponder: $questionResponder,
@@ -222,7 +224,7 @@ final class TurnRunCommand extends Command
                     $turnObserver,
                     $filePaths,
                     $role,
-                    $profile,
+                    $persona,
                     $turnProcessId,
                     $questionResponder,
                 );

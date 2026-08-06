@@ -14,10 +14,10 @@ final readonly class SessionScope
     public function __construct(
         public SessionType $type,
         public string $modelRole,
-        public ?string $profile = null,
+        public ?string $persona = null,
         public array $groupMembers = [],
         public ?int $groupMaxRounds = null,
-        public bool $confirmCloseActiveProfileSession = false,
+        public bool $confirmCloseActivePersonaSession = false,
         public bool $confirmCloseActiveGroupSession = false,
     ) {}
 }

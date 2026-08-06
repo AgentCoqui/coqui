@@ -128,16 +128,16 @@ test('buildSystemPrompt uses workspace soul.md override', function () {
     expect($prompt)->not->toContain('# Default Soul');
 });
 
-test('buildSystemPrompt strips profile soul frontmatter from rendered output', function () {
+test('buildSystemPrompt strips persona soul frontmatter from rendered output', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/artist';
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Artist Soul\n\nCreate with style.");
+    $personaPath = $this->workspacePath . '/personas/artist';
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Artist Soul\n\nCreate with style.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();
@@ -250,61 +250,61 @@ test('soul.md supports placeholder substitution', function () {
     expect($prompt)->toContain('# Soul for /my/workspace');
 });
 
-// --- Profile 3-tier soul resolution ---
+// --- Persona 3-tier soul resolution ---
 
-test('profile soul.md wins over workspace and default in 3-tier resolution', function () {
+test('persona soul.md wins over workspace and default in 3-tier resolution', function () {
     // Tier 3: default soul already exists from beforeEach
     // Tier 2: workspace soul
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath . '/prompts', 0755, true);
     file_put_contents($this->workspacePath . '/prompts/soul.md', '# Workspace Soul' . "\n\nWorkspace identity.");
 
-    // Tier 1: profile soul (should win)
-    $profilePath = $this->workspacePath . '/profiles/winner';
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Profile Soul' . "\n\nProfile identity wins.");
+    // Tier 1: persona soul (should win)
+    $personaPath = $this->workspacePath . '/personas/winner';
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Persona Soul' . "\n\nPersona identity wins.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $soulPath = $loader->resolveSoulPath();
     $prompt = $loader->buildSystemPrompt();
     $sections = $loader->buildSystemPromptSections();
 
-    expect($soulPath)->toBe($profilePath . '/soul.md');
-    expect($prompt)->toContain('# Profile Soul');
-    expect($prompt)->toContain('Profile identity wins.');
+    expect($soulPath)->toBe($personaPath . '/soul.md');
+    expect($prompt)->toContain('# Persona Soul');
+    expect($prompt)->toContain('Persona identity wins.');
     expect($prompt)->not->toContain('# Workspace Soul');
     expect($prompt)->not->toContain('# Default Soul');
-    expect($sections[0]['source'])->toBe($profilePath . '/soul.md');
+    expect($sections[0]['source'])->toBe($personaPath . '/soul.md');
 });
 
-test('profile overrides specific prompt files independently', function () {
-    // Profile overrides base.md but NOT security.md — security falls back
+test('persona overrides specific prompt files independently', function () {
+    // Persona overrides base.md but NOT security.md — security falls back
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath, 0755, true);
-    $profilePath = $this->workspacePath . '/profiles/partial';
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Partial Profile');
-    file_put_contents($profilePath . '/base.md', '## Custom Base' . "\n\nProfile-specific base rules.");
+    $personaPath = $this->workspacePath . '/personas/partial';
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Partial Persona');
+    file_put_contents($personaPath . '/base.md', '## Custom Base' . "\n\nPersona-specific base rules.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();
 
-    // Profile overrides take effect for soul and base
-    expect($prompt)->toContain('# Partial Profile');
+    // Persona overrides take effect for soul and base
+    expect($prompt)->toContain('# Partial Persona');
     expect($prompt)->toContain('## Custom Base');
     expect($prompt)->not->toContain('## Base Instructions'); // default base replaced
 
-    // Security falls through to default (no profile or workspace override)
+    // Security falls through to default (no persona or workspace override)
     expect($prompt)->toContain('## Security');
 });
 
@@ -320,18 +320,18 @@ test('buildBackstoryContent returns null when no backstory.md exists', function 
     expect($loader->buildBackstoryContent())->toBeNull();
 });
 
-test('buildBackstoryContent resolves from profile directory', function () {
+test('buildBackstoryContent resolves from persona directory', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath, 0755, true);
 
-    $profilePath = sys_get_temp_dir() . '/coqui-profile-backstory-' . bin2hex(random_bytes(4));
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/backstory.md', '# Origin Story' . "\n\nI emerged from curiosity.");
+    $personaPath = sys_get_temp_dir() . '/coqui-persona-backstory-' . bin2hex(random_bytes(4));
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/backstory.md', '# Origin Story' . "\n\nI emerged from curiosity.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $backstory = $loader->buildBackstoryContent();
@@ -344,15 +344,15 @@ test('buildSystemPrompt includes backstory between soul and body', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath, 0755, true);
 
-    $profilePath = sys_get_temp_dir() . '/coqui-profile-backstory2-' . bin2hex(random_bytes(4));
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/soul.md', '# Test Soul' . "\n\nI am a test agent.");
-    file_put_contents($profilePath . '/backstory.md', '# Backstory' . "\n\nMy origin story.");
+    $personaPath = sys_get_temp_dir() . '/coqui-persona-backstory2-' . bin2hex(random_bytes(4));
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/soul.md', '# Test Soul' . "\n\nI am a test agent.");
+    file_put_contents($personaPath . '/backstory.md', '# Backstory' . "\n\nMy origin story.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();
@@ -369,12 +369,12 @@ test('buildSystemPrompt includes backstory between soul and body', function () {
     expect($basePos)->toBeGreaterThan($backstoryPos);
 });
 
-test('buildSystemPrompt omits disabled prompt sections from profile preferences', function () {
+test('buildSystemPrompt omits disabled prompt sections from persona preferences', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/minimal';
-    mkdir($profilePath, 0755, true);
+    $personaPath = $this->workspacePath . '/personas/minimal';
+    mkdir($personaPath, 0755, true);
 
-    file_put_contents($profilePath . '/preferences.json', json_encode([
+    file_put_contents($personaPath . '/preferences.json', json_encode([
         'prompts' => [
             'prompt_sections' => [
                 'backstory' => false,
@@ -382,12 +382,12 @@ test('buildSystemPrompt omits disabled prompt sections from profile preferences'
             ],
         ],
     ], JSON_THROW_ON_ERROR));
-    file_put_contents($profilePath . '/backstory.md', '# Backstory' . "\n\nHidden history.");
+    file_put_contents($personaPath . '/backstory.md', '# Backstory' . "\n\nHidden history.");
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();
@@ -399,12 +399,12 @@ test('buildSystemPrompt omits disabled prompt sections from profile preferences'
     expect($sectionIds)->not->toContain('done');
 });
 
-test('buildSystemPrompt renders stubbed tool prompts from profile preferences', function () {
+test('buildSystemPrompt renders stubbed tool prompts from persona preferences', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/stubbed';
-    mkdir($profilePath, 0755, true);
+    $personaPath = $this->workspacePath . '/personas/stubbed';
+    mkdir($personaPath, 0755, true);
 
-    file_put_contents($profilePath . '/preferences.json', json_encode([
+    file_put_contents($personaPath . '/preferences.json', json_encode([
         'prompts' => [
             'prompt_sections' => [
                 'tools' => 'stub',
@@ -415,27 +415,27 @@ test('buildSystemPrompt renders stubbed tool prompts from profile preferences', 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();
     $sections = $loader->buildSystemPromptSections();
 
-    expect($prompt)->toContain('Tool guidance is intentionally condensed for this profile.');
+    expect($prompt)->toContain('Tool guidance is intentionally condensed for this persona.');
     expect($prompt)->not->toContain('## Workspace');
     expect(array_column($sections, 'id'))->toContain('tools.stub');
 });
 
-test('empty profile security override falls back to default security prompt', function () {
+test('empty persona security override falls back to default security prompt', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
-    $profilePath = $this->workspacePath . '/profiles/secure';
-    mkdir($profilePath, 0755, true);
-    file_put_contents($profilePath . '/security.md', '');
+    $personaPath = $this->workspacePath . '/personas/secure';
+    mkdir($personaPath, 0755, true);
+    file_put_contents($personaPath . '/security.md', '');
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
-        profilePath: $profilePath,
+        personaPath: $personaPath,
     );
 
     $prompt = $loader->buildSystemPrompt();

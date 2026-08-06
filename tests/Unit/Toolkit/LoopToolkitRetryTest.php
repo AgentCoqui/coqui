@@ -22,7 +22,8 @@ test('loop_control retry revives a blocked loop, clears the breaker, and stores 
     $stageId = $loopStore->createStage($iterId, 0, 'coder');
     $loopStore->updateStage(id: $stageId, status: 'completed', resultSummary: 'blocked round');
     $loopStore->updateIterationStatus($iterId, 'needs_rework', 'blocked');
-    $loopStore->updateLoopMetadata($loopId, ['rework_attempts' => 3, 'escalation' => ['reason' => 'stuck']]);
+    $loopStore->setReworkAttempts($loopId, 3);
+    $loopStore->updateLoopMetadata($loopId, ['escalation' => ['reason' => 'stuck']]);
     $loopStore->updateLoopStatus($loopId, 'blocked');
 
     $toolkit = new LoopToolkit($loopStore, new LoopDiscovery(sys_get_temp_dir()));
@@ -34,8 +35,8 @@ test('loop_control retry revives a blocked loop, clears the breaker, and stores 
     $loop = $loopStore->getLoop($loopId);
     expect($loop['status'])->toBe('running');
 
+    expect((int) $loop['rework_attempts'])->toBe(0);
     $meta = json_decode($loop['metadata'], true);
-    expect($meta['rework_attempts'])->toBe(0);
     expect($meta['pending_guidance'])->toBe('Use approach B.');
 
     // Stage reset to pending for re-dispatch.

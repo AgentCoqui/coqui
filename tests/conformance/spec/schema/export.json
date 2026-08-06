@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/export.json",
+  "title": "Export envelope",
+  "description": "The normative JSON export/import envelope — the engine- and language-agnostic data-portability contract (Data.md §7). Each collection's items validate against their object schema. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "exported_at"],
+  "properties": {
+    "protocol_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "exported_at": { "$ref": "common.json#/$defs/Timestamp" },
+    "personas": { "type": "array", "items": { "$ref": "persona.json" } },
+    "sessions": { "type": "array", "items": { "$ref": "session.json" } },
+    "session_members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "persona_id"],
+        "properties": {
+          "session_id": { "$ref": "common.json#/$defs/Id" },
+          "persona_id": { "$ref": "common.json#/$defs/Id" }
+        }
+      }
+    },
+    "turns": { "type": "array", "items": { "$ref": "turn.json" } },
+    "messages": { "type": "array", "items": { "$ref": "message.json" } },
+    "content": { "type": "array", "items": { "$ref": "content.json" } },
+    "roles": { "type": "array", "items": { "$ref": "role.json" } },
+    "loop_definitions": { "type": "array", "items": { "$ref": "loop-definition.json" } },
+    "loops": { "type": "array", "items": { "$ref": "loop.json" } },
+    "loop_iterations": { "type": "array", "items": { "$ref": "loop-iteration.json" } },
+    "loop_stages": { "type": "array", "items": { "$ref": "loop-stage.json" } },
+    "memories": { "type": "array", "items": { "$ref": "memory.json" } },
+    "jobs": { "type": "array", "items": { "$ref": "job.json" } },
+    "job_events": { "type": "array", "items": { "$ref": "job-event.json" } },
+    "audit_records": { "type": "array", "items": { "$ref": "audit-record.json" } },
+    "child_runs": { "type": "array", "items": { "$ref": "child-run.json" } },
+    "skills": { "type": "array", "items": { "$ref": "skill.json" } },
+    "artifacts": { "type": "array", "items": { "$ref": "artifact.json" } },
+    "questions": { "type": "array", "items": { "$ref": "question.json" } },
+    "scheduled_tasks": { "type": "array", "items": { "$ref": "scheduled-task.json" } }
+  }
+}

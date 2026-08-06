@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coqui.dev/spec/schema/content.json",
+  "title": "Content",
+  "description": "A content-addressed, immutable byte blob referenced by attachments and artifacts. content_ref is the opaque id; the spec never interprets the bytes. Normative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content_ref", "mime_type", "size", "sha256", "created_at"],
+  "properties": {
+    "content_ref": { "$ref": "common.json#/$defs/Id" },
+    "mime_type": { "type": "string", "minLength": 1, "description": "IANA media type; the runtime routes by this (image/* → vision, documents → text extraction)." },
+    "size": { "type": "integer", "minimum": 0, "description": "Byte length." },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Lowercase hex SHA-256 of the bytes; enables dedup and integrity." },
+    "created_at": { "$ref": "common.json#/$defs/Timestamp" }
+  }
+}

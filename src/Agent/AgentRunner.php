@@ -92,6 +92,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
     /** @var \Closure(string):mixed|null */
     private readonly ?\Closure $providerResolver;
 
+    /** D3: memoized per-session workspace resolver (built lazily from $this->storage + $this->workspacePath). */
+    private ?SessionWorkspaceResolver $workspaceResolver = null;
+
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
@@ -128,6 +131,18 @@ final class AgentRunner implements AgentTurnRunnerInterface
     }
 
     /**
+     * D3: the effective filesystem/shell root for a session — its stored
+     * `workspace` when set, else the instance-global workspace. Child runs
+     * inherit this via SpawnAgentTool copying the orchestrator's workspacePath.
+     */
+    private function effectiveWorkspace(?string $sessionId): string
+    {
+        $this->workspaceResolver ??= new SessionWorkspaceResolver($this->storage, $this->workspacePath);
+
+        return $this->workspaceResolver->resolve($sessionId);
+    }
+
+    /**
      * Run a single agent turn with a per-turn observer override.
      *
      * Used by the `turn:run` child process, which passes a TurnProcessObserver
@@ -143,11 +158,11 @@ final class AgentRunner implements AgentTurnRunnerInterface
         SplObserver $observer,
         ?array $filePaths = null,
         ?string $role = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?string $turnProcessId = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile, turnProcessId: $turnProcessId, questionResponder: $questionResponder);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, persona: $persona, turnProcessId: $turnProcessId, questionResponder: $questionResponder);
     }
 
     /**
@@ -167,7 +182,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         return $this->doRun(
@@ -181,7 +196,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            profile: $profile,
+            persona: $persona,
             questionResponder: $questionResponder,
         );
     }
@@ -197,16 +212,16 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ToolExecutionPolicyInterface $executionPolicy,
         ?CancellationTokenInterface $cancellationToken = null,
         ?string $role = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role, profile: $profile, questionResponder: $questionResponder);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role, persona: $persona, questionResponder: $questionResponder);
     }
 
     /**
      * Execute a single responder segment inside an existing stored turn.
      *
-     * Used by group sessions so multiple profiled responders can persist
+     * Used by group sessions so multiple personaScoped responders can persist
      * messages under one top-level turn without creating nested turns.
      *
      * @param string[]|null $filePaths
@@ -219,7 +234,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?SplObserver $observer = null,
         ?array $filePaths = null,
         ?string $role = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?string $actorName = null,
         ?string $actorRole = null,
         ?QuestionResponderInterface $questionResponder = null,
@@ -231,9 +246,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
             observer: $observer,
             role: $role,
             filePaths: $filePaths,
-            profile: $profile,
+            persona: $persona,
             turnId: $turnId,
-            actorName: $actorName ?? $profile,
+            actorName: $actorName ?? $persona,
             actorRole: $actorRole ?? ($role ?? 'orchestrator'),
             questionResponder: $questionResponder,
         );
@@ -256,16 +271,19 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?string $turnProcessId = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
 
-        // Resolve the model string for turn tracking (use task role if provided)
+        // Resolve the model string for turn tracking (use task role if provided).
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
 
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString, $turnProcessId);
@@ -284,18 +302,18 @@ final class AgentRunner implements AgentTurnRunnerInterface
         // Track restart request via closure
         $restartRequested = false;
 
-        // Resolve profile path from profile name
-        $resolvedProfilePath = null;
+        // Resolve persona path from persona name
+        $resolvedPersonaPath = null;
         $resolvedPreferences = null;
-        if ($profile !== null) {
-            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+        if ($persona !== null) {
+            $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $persona;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
-                $resolvedProfilePath = $candidatePath;
+                $resolvedPersonaPath = $candidatePath;
 
-                // Load profile preferences if available
+                // Load persona preferences if available
                 $preferencesFile = $candidatePath . '/preferences.json';
                 if (is_file($preferencesFile)) {
-                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
                 }
             }
         }
@@ -315,9 +333,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            activeProfile: $profile,
-            activeProfilePath: $resolvedProfilePath,
-            profilePreferences: $resolvedPreferences,
+            activePersona: $persona,
+            activePersonaPath: $resolvedPersonaPath,
+            personaPreferences: $resolvedPreferences,
             questionResponder: $questionResponder,
         );
 
@@ -331,9 +349,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
             // infrastructure — the only new logic is the trigger condition.
             if ($this->roleDiscovery !== null && $history->count() > 20) {
                 try {
-                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedProfilePath);
+                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedPersonaPath);
                     if ($roleProps->preSummarize) {
-                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $persona);
                     }
                 } catch (\Throwable) {
                     // Role not found or summarization failure — non-fatal
@@ -346,7 +364,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             if ($history->count() > 0) {
                 $agent->notify('agent.status', ['label' => 'Checking context budget']);
             }
-            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $persona);
 
             // Snapshot unread informational notifications and pass them into the
             // turn as a dedicated prompt section. This keeps notification context
@@ -382,7 +400,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 ? $this->sanitizeUsage($output->usage, $output, $modelString)
                 : $this->estimateUsage($output, $modelString);
 
-            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $profile);
+            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $persona);
             ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
                 $this->resolveExitFlags($output, $resolvedMaxIterations);
 
@@ -438,7 +456,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                         memoryStore: $this->memoryStore,
                     );
                     $factory = $this->providerFactory;
-                    $utilityModel = $this->roleResolver->resolveUtility($profile);
+                    $utilityModel = $this->roleResolver->resolveUtility($persona);
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
                         $pruneResult = $summarizer->summarizeAndPersist(
@@ -453,7 +471,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                                     'auto' => true,
                                 ]);
                             },
-                            profileId: $profile,
+                            personaId: $persona,
                         );
 
                         if ($pruneResult->wasSummarized()) {
@@ -484,7 +502,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 $conversationForExtraction,
                 $sessionId,
                 fn(string $event, mixed $data) => $agent->notify($event, $data),
-                $profile,
+                $persona,
             ));
 
             // Build context usage snapshot for progress bar rendering
@@ -509,13 +527,13 @@ final class AgentRunner implements AgentTurnRunnerInterface
             // Single pass only — feedback is shown to user, no auto-iterate.
             $reviewFeedback = null;
             $reviewApproved = null;
-            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $profile, $resolvedProfilePath)) {
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $persona, $resolvedPersonaPath)) {
                 $reviewResult = $this->runPostTurnReview(
                     coderOutput: $output->content,
                     originalTask: $prompt,
                     observer: $observer,
-                    activeProfile: $profile,
-                    activeProfilePath: $resolvedProfilePath,
+                    activePersona: $persona,
+                    activePersonaPath: $resolvedPersonaPath,
                 );
                 if ($reviewResult !== null) {
                     $reviewFeedback = $reviewResult->reviewFeedback;
@@ -604,27 +622,27 @@ final class AgentRunner implements AgentTurnRunnerInterface
     }
 
     /**
-     * @return array{profilePath: ?string, preferences: ?\CoquiBot\Coqui\Config\ProfilePreferences}
+     * @return array{personaPath: ?string, preferences: ?\CoquiBot\Coqui\Config\PersonaPreferences}
      */
-    private function resolveProfileContext(?string $profile): array
+    private function resolvePersonaContext(?string $persona): array
     {
-        if ($profile === null) {
-            return ['profilePath' => null, 'preferences' => null];
+        if ($persona === null) {
+            return ['personaPath' => null, 'preferences' => null];
         }
 
-        $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+        $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $persona;
         if (!is_dir($candidatePath) || !is_file($candidatePath . '/soul.md')) {
-            return ['profilePath' => null, 'preferences' => null];
+            return ['personaPath' => null, 'preferences' => null];
         }
 
         $preferences = null;
         $preferencesFile = $candidatePath . '/preferences.json';
         if (is_file($preferencesFile)) {
-            $preferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+            $preferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
         }
 
         return [
-            'profilePath' => $candidatePath,
+            'personaPath' => $candidatePath,
             'preferences' => $preferences,
         ];
     }
@@ -644,7 +662,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $profile = null,
+        ?string $persona = null,
         ?string $turnId = null,
         ?Conversation $history = null,
         ?string $actorName = null,
@@ -653,11 +671,14 @@ final class AgentRunner implements AgentTurnRunnerInterface
     ): AgentTurnResult {
         $history ??= $this->storage->loadConversation($sessionId);
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
         $turnStartedAt = (new \DateTimeImmutable())->format('c');
         $startTime = hrtime(true);
 
-        ['profilePath' => $resolvedProfilePath, 'preferences' => $resolvedPreferences] = $this->resolveProfileContext($profile);
+        ['personaPath' => $resolvedPersonaPath, 'preferences' => $resolvedPreferences] = $this->resolvePersonaContext($persona);
 
         $sanitizer = new ScriptSanitizer(
             unsafe: $this->unsafeMode,
@@ -681,9 +702,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            activeProfile: $profile,
-            activeProfilePath: $resolvedProfilePath,
-            profilePreferences: $resolvedPreferences,
+            activePersona: $persona,
+            activePersonaPath: $resolvedPersonaPath,
+            personaPreferences: $resolvedPreferences,
             questionResponder: $questionResponder,
         );
 
@@ -694,9 +715,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
         try {
             if ($this->roleDiscovery !== null && $history->count() > 20) {
                 try {
-                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedProfilePath);
+                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedPersonaPath);
                     if ($roleProps->preSummarize) {
-                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $persona);
                     }
                 } catch (\Throwable) {
                     // Role not found or summarization failure — non-fatal
@@ -706,7 +727,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             if ($history->count() > 0) {
                 $agent->notify('agent.status', ['label' => 'Checking context budget']);
             }
-            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $persona);
 
             if ($this->notificationStore !== null && $workScopeSessionId === null) {
                 $agent->notify('agent.status', ['label' => 'Processing notifications']);
@@ -732,7 +753,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 ? $this->sanitizeUsage($output->usage, $output, $modelString)
                 : $this->estimateUsage($output, $modelString);
 
-            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $profile);
+            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $persona);
             ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
                 $this->resolveExitFlags($output, $resolvedMaxIterations);
 
@@ -783,7 +804,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                         memoryStore: $this->memoryStore,
                     );
                     $factory = $this->providerFactory;
-                    $utilityModel = $this->roleResolver->resolveUtility($profile);
+                    $utilityModel = $this->roleResolver->resolveUtility($persona);
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
                         $pruneResult = $summarizer->summarizeAndPersist(
@@ -798,7 +819,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                                     'auto' => true,
                                 ]);
                             },
-                            profileId: $profile,
+                            personaId: $persona,
                         );
 
                         if ($pruneResult->wasSummarized()) {
@@ -828,7 +849,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 $conversationForExtraction,
                 $sessionId,
                 fn(string $event, mixed $data) => $agent->notify($event, $data),
-                $profile,
+                $persona,
             ));
 
             $contextUsage = null;
@@ -849,13 +870,13 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
             $reviewFeedback = null;
             $reviewApproved = null;
-            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $profile, $resolvedProfilePath)) {
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $persona, $resolvedPersonaPath)) {
                 $reviewResult = $this->runPostTurnReview(
                     coderOutput: $output->content,
                     originalTask: $prompt,
                     observer: $observer,
-                    activeProfile: $profile,
-                    activeProfilePath: $resolvedProfilePath,
+                    activePersona: $persona,
+                    activePersonaPath: $resolvedPersonaPath,
                 );
                 if ($reviewResult !== null) {
                     $reviewFeedback = $reviewResult->reviewFeedback;
@@ -926,12 +947,15 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $activeProfile = null,
-        ?string $activeProfilePath = null,
-        ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
+        ?string $activePersona = null,
+        ?string $activePersonaPath = null,
+        ?\CoquiBot\Coqui\Config\PersonaPreferences $personaPreferences = null,
         ?QuestionResponderInterface $questionResponder = null,
     ): OrchestratorAgent {
-        $modelString = $this->roleResolver->resolve($role, $activeProfile);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $this->storage->getSession($sessionId);
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $role, $activePersona);
         $httpClient = $this->httpClient;
         if ($httpClient instanceof ReactHttpClientAdapter && $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken) {
             $httpClient = $httpClient->withCancellationToken($cancellationToken);
@@ -968,10 +992,10 @@ final class AgentRunner implements AgentTurnRunnerInterface
             roleResolver: $this->roleResolver,
             config: $this->config,
             projectRoot: $this->projectRoot,
-            workspacePath: $this->workspacePath,
+            workspacePath: $this->effectiveWorkspace($sessionId),
             deps: new OrchestratorDependencies(
                 discovery: $this->discovery,
-                maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activeProfile),
+                maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activePersona),
                 executionPolicy: $executionPolicy,
                 questionResponder: $questionResponder,
                 onRestart: $onRestart,
@@ -1010,9 +1034,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 defaultProjectId: $defaultProjectId,
                 budgetExitThreshold: $budgetExitThreshold,
                 budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
-                activeProfile: $activeProfile,
-                activeProfilePath: $activeProfilePath,
-                profilePreferences: $profilePreferences,
+                activePersona: $activePersona,
+                activePersonaPath: $activePersonaPath,
+                personaPreferences: $personaPreferences,
             ),
         );
 
@@ -1300,11 +1324,11 @@ final class AgentRunner implements AgentTurnRunnerInterface
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-        * @return array{effective_role: string, resolved_model: string, prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>, profile_policy: array<string, mixed>|null}
+        * @return array{effective_role: string, resolved_model: string, prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>, persona_policy: array<string, mixed>|null}
      */
-    public function buildPromptPreview(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
+    public function buildPromptPreview(?string $role = null, ?string $persona = null, ?string $sessionId = null): array
     {
-        $preview = $this->buildPromptPreviewData($role, $profile, $sessionId);
+        $preview = $this->buildPromptPreviewData($role, $persona, $sessionId);
 
         return [
             'effective_role' => $preview['effective_role'],
@@ -1319,21 +1343,21 @@ final class AgentRunner implements AgentTurnRunnerInterface
             'tool_schemas' => $preview['tool_schemas'],
             'applied_loading_modes' => $preview['agent']->getAppliedLoadingModes(),
             'budget_snapshot' => $preview['snapshot']->toArray(),
-            'profile_policy' => $preview['agent']->getProfilePolicySummary(),
+            'persona_policy' => $preview['agent']->getPersonaPolicySummary(),
         ];
     }
 
-    public function buildBudgetPreview(?string $role = null, ?string $profile = null, ?string $sessionId = null): PromptBudgetSnapshot
+    public function buildBudgetPreview(?string $role = null, ?string $persona = null, ?string $sessionId = null): PromptBudgetSnapshot
     {
-        return $this->buildPromptPreviewData($role, $profile, $sessionId)['snapshot'];
+        return $this->buildPromptPreviewData($role, $persona, $sessionId)['snapshot'];
     }
 
     /**
      * @return array{effective_role: string, model_string: string, prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
      */
-    private function buildPromptPreviewData(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
+    private function buildPromptPreviewData(?string $role = null, ?string $persona = null, ?string $sessionId = null): array
     {
-        $previewContext = $this->buildPreviewContext($role, $profile, $sessionId);
+        $previewContext = $this->buildPreviewContext($role, $persona, $sessionId);
         $agent = $previewContext['agent'];
         $counter = $previewContext['counter'];
         $promptText = $agent->getSystemPromptText();
@@ -1376,10 +1400,13 @@ final class AgentRunner implements AgentTurnRunnerInterface
     /**
      * @return array{effective_role: string, model_string: string, agent: OrchestratorAgent, counter: \CarmeloSantana\PHPAgents\Contract\TokenCounterInterface}
      */
-    private function buildPreviewContext(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
+    private function buildPreviewContext(?string $role = null, ?string $persona = null, ?string $sessionId = null): array
     {
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
+        // CAP 0.5.0 precedence (D2): a non-null session model overrides the role chain.
+        $session = $sessionId !== null ? $this->storage->getSession($sessionId) : null;
+        $sessionModel = is_string($session['model'] ?? null) && $session['model'] !== '' ? $session['model'] : null;
+        $modelString = $this->roleResolver->resolveForSession($sessionModel, $effectiveRole, $persona);
         $factory = $this->providerFactory;
         $provider = $this->providerResolver !== null
             ? ($this->providerResolver)($modelString)
@@ -1387,17 +1414,17 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
 
-        // Resolve profile path from profile name (same logic as doRun)
-        $resolvedProfilePath = null;
+        // Resolve persona path from persona name (same logic as doRun)
+        $resolvedPersonaPath = null;
         $resolvedPreferences = null;
-        if ($profile !== null) {
-            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+        if ($persona !== null) {
+            $candidatePath = rtrim($this->workspacePath, '/') . '/personas/' . $persona;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
-                $resolvedProfilePath = $candidatePath;
+                $resolvedPersonaPath = $candidatePath;
 
                 $preferencesFile = $candidatePath . '/preferences.json';
                 if (is_file($preferencesFile)) {
-                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\PersonaPreferences::fromFile($preferencesFile);
                 }
             }
         }
@@ -1407,7 +1434,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             roleResolver: $this->roleResolver,
             config: $this->config,
             projectRoot: $this->projectRoot,
-            workspacePath: $this->workspacePath,
+            workspacePath: $this->effectiveWorkspace($sessionId),
             deps: new OrchestratorDependencies(
                 discovery: $this->discovery,
                 credentialResolver: $this->credentialResolver,
@@ -1431,9 +1458,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 loadingRegistry: $this->loadingRegistry,
                 providerFactory: $this->providerFactory,
                 usageTracker: $this->usageTracker,
-                activeProfile: $profile,
-                activeProfilePath: $resolvedProfilePath,
-                profilePreferences: $resolvedPreferences,
+                activePersona: $persona,
+                activePersonaPath: $resolvedPersonaPath,
+                personaPreferences: $resolvedPreferences,
             ),
         );
 
@@ -1456,9 +1483,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
      *
      * @return string Absolute path to the exported file.
      */
-    public function exportPromptToFile(?string $role = null, ?string $profile = null, ?string $sessionId = null): string
+    public function exportPromptToFile(?string $role = null, ?string $persona = null, ?string $sessionId = null): string
     {
-        $preview = $this->buildPromptPreview($role, $profile, $sessionId);
+        $preview = $this->buildPromptPreview($role, $persona, $sessionId);
         $effectiveRole = $role ?? 'orchestrator';
         $timestamp = date('Y-m-d_H-i-s');
 
@@ -1466,8 +1493,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
         $lines[] = '# Coqui System Prompt Export';
         $lines[] = '# Generated: ' . date('c');
         $lines[] = '# Role: ' . $effectiveRole;
-        if ($profile !== null) {
-            $lines[] = '# Profile: ' . $profile;
+        if ($persona !== null) {
+            $lines[] = '# Persona: ' . $persona;
         }
         $lines[] = '# Tools: ' . $preview['tool_count'] . '  |  Toolkits: ' . $preview['toolkit_count'];
         $lines[] = '# Prompt tokens: ' . number_format($preview['prompt_tokens'])
@@ -1850,7 +1877,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         string $sessionId,
         string $prompt = '',
         ?SplObserver $observer = null,
-        ?string $profileId = null,
+        ?string $personaId = null,
     ): Conversation {
         if ($history->count() === 0) {
             return $history;
@@ -1970,7 +1997,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                     'auto' => true,
                 ]);
             },
-            profileId: $profileId,
+            personaId: $personaId,
         );
 
         if (!$result->wasSummarized()) {
@@ -2108,7 +2135,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
      *
      * @param ?array<int, array{file_path: string, operation: string}> $fileEdits
      */
-    private function shouldPostTurnReview(string $role, ?array $fileEdits, ?string $activeProfile = null, ?string $activeProfilePath = null): bool
+    private function shouldPostTurnReview(string $role, ?array $fileEdits, ?string $activePersona = null, ?string $activePersonaPath = null): bool
     {
         // Only review when there are actual file changes
         if ($fileEdits === null || $fileEdits === []) {
@@ -2126,7 +2153,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         // Check role-level auto_review flag
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role, $activeProfilePath);
+                $properties = $this->roleDiscovery->getRole($role, $activePersonaPath);
                 return $properties->autoReview;
             } catch (\Throwable) {
                 // Fall through
@@ -2146,8 +2173,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
         string $coderOutput,
         string $originalTask,
         ?SplObserver $observer,
-        ?string $activeProfile = null,
-        ?string $activeProfilePath = null,
+        ?string $activePersona = null,
+        ?string $activePersonaPath = null,
     ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
         try {
             $cycle = new CodeReviewCycle(
@@ -2157,8 +2184,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 observer: $observer,
                 toolExecutor: $this->toolExecutor,
                 providerFactory: $this->providerFactory,
-                activeProfile: $activeProfile,
-                activeProfilePath: $activeProfilePath,
+                activePersona: $activePersona,
+                activePersonaPath: $activePersonaPath,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search
@@ -2200,7 +2227,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         Conversation $conversation,
         string $sessionId,
         ?\Closure $notify = null,
-        ?string $profileId = null,
+        ?string $personaId = null,
     ): void {
         if ($this->memoryStore === null) {
             return;
@@ -2231,7 +2258,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             }
 
             $extractor = new MemoryExtractor($this->memoryStore);
-            $saved = $extractor->extractFromConversation($conversation, $provider, profileId: $profileId);
+            $saved = $extractor->extractFromConversation($conversation, $provider, personaId: $personaId);
 
             if ($saved > 0 && $notify !== null) {
                 $notify('agent.memory_extraction', [

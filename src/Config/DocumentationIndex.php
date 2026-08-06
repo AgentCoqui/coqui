@@ -12,7 +12,7 @@ use CoquiBot\Coqui\Exception\SkillParseException;
  *
  * Structure is globbed, never listed: every `docs/*.md` plus README.md and
  * AGENTS.md is indexed the moment the file exists. A hardcoded allowlist here
- * previously hid eight docs — including LOOPS.md and PROFILES.md — from the
+ * previously hid eight docs — including LOOPS.md and PERSONAS.md — from the
  * agent, so the file list must stay derived.
  *
  * Intent is authored where it belongs: per-doc title/description come from the
