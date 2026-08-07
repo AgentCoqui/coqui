@@ -140,7 +140,7 @@ ARG COQUI_GID=1000
 
 LABEL maintainer="Coqui Bot <carmelo@coquibot.ai>"
 LABEL description="Coqui — PHP 8.4 CLI + Composer"
-LABEL org.opencontainers.image.source="https://github.com/AgentCoqui/coqui"
+LABEL org.opencontainers.image.source="https://github.com/carmelosantana/coqui"
 LABEL org.opencontainers.image.version="${COQUI_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive

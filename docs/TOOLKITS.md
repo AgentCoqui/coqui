@@ -910,7 +910,7 @@ Key patterns demonstrated:
 - Clean no-op behavior when the expected runtime/context is absent (older or misconfigured core)
 - Self-registering REPL command (see [docs/TOOLKIT-EXTENSIBILITY.md](TOOLKIT-EXTENSIBILITY.md))
 
-See the [MCP Toolkit README](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) for full details.
+See the [MCP Toolkit README](https://github.com/carmelosantana/coqui-toolkit-mcp-client) for full details.
 
 ### Weather Toolkit
 

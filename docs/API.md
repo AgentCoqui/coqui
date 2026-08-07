@@ -4139,7 +4139,7 @@ Set the visibility of a package or an individual tool.
 
 ### MCP Servers
 
-The MCP client engine and this API surface ship in Coqui core by default (`CoquiBot\Coqui\Mcp\*`) — every endpoint below works fully without any additional package installed, with one exception: `POST /api/v1/mcp/servers/{name}/auth` (browser-based OAuth) requires the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package. When that package is not installed, calling the `/auth` endpoint returns an error explaining that OAuth requires the management toolkit.
+The MCP client engine and this API surface ship in Coqui core by default (`CoquiBot\Coqui\Mcp\*`) — every endpoint below works fully without any additional package installed, with one exception: `POST /api/v1/mcp/servers/{name}/auth` (browser-based OAuth) requires the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/carmelosantana/coqui-toolkit-mcp-client) package. When that package is not installed, calling the `/auth` endpoint returns an error explaining that OAuth requires the management toolkit.
 
 MCP server management is available over HTTP and uses the same shared MCP runtime service as the optional `mcp` tool and `/mcp` REPL command (when the management toolkit is installed). These endpoints are intended for operator flows such as adding or updating servers, linking credentials, inspecting discovered tools, and verifying connectivity.
 

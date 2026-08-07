@@ -113,7 +113,7 @@ In the interactive REPL, Coqui now auto-renders one low-fidelity ANSI image prev
 
 ### MCP
 
-The MCP client engine, per-server tool exposure, and HTTP API ship in Coqui core by default — MCP servers work out of the box. The `/mcp` REPL command below is provided by the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package as a self-registering command (see [docs/TOOLKIT-EXTENSIBILITY.md](TOOLKIT-EXTENSIBILITY.md)); it is not present unless that package is installed. Without it, manage MCP servers over the HTTP API (see [docs/API.md](API.md)) or by editing `.workspace/mcp.json` directly.
+The MCP client engine, per-server tool exposure, and HTTP API ship in Coqui core by default — MCP servers work out of the box. The `/mcp` REPL command below is provided by the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/carmelosantana/coqui-toolkit-mcp-client) package as a self-registering command (see [docs/TOOLKIT-EXTENSIBILITY.md](TOOLKIT-EXTENSIBILITY.md)); it is not present unless that package is installed. Without it, manage MCP servers over the HTTP API (see [docs/API.md](API.md)) or by editing `.workspace/mcp.json` directly.
 
 | Command | Description |
 | --- | --- |

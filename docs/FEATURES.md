@@ -130,7 +130,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Manage servers over the HTTP API (`/api/v1/mcp/*`, see [API.md](API.md)) or by editing `.workspace/mcp.json` directly — no additional package required.
-- Install the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package for the interactive management UX: the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth for servers that need it. Without the toolkit, every management action works except OAuth.
+- Install the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/carmelosantana/coqui-toolkit-mcp-client) package for the interactive management UX: the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth for servers that need it. Without the toolkit, every management action works except OAuth.
 - See [TOOLKITS.md](TOOLKITS.md#mcp-toolkits) for the full core/optional split and [CONFIGURATION.md](CONFIGURATION.md) for `mcp.json` and stdio command policy details.
 
 ## <a id="credential-management"></a> 🔐 Credential Management

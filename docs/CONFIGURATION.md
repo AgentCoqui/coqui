@@ -395,7 +395,7 @@ The MCP (Model Context Protocol) client engine, per-server tool exposure, and HT
 
 Per-server MCP tools are added as candidate toolkits and participate in Coqui's normal budget-gated loading model — **deferred by default**, promotable to eager per server.
 
-Interactive management (the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth) is provided by the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/AgentCoqui/coqui-toolkit-mcp-client) package. Without it, MCP servers can still be managed fully over the HTTP API (see [docs/API.md](API.md)), with the exception of the OAuth endpoint, which requires the toolkit.
+Interactive management (the `mcp` agent tool, the `/mcp` REPL command, and browser-based OAuth) is provided by the optional [`coquibot/coqui-toolkit-mcp-client`](https://github.com/carmelosantana/coqui-toolkit-mcp-client) package. Without it, MCP servers can still be managed fully over the HTTP API (see [docs/API.md](API.md)), with the exception of the OAuth endpoint, which requires the toolkit.
 
 ### `mcp.allowedStdioCommands`
 

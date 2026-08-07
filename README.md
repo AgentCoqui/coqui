@@ -3,13 +3,13 @@
 <!-- markdownlint-disable MD033 -->
 <p align="center">
     <picture>
-        <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="256" />
+        <img src="https://raw.githubusercontent.com/carmelosantana/coqui/main/assets/coqui.webp" alt="Coqui" width="256" />
     </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/AgentCoqui/coqui/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/AgentCoqui/coqui/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <a href="https://github.com/AgentCoqui/coqui/releases"><img src="https://img.shields.io/github/v/release/AgentCoqui/coqui?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="https://github.com/carmelosantana/coqui/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/carmelosantana/coqui/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/carmelosantana/coqui/releases"><img src="https://img.shields.io/github/v/release/carmelosantana/coqui?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="https://www.php.net/"><img src="https://img.shields.io/badge/PHP-8.4%2B-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP 8.4+"></a>
   <a href="https://discord.gg/TaCpZVqbbT"><img src="https://img.shields.io/discord/1471632654624489668?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License"></a>
@@ -107,7 +107,7 @@ curl -fsSL https://agentcoqui.com/install | bash
 Run the Windows bootstrap in PowerShell. It checks for WSL2, offers to install Ubuntu when needed, and then runs the standard Coqui installer inside WSL.
 
 ```powershell
-irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1 | iex
 ```
 
 ### Update
@@ -116,15 +116,15 @@ Re-run the same install command. The installer detects an existing installation 
 
 ### Inspect before running
 
-- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
-- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
+- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.sh)
+- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1)
 
 ### Development Install
 
 Clone the repository and install dependencies manually. Requires PHP 8.4+, Composer 2.x, and Git.
 
 ```bash
-git clone https://github.com/AgentCoqui/coqui.git
+git clone https://github.com/carmelosantana/coqui.git
 cd coqui
 composer install
 ```
@@ -416,7 +416,7 @@ Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL
 
 ## Docker
 
-> Docker is the supported containerized alternative on Windows when you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
+> Docker is the supported containerized alternative on Windows when you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/carmelosantana/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
@@ -531,7 +531,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 We're building a community where people share agents, ask for help, and collaborate on new toolkits.
 
 - **Discord** — [Join us](https://discord.gg/TaCpZVqbbT) for support, discussions, and sharing your toolkits
-- **GitHub** — [AgentCoqui/coqui](https://github.com/AgentCoqui/coqui) for issues, PRs, and source code
+- **GitHub** — [carmelosantana/coqui](https://github.com/carmelosantana/coqui) for issues, PRs, and source code
 
 ## Contributing
 
