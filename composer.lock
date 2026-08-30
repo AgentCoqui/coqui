@@ -93,16 +93,16 @@
     },
     {
       "name": "carmelosantana/php-agents",
-      "version": "v0.15.0",
+      "version": "v0.15.1",
       "source": {
         "type": "git",
         "url": "https://github.com/carmelosantana/php-agents.git",
-        "reference": "fca7e22403ddd278d5de9bf0a9f6d1f23dacea82"
+        "reference": "07c048a07dd62358e4a120599ed0382b2e5e2a68"
       },
       "dist": {
         "type": "zip",
-        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/fca7e22403ddd278d5de9bf0a9f6d1f23dacea82",
-        "reference": "fca7e22403ddd278d5de9bf0a9f6d1f23dacea82",
+        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/07c048a07dd62358e4a120599ed0382b2e5e2a68",
+        "reference": "07c048a07dd62358e4a120599ed0382b2e5e2a68",
         "shasum": ""
       },
       "require": {
@@ -146,9 +146,9 @@
       ],
       "support": {
         "issues": "https://github.com/carmelosantana/php-agents/issues",
-        "source": "https://github.com/carmelosantana/php-agents/tree/v0.15.0"
+        "source": "https://github.com/carmelosantana/php-agents/tree/v0.15.1"
       },
-      "time": "2026-06-30T13:42:13+00:00"
+      "time": "2026-08-30T21:32:09+00:00"
     },
     {
       "name": "carmelosantana/php-pathhelper",
