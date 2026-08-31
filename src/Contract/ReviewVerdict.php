@@ -33,10 +33,6 @@ enum ReviewVerdict: string
         if (preg_match_all('/VERDICT\s*:\s*(APPROVED|NEEDS_CHANGES)/i', $normalized, $matches)) {
             $lastMatch = end($matches[1]);
 
-            if (!is_string($lastMatch)) {
-                return self::NeedsChanges;
-            }
-
             return match (strtoupper($lastMatch)) {
                 'APPROVED' => self::Approved,
                 'NEEDS_CHANGES' => self::NeedsChanges,

@@ -90,7 +90,7 @@ final readonly class ToolkitHandler
             'toolkits'      => $packages,
             'tools'         => $tools,
             'persona'       => $persona,
-            'persona_policy'=> $preview['persona_policy'] ?? null,
+            'persona_policy'=> $preview['persona_policy'],
             'prompt_tokens' => $preview['prompt_tokens'],
             'tool_tokens'   => $preview['tool_tokens'],
             'total_tokens'  => $preview['total_tokens'],

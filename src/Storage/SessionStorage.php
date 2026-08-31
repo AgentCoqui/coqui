@@ -1615,13 +1615,33 @@ final class SessionStorage
             return $content;
         }
 
+        $items = [];
         foreach ($decoded as $item) {
-            if (!is_array($item) || !isset($item['type'])) {
+            if (!is_array($item) || !isset($item['type']) || !is_string($item['type'])) {
                 return $content;
             }
+
+            // Rebuild each part with only the recognized, correctly typed keys
+            // so the result matches the sealed content-part shape UserMessage
+            // expects. Coqui serializes these parts itself, so no data is lost.
+            $part = ['type' => $item['type']];
+
+            if (isset($item['text']) && is_string($item['text'])) {
+                $part['text'] = $item['text'];
+            }
+
+            if (isset($item['image_url']) && is_array($item['image_url'])) {
+                $imageUrl = [];
+                foreach ($item['image_url'] as $key => $value) {
+                    $imageUrl[(string) $key] = $value;
+                }
+                $part['image_url'] = $imageUrl;
+            }
+
+            $items[] = $part;
         }
 
-        return $decoded;
+        return $items;
     }
 
     /**

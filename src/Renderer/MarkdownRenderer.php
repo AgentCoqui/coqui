@@ -57,7 +57,7 @@ final class MarkdownRenderer
             return null;
         }
 
-        $preview = is_string($payload['preview'] ?? null) ? trim($payload['preview']) : '';
+        $preview = is_string($payload['preview']) ? trim($payload['preview']) : '';
         if ($preview === '') {
             return null;
         }
