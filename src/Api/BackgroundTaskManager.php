@@ -30,6 +30,13 @@ final class BackgroundTaskManager
     private const STALE_CHECK_INTERVAL_TICKS = 60;
     private const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3000;
 
+    /**
+     * How long to keep waiting for a detached child to record its own PID
+     * before treating a wrapper exit + missing PID as a failed spawn. Bounds
+     * the boot window so a slow-booting task is not mistaken for a crash.
+     */
+    private const float CHILD_LIVENESS_GRACE_SECONDS = 10.0;
+
     /** @var array<string, resource> Process handles keyed by task ID */
     private array $processes = [];
 
@@ -38,6 +45,9 @@ final class BackgroundTaskManager
 
     /** @var array<string, int> PID keyed by task ID (for process group kills) */
     private array $pids = [];
+
+    /** @var array<string, float> Wall-clock time each wrapper was first observed exited */
+    private array $wrapperExitedAt = [];
 
     private int $tickCount = 0;
 
@@ -54,6 +64,7 @@ final class BackgroundTaskManager
         private readonly int $maxConcurrent = CoquiDefaults::MAX_CONCURRENT_TASKS,
         private readonly bool $unsafeMode = false,
         private readonly ?NotificationPublisher $publisher = null,
+        private readonly float $childLivenessGraceSeconds = self::CHILD_LIVENESS_GRACE_SECONDS,
     ) {}
 
     /**
@@ -182,8 +193,17 @@ final class BackgroundTaskManager
     /**
      * Check for finished processes and update their task status.
      *
-     * Uses conditional UPDATE (WHERE status = 'running') to avoid a race condition
-     * where the child process has already committed its final status.
+     * The tracked handle is the `setsid --fork` wrapper (see {@see ProcessSpawner}),
+     * which detaches the real `task:run` child into its own session and then exits
+     * almost immediately. `proc_get_status` therefore reports the WRAPPER's exit,
+     * never the real child's — so a clean wrapper exit tells us nothing about
+     * whether the task actually finished. We consult the DB status and the child's
+     * own recorded PID before concluding anything, and only synthesize a failure
+     * when the real child is genuinely gone without having recorded a terminal
+     * status.
+     *
+     * Uses conditional UPDATE (WHERE status = 'running') so we never overwrite a
+     * status the child already committed.
      */
     private function reapFinishedProcesses(): void
     {
@@ -194,7 +214,40 @@ final class BackgroundTaskManager
                 continue;
             }
 
-            // Process has terminated — clean up
+            $task = $this->storage->getTask($taskId);
+            $dbStatus = is_array($task) ? (string) ($task['status'] ?? '') : '';
+
+            // The child records its own terminal status (TaskRunCommand). If it
+            // already did, the task is genuinely done — just release the handle.
+            if ($dbStatus === 'completed' || $dbStatus === 'failed' || $dbStatus === 'cancelled') {
+                $this->releaseProcess($taskId);
+                continue;
+            }
+
+            // Not terminal yet. Is the real child still alive? The child records
+            // its own PID (getmypid), which differs from the wrapper PID we
+            // captured at spawn.
+            $wrapperPid = $this->pids[$taskId] ?? 0;
+            $childPid = is_array($task) ? (int) ($task['pid'] ?? 0) : 0;
+            $childPidRecorded = $childPid > 0 && $childPid !== $wrapperPid;
+
+            if ($childPidRecorded && ProcessSpawner::isProcessAlive($childPid)) {
+                // Real task:run child is still executing — check again next tick.
+                continue;
+            }
+
+            if (!$childPidRecorded) {
+                // The child has not recorded its own PID yet (still booting, or it
+                // died before it could). Give it a bounded grace period so a slow
+                // boot is not mistaken for a crash.
+                $firstSeen = $this->wrapperExitedAt[$taskId] ??= microtime(true);
+                if ((microtime(true) - $firstSeen) < $this->childLivenessGraceSeconds) {
+                    continue;
+                }
+            }
+
+            // The real child is gone (confirmed dead, or never recorded a PID
+            // within the grace window) with no terminal status → a genuine crash.
             $exitCode = $status['exitcode'];
 
             // Read any stderr output for diagnostics
@@ -203,7 +256,7 @@ final class BackgroundTaskManager
                 $stderr = stream_get_contents($this->pipes[$taskId][2]) ?: '';
             }
 
-            $this->closeProcess($taskId);
+            $this->releaseProcess($taskId);
 
             // The TaskRunCommand updates the task status itself via SQLite.
             // Use conditional update to avoid overwriting a status the child already committed.
@@ -223,6 +276,16 @@ final class BackgroundTaskManager
                 $this->publishRecoveryNotification($taskId, 'failed', 'Task process exited abnormally', sprintf('Exit code %d', $exitCode));
             }
         }
+    }
+
+    /**
+     * Release all tracking for a task process: close the handle/pipes and clear
+     * the wrapper-exit timestamp.
+     */
+    private function releaseProcess(string $taskId): void
+    {
+        $this->closeProcess($taskId);
+        unset($this->wrapperExitedAt[$taskId]);
     }
 
     /**
@@ -314,6 +377,7 @@ final class BackgroundTaskManager
         }
 
         unset($this->pids[$taskId]);
+        unset($this->wrapperExitedAt[$taskId]);
     }
 
     /**
