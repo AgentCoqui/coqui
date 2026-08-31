@@ -612,7 +612,7 @@ final class TerminalObserver implements SplObserver
                     try {
                         $previewPayload = $this->imagePreviewService->preview($path);
                         $resolvedPath = $previewPayload['path'];
-                        $preview = is_string($previewPayload['preview'] ?? null) && trim($previewPayload['preview']) !== ''
+                        $preview = is_string($previewPayload['preview']) && trim($previewPayload['preview']) !== ''
                             ? $previewPayload['preview']
                             : null;
                     } catch (\RuntimeException) {

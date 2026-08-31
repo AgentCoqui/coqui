@@ -29,7 +29,7 @@
     "yethee/tiktoken": "^1.0"
   },
   "require-dev": {
-    "pestphp/pest": "^4.0",
+    "pestphp/pest": "^5.0",
     "phpstan/phpstan": "^2.0"
   },
   "suggest": {
